@@ -1,0 +1,55 @@
+name: Heirloom Continuous Deployment
+on:
+  push:
+    branches: [ dev ]
+
+# Required for Workload Identity Federation authentication
+permissions:
+  contents: 'read'
+  id-token: 'write'
+
+jobs:
+  deploy-dev:
+    name: Deploy to Dev
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        id: 'auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          # Your specific provider path verified earlier
+          workload_identity_provider: 'projects/174694943962/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
+          service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
+
+      - name: 'Deploy to Cloud Run (Dev)'
+        uses: 'google-github-actions/deploy-cloudrun@v2'
+        with:
+          service: 'heirloom-api-dev'
+          region: 'us-east1'
+          # This will build and deploy the source code in the current directory
+          source: './'
+          project_id: 'bw-heirloom-dev'
+
+  deploy-prod:
+      if: github.ref == 'refs/heads/main'
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+
+        - name: Google Auth
+          id: 'auth'
+          uses: 'google-github-actions/auth@v2'
+          with:
+            workload_identity_provider: 'projects/279321445871/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
+            service_account: 'github-deployer@bw-heirloom-prod.iam.gserviceaccount.com'
+
+        - name: 'Deploy to Cloud Run (Prod)'
+          uses: 'google-github-actions/deploy-cloudrun@v2'
+          with:
+            service: 'heirloom-api-prod'
+            region: 'us-east1'
+            source: './'
+            project_id: 'bw-heirloom-prod'
