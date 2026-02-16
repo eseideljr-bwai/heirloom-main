@@ -1,7 +1,7 @@
 name: Heirloom Continuous Deployment
 on:
   push:
-    branches: [ dev ]
+    branches: [ main, dev ]
 
 # Required for Workload Identity Federation authentication
 permissions:
