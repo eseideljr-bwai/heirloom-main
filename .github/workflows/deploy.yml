@@ -32,3 +32,24 @@ jobs:
           # This will build and deploy the source code in the current directory
           source: './'
           project_id: 'bw-heirloom-dev'
+
+  deploy-prod:
+      if: github.ref == 'refs/heads/main'
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+
+        - name: Google Auth
+          id: 'auth'
+          uses: 'google-github-actions/auth@v2'
+          with:
+            workload_identity_provider: 'projects/279321445871/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
+            service_account: 'github-deployer@bw-heirloom-prod.iam.gserviceaccount.com'
+
+        - name: 'Deploy to Cloud Run (Prod)'
+          uses: 'google-github-actions/deploy-cloudrun@v2'
+          with:
+            service: 'heirloom-api-prod'
+            region: 'us-east1'
+            source: './'
+            project_id: 'bw-heirloom-prod'
