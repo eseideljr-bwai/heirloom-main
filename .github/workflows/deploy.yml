@@ -10,10 +10,12 @@ on:
 permissions:
   contents: 'read'
   id-token: 'write'
+  pull-requests: 'write'
 
 jobs:
   deploy-dev:
     name: Deploy to Dev
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
