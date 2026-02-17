@@ -1,7 +1,10 @@
 name: Heirloom Continuous Deployment
 on:
   push:
+    branches: [ main, dev ]
+  pull_request:
     branches: [ dev ]
+    types: [ opened, synchronize, reopened, closed ]
 
 # Required for Workload Identity Federation authentication
 permissions:
@@ -34,6 +37,7 @@ jobs:
           project_id: 'bw-heirloom-dev'
 
   deploy-prod:
+      name: Deploy to Prod
       if: github.ref == 'refs/heads/main'
       runs-on: ubuntu-latest
       steps:
@@ -53,3 +57,47 @@ jobs:
             region: 'us-east1'
             source: './'
             project_id: 'bw-heirloom-prod'
+
+  deploy-preview:
+    name: Deploy PR Preview
+    # Only run on PRs that are NOT closed
+    if: github.event_name == 'pull_request' && github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: 'projects/174694943962/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
+          service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
+      - id: 'deploy'
+        uses: 'google-github-actions/deploy-cloudrun@v2'
+        with:
+          service: 'heirloom-pr-${{ github.event.number }}'
+          region: 'us-east1'
+          source: './'
+          project_id: 'bw-heirloom-dev'
+          flags: '--allow-unauthenticated'
+      - name: 'Comment PR'
+        uses: 'actions/github-script@v7'
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🚀 **Preview Deployed!**\n\nURL: ${{ steps.deploy.outputs.url }}'
+            })
+
+  cleanup-preview:
+    name: Cleanup PR Preview
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: 'projects/174694943962/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
+          service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
+      - name: 'Delete Preview Service'
+        run: |
+          gcloud run services delete heirloom-pr-${{ github.event.number }} \
+            --region us-east1 --quiet --project bw-heirloom-dev
