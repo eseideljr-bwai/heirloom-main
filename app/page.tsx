@@ -36,8 +36,11 @@ export default function Home() {
       // Grab the secure JWT ID Badge for the currently logged-in user
       const token = await user.getIdToken();
 
+      // Determine where to knock based on environment
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
       // Knock on the Laravel API Vault Door
-      const res = await fetch('http://localhost:8000/api/heirloom-vault', {
+      const res = await fetch(`${API_URL}/api/heirloom-vault`, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,

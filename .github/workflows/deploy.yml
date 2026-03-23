@@ -29,6 +29,10 @@ jobs:
           workload_identity_provider: 'projects/174694943962/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
           service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
 
+      - name: Set up Dev Environment Variables
+        run: |
+          echo "NEXT_PUBLIC_API_URL=https://heirloom-api-dev-174694943962.us-east1.run.app" > .env.production
+
       - name: 'Deploy to Cloud Run (Dev)'
         uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
@@ -52,6 +56,10 @@ jobs:
             workload_identity_provider: 'projects/279321445871/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
             service_account: 'github-deployer@bw-heirloom-prod.iam.gserviceaccount.com'
 
+        - name: Set up Prod Environment Variables
+          run: |
+            echo "NEXT_PUBLIC_API_URL=https://REPLACE_WITH_PROD_API_URL_LATER" > .env.production
+
         - name: 'Deploy to Cloud Run (Prod)'
           uses: 'google-github-actions/deploy-cloudrun@v2'
           with:
@@ -71,6 +79,11 @@ jobs:
         with:
           workload_identity_provider: 'projects/174694943962/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
           service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
+
+      - name: Set up Preview Environment Variables
+        run: |
+          echo "NEXT_PUBLIC_API_URL=https://heirloom-api-dev-174694943962.us-east1.run.app" > .env.production
+
       - id: 'deploy'
         uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
