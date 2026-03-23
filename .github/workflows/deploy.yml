@@ -32,7 +32,7 @@ jobs:
       - name: 'Deploy to Cloud Run (Dev)'
         uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
-          service: 'heirloom-api-dev'
+          service: 'heirloom-main-dev'
           region: 'us-east1'
           # This will build and deploy the source code in the current directory
           source: './'
@@ -55,7 +55,7 @@ jobs:
         - name: 'Deploy to Cloud Run (Prod)'
           uses: 'google-github-actions/deploy-cloudrun@v2'
           with:
-            service: 'heirloom-api-prod'
+            service: 'heirloom-main-prod'
             region: 'us-east1'
             source: './'
             project_id: 'bw-heirloom-prod'
@@ -74,7 +74,7 @@ jobs:
       - id: 'deploy'
         uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
-          service: 'heirloom-pr-${{ github.event.number }}'
+          service: 'heirloom-main-pr-${{ github.event.number }}'
           region: 'us-east1'
           source: './'
           project_id: 'bw-heirloom-dev'
@@ -101,5 +101,5 @@ jobs:
           service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
       - name: 'Delete Preview Service'
         run: |
-          gcloud run services delete heirloom-pr-${{ github.event.number }} \
+          gcloud run services delete heirloom-main-pr-${{ github.event.number }} \
             --region us-east1 --quiet --project bw-heirloom-dev
