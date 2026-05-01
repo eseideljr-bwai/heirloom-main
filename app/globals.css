@@ -1,0 +1,190 @@
+:root {
+  --font-serif: var(--font-crimson-pro, 'Iowan Old Style', Georgia, serif);
+  --font-sans: var(--font-inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif);
+
+  --background: #fdfcfa;
+  --foreground: #1a1a1a;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+
+  --primary: #556b5b;
+  --primary-foreground: #fdfcfa;
+
+  --secondary: #f5f4f1;
+  --secondary-foreground: #1a1a1a;
+
+  --muted: #e8e6e1;
+  --muted-foreground: #6b6b6b;
+
+  --accent: #f5f4f1;
+  --accent-foreground: #1a1a1a;
+
+  --destructive: #d4183d;
+  --destructive-foreground: #ffffff;
+
+  --border: #d4d2cc;
+  --input-background: #f5f4f1;
+  --ring: #556b5b;
+
+  --fg-1: #1a1a1a;
+  --fg-2: rgba(26, 26, 26, 0.80);
+  --fg-3: rgba(26, 26, 26, 0.70);
+  --fg-4: rgba(26, 26, 26, 0.60);
+  --fg-5: #6b6b6b;
+
+  --radius-sm: 0.25rem;
+  --radius: 0.5rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-full: 9999px;
+
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 30px -8px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 40px -10px rgba(0, 0, 0, 0.08);
+  --shadow-2xl: 0 25px 60px -15px rgba(0, 0, 0, 0.10);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--foreground);
+  background: var(--background);
+  -webkit-font-smoothing: antialiased;
+}
+
+img, svg {
+  display: block;
+  max-width: 100%;
+}
+
+a {
+  color: inherit;
+}
+
+button {
+  font-family: var(--font-sans);
+}
+
+/* ─── Typography helpers ─────────────────────────────────────── */
+.eyebrow {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin: 0;
+}
+
+/* ─── Buttons ──────────────────────────────────────────────── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 200ms cubic-bezier(0.16,1,0.3,1);
+  font-family: inherit;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.btn-primary { background: var(--primary); color: var(--primary-foreground); }
+.btn-primary:hover { background: #475c4d; }
+.btn-ghost { background: transparent; color: rgba(26,26,26,0.65); border-color: var(--border); }
+.btn-ghost:hover { background: var(--secondary); color: var(--foreground); }
+.btn-sage-outline { background: transparent; color: var(--primary); border-color: var(--primary); }
+.btn-sage-outline:hover { background: rgba(85,107,91,0.06); }
+
+/* ─── Cards ────────────────────────────────────────────────── */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+}
+.empty-card {
+  background: rgba(245,244,241,0.40);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 56px 48px;
+  text-align: center;
+}
+
+/* ─── Form fields ──────────────────────────────────────────── */
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 14px; color: var(--foreground); }
+.field input[type="text"],
+.field input[type="email"],
+.field input[type="password"],
+.field textarea {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--input-background);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  color: var(--foreground);
+  line-height: 1.6;
+  box-sizing: border-box;
+}
+.field textarea { padding: 14px; resize: vertical; line-height: 1.65; }
+.field input:focus, .field textarea:focus {
+  border-color: var(--primary);
+  background: var(--card);
+}
+
+/* ─── Pills ────────────────────────────────────────────────── */
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  font-size: 13px;
+  background: var(--secondary);
+  color: rgba(26,26,26,0.65);
+  border: 1px solid transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.pill:hover { color: var(--foreground); }
+.pill.active { background: var(--primary); color: var(--primary-foreground); }
+
+/* ─── Prompt block (sage left rule) ───────────────────────── */
+.prompt-block {
+  background: rgba(85,107,91,0.05);
+  border-left: 3px solid var(--primary);
+  border-radius: 0 8px 8px 0;
+  padding: 16px 20px;
+}
+.prompt-block p {
+  margin: 0;
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.65;
+  color: rgba(26,26,26,0.8);
+}
+
+/* ─── Paper texture (optional, toggled via .has-texture) ───── */
+body.has-texture::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  opacity: 0.06;
+  z-index: 0;
+  background-image:
+    radial-gradient(rgba(85,107,91,0.5) 0.5px, transparent 0.6px),
+    radial-gradient(rgba(85,107,91,0.3) 0.5px, transparent 0.6px);
+  background-size: 6px 6px, 13px 13px;
+  background-position: 0 0, 3px 3px;
+  mix-blend-mode: multiply;
+}
