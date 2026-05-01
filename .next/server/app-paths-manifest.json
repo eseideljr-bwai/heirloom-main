@@ -1,4 +1,9 @@
 {
-  "/page": "app/page.js",
-  "/login/page": "app/login/page.js"
+  "/(app)/home/page": "app/(app)/home/page.js",
+  "/(app)/family/page": "app/(app)/family/page.js",
+  "/(app)/family/tree/page": "app/(app)/family/tree/page.js",
+  "/(app)/library/page": "app/(app)/library/page.js",
+  "/(app)/legacy-bank/page": "app/(app)/legacy-bank/page.js",
+  "/(app)/family/feed/page": "app/(app)/family/feed/page.js",
+  "/(app)/create/page": "app/(app)/create/page.js"
 }
