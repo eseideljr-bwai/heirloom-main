@@ -31,35 +31,10 @@
       "static/chunks/main-app.js",
       "static/chunks/app/(app)/home/page.js"
     ],
-    "/(app)/library/page": [
+    "/not-found": [
       "static/chunks/webpack.js",
       "static/chunks/main-app.js",
-      "static/chunks/app/(app)/library/page.js"
-    ],
-    "/(app)/settings/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(app)/settings/page.js"
-    ],
-    "/(app)/settings/layout": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(app)/settings/layout.js"
-    ],
-    "/(app)/settings/notifications/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(app)/settings/notifications/page.js"
-    ],
-    "/(app)/settings/privacy/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(app)/settings/privacy/page.js"
-    ],
-    "/(app)/settings/export/page": [
-      "static/chunks/webpack.js",
-      "static/chunks/main-app.js",
-      "static/chunks/app/(app)/settings/export/page.js"
+      "static/chunks/app/not-found.js"
     ]
   }
 }
