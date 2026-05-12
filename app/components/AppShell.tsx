@@ -1,10 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { onAuthStateChanged } from 'firebase/auth';
-import type { User } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { useAuth } from '../../lib/auth-context';
 import AppNav from './AppNav';
 
 function LoadingScreen() {
@@ -17,22 +15,11 @@ function LoadingScreen() {
 }
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, loading } = useAuth();
   const router = useRouter();
   const routerRef = useRef(router);
   useEffect(() => { routerRef.current = router; });
 
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return unsub;
-  }, []);
-
-  // Redirect only after auth is confirmed absent. routerRef avoids adding
-  // router to deps, which would re-run this effect on every navigation.
   useEffect(() => {
     if (!loading && !user) {
       routerRef.current.replace('/');

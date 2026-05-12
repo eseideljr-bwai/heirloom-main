@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { signInWithEmailAndPassword, onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../lib/firebase';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '../lib/auth-context';
+import { ApiError } from '../lib/api';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,23 +12,33 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const { user, loading: authLoading, login } = useAuth();
 
-  // Redirect already-authenticated users to /home
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
-      if (u) router.replace('/home');
-    });
-  }, [router]);
+    if (!authLoading && user) router.replace('/home');
+  }, [authLoading, user, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      // onAuthStateChanged above handles the redirect — keep loading until it fires
+      await login(email, password);
+      // Effect above redirects once `user` populates.
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Login failed.');
+      if (err instanceof ApiError) {
+        // Use the same message for "wrong password", "no such user", and
+        // most 4xx errors so attackers can't enumerate registered emails.
+        if (err.status >= 400 && err.status < 500 && err.status !== 422) {
+          setError('Invalid email or password.');
+        } else if (err.status === 422) {
+          setError(err.firstFieldError() ?? 'Please check your credentials.');
+        } else {
+          setError(err.message);
+        }
+      } else {
+        setError(err instanceof Error ? err.message : 'Login failed.');
+      }
       setLoading(false);
     }
   };
@@ -53,6 +63,7 @@ export default function Login() {
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
+                autoComplete="email"
                 placeholder="you@family.com"
                 style={{ width: '100%', padding: '12px 14px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
               />
@@ -64,6 +75,7 @@ export default function Login() {
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
+                autoComplete="current-password"
                 placeholder="••••••••"
                 style={{ width: '100%', padding: '12px 14px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
               />
@@ -82,7 +94,7 @@ export default function Login() {
         </div>
 
         <p style={{ textAlign: 'center', fontSize: 14, color: 'rgba(26,26,26,0.7)', margin: '24px 0 0' }}>
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link href="/signup" style={{ color: '#556b5b', textDecoration: 'none', fontWeight: 500 }}>Create one</Link>
         </p>
 

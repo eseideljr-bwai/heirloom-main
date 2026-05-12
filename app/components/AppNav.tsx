@@ -2,9 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { signOut } from 'firebase/auth';
-import type { User } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { useAuth } from '../../lib/auth-context';
+import type { AuthUser } from '../../lib/auth';
 
 // ─── Icons ────────────────────────────────────────────────────────────
 
@@ -102,15 +101,16 @@ function NavItem({ href, label, icon, active }: { href: string; label: string; i
 
 // ─── AppNav ───────────────────────────────────────────────────────────
 
-export default function AppNav({ user }: { user: User }) {
+export default function AppNav({ user }: { user: AuthUser }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { logout } = useAuth();
 
   const isActive = (href: string) =>
     pathname === href || (href !== '/home' && pathname.startsWith(href));
 
-  const handleSignOut = async () => {
-    await signOut(auth);
+  const handleSignOut = () => {
+    logout();
     router.replace('/');
   };
 

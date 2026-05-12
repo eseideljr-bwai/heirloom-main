@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { useAuth } from '../../lib/auth-context';
 import Link from 'next/link';
 
 const STEPS = [
@@ -13,18 +12,15 @@ const STEPS = [
 ];
 
 export default function OnboardingLayout({ children }: { children: React.ReactNode }) {
-  const [loading, setLoading] = useState(true);
+  const { user, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
 
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
-      if (!u) router.replace('/');
-      setLoading(false);
-    });
-  }, [router]);
+    if (!loading && !user) router.replace('/');
+  }, [loading, user, router]);
 
-  if (loading) {
+  if (loading || !user) {
     return (
       <div style={{ minHeight: '100vh', background: '#fdfcfa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}

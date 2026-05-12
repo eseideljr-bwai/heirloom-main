@@ -1,4 +1,4 @@
-// File: /Users/ericseidel/Sites/heirloom-main/app/signup/page.tsx
+// File: /Users/jaccsoft/Desktop/Jobs/Eric/Kinloom/code/their/heirloom-main/app/signup/page.tsx
 import * as entry from '../../../../app/signup/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
