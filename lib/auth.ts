@@ -59,3 +59,45 @@ export async function getMe(): Promise<AuthUser> {
   const res = await apiFetch<{ data: AuthUser }>('/me');
   return res.data;
 }
+
+// ─── Settings: profile / password / account ───────────────────────
+
+export type UpdateProfilePayload = {
+  display_name?: string;
+  avatar_url?: string | null;
+};
+
+export type ProfileResponse = {
+  profile: {
+    display_name: string | null;
+    avatar_url: string | null;
+  };
+};
+
+export async function updateProfile(
+  payload: UpdateProfilePayload,
+): Promise<ProfileResponse['profile']> {
+  const res = await apiFetch<ProfileResponse>('/me/profile', {
+    method: 'PATCH',
+    body: payload,
+  });
+  return res.profile;
+}
+
+export type ChangePasswordPayload = {
+  current_password: string;
+  new_password: string;
+  new_password_confirmation: string;
+};
+
+export async function changePassword(payload: ChangePasswordPayload): Promise<void> {
+  await apiFetch<void>('/me/change-password', {
+    method: 'POST',
+    body: payload,
+  });
+}
+
+export async function deleteAccount(): Promise<void> {
+  await apiFetch<void>('/me', { method: 'DELETE' });
+  clearTokens();
+}

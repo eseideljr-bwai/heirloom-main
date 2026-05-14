@@ -174,6 +174,163 @@ button {
   color: rgba(26,26,26,0.8);
 }
 
+/* ─── Settings / Account page ─────────────────────────────── */
+.settings-h1 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 36px;
+  line-height: 1.2;
+  margin: 0 0 32px;
+  color: var(--foreground);
+}
+.settings-h2 {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 20px;
+  margin: 0 0 20px;
+  color: var(--foreground);
+}
+.settings-h2--tight { margin: 0 0 8px; }
+.settings-stack { display: flex; flex-direction: column; gap: 24px; }
+.settings-fields { display: flex; flex-direction: column; gap: 16px; }
+.settings-card-text {
+  font-size: 14px;
+  color: rgba(26,26,26,0.65);
+  margin: 0 0 20px;
+}
+.field-label {
+  display: block;
+  font-size: 13px;
+  color: var(--fg-4);
+  margin-bottom: 4px;
+}
+.field-input {
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--input-background);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  color: var(--foreground);
+  box-sizing: border-box;
+}
+.field-input:focus {
+  border-color: var(--primary);
+  background: var(--card);
+}
+.field-input:disabled { color: rgba(26,26,26,0.5); cursor: not-allowed; }
+
+/* Buttons (extra variants used on the account page) */
+.btn-save {
+  align-self: flex-start;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: none;
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn-save:hover { background: #475c4d; }
+.btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.btn-outline {
+  background: transparent;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn-outline:hover { background: var(--secondary); }
+
+.btn-danger-outline {
+  background: transparent;
+  color: var(--destructive);
+  border: 1px solid rgba(212,24,61,0.30);
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn-danger-outline:hover { background: rgba(212,24,61,0.05); }
+
+.btn-danger-solid {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+  border: none;
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+}
+.btn-danger-solid:hover { background: #b81434; }
+.btn-danger-solid:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.card-danger {
+  background: var(--card);
+  border: 1px solid rgba(212,24,61,0.20);
+  border-radius: 12px;
+  padding: 28px;
+}
+
+/* Status / feedback messages */
+.form-status {
+  font-size: 13px;
+  margin: 0;
+}
+.form-status--ok    { color: var(--primary); }
+.form-status--error { color: var(--destructive); }
+
+/* ─── Modal ──────────────────────────────────────────────── */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(26,26,26,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  z-index: 100;
+}
+.modal {
+  width: 100%;
+  max-width: 460px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 28px;
+  box-shadow: var(--shadow-xl);
+}
+.modal-title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 22px;
+  margin: 0 0 8px;
+  color: var(--foreground);
+}
+.modal-text {
+  font-size: 14px;
+  color: rgba(26,26,26,0.65);
+  margin: 0 0 20px;
+  line-height: 1.55;
+}
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
 /* ─── Paper texture (optional, toggled via .has-texture) ───── */
 body.has-texture::before {
   content: "";
