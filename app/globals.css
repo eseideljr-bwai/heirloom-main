@@ -291,6 +291,29 @@ button {
 .form-status--ok    { color: var(--primary); }
 .form-status--error { color: var(--destructive); }
 
+/* ─── Create-kinloom inline states ───────────────────────── */
+.create-banner {
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 16px;
+}
+.create-banner--error {
+  background: rgba(212,24,61,0.06);
+  border: 1px solid rgba(212,24,61,0.20);
+  color: var(--destructive);
+}
+.create-banner--muted {
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  color: var(--fg-4);
+}
+.btn-disabled-soft:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ─── Modal ──────────────────────────────────────────────── */
 .modal-backdrop {
   position: fixed;

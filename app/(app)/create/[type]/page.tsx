@@ -1,13 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { MEMBERS, MEMBER_MAP } from '../../../lib/mock-data';
 import { KINLOOM_TYPE_MAP } from '../../../lib/kinloom-types';
+import { useAuth } from '../../../../lib/auth-context';
+import { getActiveFamilySpaceId, parseFamilySpaces } from '../../../../lib/auth';
+import {
+  createKinloom,
+  getCreateContext,
+  type KinloomType,
+  type TaggableMember,
+  type Visibility,
+} from '../../../../lib/kinloom';
+import { ApiError } from '../../../../lib/api';
 
 type Step = 1 | 2 | 3;
-type Visibility = 'family' | 'private';
 
 function StepIndicator({ current, total = 3 }: { current: Step; total?: number }) {
   return (
@@ -39,7 +47,12 @@ function StepIndicator({ current, total = 3 }: { current: Step; total?: number }
 
 export default function CreateTypePage({ params }: { params: { type: string } }) {
   const router = useRouter();
-  const typeData = KINLOOM_TYPE_MAP[params.type];
+  const { user, loading: authLoading } = useAuth();
+  const familySpaceId = useMemo(() => getActiveFamilySpaceId(user), [user]);
+  const noFamilySpace = !authLoading && !familySpaceId;
+
+  const fallbackType = KINLOOM_TYPE_MAP[params.type];
+
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -48,7 +61,42 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const [taggedKin, setTaggedKin] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<Visibility>('family');
 
-  if (!typeData) {
+  const [typeData, setTypeData] = useState<KinloomType | null>(fallbackType ?? null);
+  const [taggableMembers, setTaggableMembers] = useState<TaggableMember[]>([]);
+  const [contextLoading, setContextLoading] = useState(true);
+  const [contextError, setContextError] = useState<string | null>(null);
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (authLoading) return;
+    if (!familySpaceId) {
+      setContextLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setContextLoading(true);
+    setContextError(null);
+    (async () => {
+      try {
+        const ctx = await getCreateContext(familySpaceId, params.type);
+        if (cancelled) return;
+        setTypeData(ctx.type);
+        setTaggableMembers(ctx.taggableMembers);
+        setVisibility(ctx.defaultVisibility);
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof ApiError ? err.message : 'Could not load this kinloom type.';
+        setContextError(msg);
+      } finally {
+        if (!cancelled) setContextLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authLoading, familySpaceId, params.type]);
+
+  if (!typeData && !contextLoading) {
     return (
       <div style={{ padding: '48px' }}>
         <p style={{ fontSize: 16, color: 'rgba(26,26,26,0.7)' }}>Unknown kinloom type.</p>
@@ -57,15 +105,57 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     );
   }
 
-  const handleSave = () => {
-    router.push('/library');
+  const resolvedType = typeData ?? fallbackType!;
+
+  const handleSave = async () => {
+    if (!familySpaceId) {
+      setSaveError('No family space found for your account.');
+      return;
+    }
+    if (!body.trim()) {
+      setSaveError('Please write something before saving.');
+      setStep(2);
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      const created = await createKinloom(familySpaceId, {
+        type_slug: resolvedType.slug,
+        title: title.trim() || 'Untitled',
+        body: body.trim(),
+        visibility,
+        status: 'published',
+        tagged_member_ids: taggedKin,
+      });
+      router.push(`/library/${created.ulid}`);
+    } catch (err) {
+      const msg = err instanceof ApiError
+        ? (err.firstFieldError() || err.message)
+        : 'Something went wrong saving your kinloom.';
+      setSaveError(msg);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const toggleKin = (id: string) => {
     setTaggedKin(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
-  const otherMembers = MEMBERS.filter(m => !m.isMe);
+  const otherMembers = useMemo(() => {
+    const myMemberId = parseFamilySpaces(user?.family_spaces)[0]?.member_id ?? null;
+    return taggableMembers.filter(m => m.member_id !== myMemberId);
+  }, [taggableMembers, user]);
+
+  const taggedKinObjects = useMemo(
+    () => taggedKin
+      .map(id => taggableMembers.find(m => m.member_id === id))
+      .filter((m): m is TaggableMember => !!m),
+    [taggedKin, taggableMembers],
+  );
 
   return (
     <div style={{ padding: '48px', maxWidth: 900 }}>
@@ -81,22 +171,31 @@ export default function CreateTypePage({ params }: { params: { type: string } })
         </div>
       </div>
 
+      {noFamilySpace && (
+        <div className="create-banner create-banner--error">
+          You don&apos;t have a family space yet. <Link href="/onboarding/profile" style={{ color: 'inherit', textDecoration: 'underline' }}>Finish setting up your profile</Link> to start writing kinlooms.
+        </div>
+      )}
+      {contextError && (
+        <p className="create-banner create-banner--error">{contextError}</p>
+      )}
+
       {/* Step 1: Prompt */}
       {step === 1 && (
         <div style={{ maxWidth: 640 }}>
           <span style={{ display: 'inline-block', padding: '4px 12px', borderRadius: 9999, fontSize: 12, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b', marginBottom: 20 }}>
-            {typeData.label}
+            {resolvedType.label}
           </span>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 42, lineHeight: 1.2, margin: '0 0 20px', color: '#1a1a1a' }}>
-            {typeData.definition}
+            {resolvedType.definition}
           </h1>
           <p style={{ fontSize: 16, lineHeight: 1.65, color: 'rgba(26,26,26,0.65)', margin: '0 0 36px' }}>
-            Take a moment with this question. There's no rush.
+            Take a moment with this question. There&apos;s no rush.
           </p>
 
           <div className="prompt-block" style={{ marginBottom: 40 }}>
             <p style={{ fontSize: 20, lineHeight: 1.7 }}>
-              &ldquo;{typeData.prompt}&rdquo;
+              &ldquo;{resolvedType.prompt}&rdquo;
             </p>
           </div>
 
@@ -120,7 +219,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 32, alignItems: 'flex-start' }}>
           <div>
             <span style={{ display: 'inline-block', padding: '4px 12px', borderRadius: 9999, fontSize: 12, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b', marginBottom: 16 }}>
-              {typeData.label}
+              {resolvedType.label}
             </span>
             <h2 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 32, margin: '0 0 24px', color: '#1a1a1a' }}>
               Write your kinloom
@@ -131,6 +230,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                 value={title}
                 onChange={e => setTitle(e.target.value)}
                 placeholder="Give it a title…"
+                maxLength={255}
                 style={{ width: '100%', padding: '13px 16px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 17, fontFamily: 'var(--font-serif)', outline: 'none', color: '#1a1a1a', boxSizing: 'border-box' }}
               />
             </div>
@@ -140,10 +240,11 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               onChange={e => setBody(e.target.value)}
               placeholder="Write here. Say what matters. There is no wrong answer."
               rows={14}
+              maxLength={65000}
               style={{ width: '100%', padding: '16px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 16, fontFamily: 'var(--font-serif)', lineHeight: 1.75, resize: 'vertical', outline: 'none', color: '#1a1a1a', boxSizing: 'border-box' }}
             />
 
-            {/* Attachment options */}
+            {/* Attachment options (UI only for now — media upload is a separate flow) */}
             <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
               <button
                 onClick={() => setHasVoice(v => !v)}
@@ -185,8 +286,8 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#556b5b' }}>Writing tips</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[
-                  "Write to a specific person — it makes the voice more personal.",
-                  "Include a sensory detail: a smell, a sound, a texture. It makes memories last.",
+                  'Write to a specific person — it makes the voice more personal.',
+                  'Include a sensory detail: a smell, a sound, a texture. It makes memories last.',
                   "It doesn't need to be long. A paragraph can hold a lifetime.",
                   "Say what you've never found the right moment to say.",
                 ].map((tip, i) => (
@@ -201,7 +302,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
             <div style={{ marginTop: 16, background: '#f5f4f1', borderRadius: 10, padding: '16px 16px' }}>
               <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(26,26,26,0.45)' }}>The prompt</p>
               <p style={{ margin: 0, fontSize: 13, fontStyle: 'italic', lineHeight: 1.65, color: 'rgba(26,26,26,0.6)' }}>
-                &ldquo;{typeData.prompt}&rdquo;
+                &ldquo;{resolvedType.prompt}&rdquo;
               </p>
             </div>
           </div>
@@ -223,19 +324,26 @@ export default function CreateTypePage({ params }: { params: { type: string } })
             <div style={{ marginBottom: 32 }}>
               <p style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a', margin: '0 0 12px' }}>Tag family members</p>
               <p style={{ fontSize: 13, color: 'rgba(26,26,26,0.5)', margin: '0 0 14px' }}>Select anyone this kinloom is written to or about.</p>
+              {contextLoading && familySpaceId && (
+                <p className="create-banner create-banner--muted">Loading family members…</p>
+              )}
+              {!contextLoading && familySpaceId && otherMembers.length === 0 && (
+                <p className="create-banner create-banner--muted">No other family members to tag yet.</p>
+              )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 {otherMembers.map(m => {
-                  const isTagged = taggedKin.includes(m.id);
+                  const isTagged = taggedKin.includes(m.member_id);
+                  const firstName = m.name.split(' ')[0];
                   return (
                     <button
-                      key={m.id}
-                      onClick={() => toggleKin(m.id)}
+                      key={m.member_id}
+                      onClick={() => toggleKin(m.member_id)}
                       style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px 8px 10px', borderRadius: 9999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, border: `1px solid ${isTagged ? 'rgba(85,107,91,0.40)' : '#d4d2cc'}`, background: isTagged ? 'rgba(85,107,91,0.08)' : '#fff', color: isTagged ? '#556b5b' : 'rgba(26,26,26,0.7)' }}
                     >
                       <span style={{ width: 22, height: 22, borderRadius: '50%', background: m.tone + '33', border: `1px solid ${m.tone}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: m.tone, fontWeight: 600 }}>
-                        {m.initials}
+                        {m.initials ?? firstName.slice(0, 2).toUpperCase()}
                       </span>
-                      {m.name.split(' ')[0]}
+                      {firstName}
                       {isTagged && (
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}><polyline points="20 6 9 17 4 12" /></svg>
                       )}
@@ -255,7 +363,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                 ].map(v => (
                   <button
                     key={v.id}
-                    onClick={() => setVisibility(v.id as 'family' | 'private')}
+                    onClick={() => setVisibility(v.id as Visibility)}
                     style={{ flex: 1, padding: '14px 16px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', border: `1px solid ${visibility === v.id ? 'rgba(85,107,91,0.40)' : '#d4d2cc'}`, background: visibility === v.id ? 'rgba(85,107,91,0.06)' : '#fff' }}
                   >
                     <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: visibility === v.id ? '#556b5b' : '#1a1a1a' }}>{v.label}</p>
@@ -265,17 +373,26 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               </div>
             </div>
 
+            {saveError && (
+              <p className="create-banner create-banner--error">{saveError}</p>
+            )}
+
             <div style={{ display: 'flex', gap: 12 }}>
               <button
                 onClick={handleSave}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' }}
+                disabled={saving || noFamilySpace}
+                className="btn-disabled-soft"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: (saving || noFamilySpace) ? 'not-allowed' : 'pointer' }}
               >
-                Save kinloom
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                {saving ? 'Saving…' : 'Save kinloom'}
+                {!saving && (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                )}
               </button>
               <button
                 onClick={() => setStep(2)}
-                style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 22px', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', cursor: 'pointer' }}
+                disabled={saving}
+                style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 22px', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', cursor: saving ? 'not-allowed' : 'pointer' }}
               >
                 Back
               </button>
@@ -288,7 +405,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(26,26,26,0.4)' }}>Preview</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
                 <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 9999, fontSize: 11, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b' }}>
-                  {typeData.label}
+                  {resolvedType.label}
                 </span>
               </div>
               <h3 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 20, margin: '0 0 10px', color: '#1a1a1a', lineHeight: 1.3 }}>
@@ -313,24 +430,21 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                   )}
                 </div>
               )}
-              {taggedKin.length > 0 && (
+              {taggedKinObjects.length > 0 && (
                 <div>
                   <p style={{ margin: '0 0 6px', fontSize: 11, color: 'rgba(26,26,26,0.4)' }}>For</p>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {taggedKin.map(id => {
-                      const m = MEMBER_MAP[id];
-                      return m ? (
-                        <span key={id} style={{ fontSize: 12, color: 'rgba(26,26,26,0.65)', background: '#f5f4f1', borderRadius: 9999, padding: '2px 8px' }}>
-                          {m.name.split(' ')[0]}
-                        </span>
-                      ) : null;
-                    })}
+                    {taggedKinObjects.map(m => (
+                      <span key={m.member_id} style={{ fontSize: 12, color: 'rgba(26,26,26,0.65)', background: '#f5f4f1', borderRadius: 9999, padding: '2px 8px' }}>
+                        {m.name.split(' ')[0]}
+                      </span>
+                    ))}
                   </div>
                 </div>
               )}
               <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e8e6e1' }}>
                 <p style={{ margin: 0, fontSize: 11, color: 'rgba(26,26,26,0.4)' }}>
-                  {visibility === 'family' ? '🌿 Shared with your family' : '🔒 Private to you'}
+                  {visibility === 'family' ? 'Shared with your family' : 'Private to you'}
                 </p>
               </div>
             </div>

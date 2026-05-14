@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
+import { getActiveFamilySpaceId } from '../../lib/auth';
 import AppNav from './AppNav';
 
 function LoadingScreen() {
@@ -21,13 +22,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => { routerRef.current = router; });
 
   useEffect(() => {
-    if (!loading && !user) {
+    if (loading) return;
+    if (!user) {
       routerRef.current.replace('/');
+      return;
+    }
+    // If onboarding hasn't created a family space yet, send the user there.
+    if (!getActiveFamilySpaceId(user)) {
+      routerRef.current.replace('/onboarding/profile');
     }
   }, [loading, user]);
 
   if (loading) return <LoadingScreen />;
   if (!user) return null;
+  if (!getActiveFamilySpaceId(user)) return <LoadingScreen />;
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#fdfcfa' }}>
