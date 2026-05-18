@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter, Crimson_Pro } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '../lib/auth-context';
+import { ActiveFamilySpaceProvider } from '../lib/active-family-space';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -26,7 +27,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${inter.variable} ${crimsonPro.variable}`}>
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <ActiveFamilySpaceProvider>{children}</ActiveFamilySpaceProvider>
+        </AuthProvider>
       </body>
     </html>
   );

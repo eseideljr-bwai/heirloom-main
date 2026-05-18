@@ -781,6 +781,106 @@ button {
   margin-top: 24px;
 }
 
+/* ─── App shell layout (Epic 2) ─────────────────────────────── */
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+  background: var(--background);
+}
+.app-shell__main {
+  flex: 1;
+  margin-left: 240px;
+  min-height: 100vh;
+}
+
+/* ─── Family space switcher ─────────────────────────────────── */
+.space-switcher {
+  position: relative;
+}
+.space-switcher__trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg-1);
+  cursor: pointer;
+  text-align: left;
+}
+.space-switcher__trigger:hover:not(:disabled) {
+  border-color: var(--primary);
+}
+.space-switcher__trigger:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+.space-switcher__trigger:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.space-switcher__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.space-switcher__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 4px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  list-style: none;
+  z-index: 50;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.space-switcher__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg-2);
+  cursor: pointer;
+  text-align: left;
+}
+.space-switcher__item:hover,
+.space-switcher__item:focus-visible {
+  background: rgba(85,107,91,0.08);
+  color: var(--primary);
+  outline: none;
+}
+.space-switcher__item.is-active {
+  color: var(--primary);
+  font-weight: 500;
+}
+.space-switcher__item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
 /* ─── Paper texture (optional, toggled via .has-texture) ───── */
 body.has-texture::before {
   content: "";

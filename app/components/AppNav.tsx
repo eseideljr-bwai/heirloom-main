@@ -1,8 +1,10 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
+import { useActiveFamilySpace } from '../../lib/active-family-space';
 import type { AuthUser } from '../../lib/auth';
 
 // ─── Icons ────────────────────────────────────────────────────────────
@@ -62,6 +64,89 @@ const LogOutIcon = () => (
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
   </svg>
 );
+
+const ChevronDownIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+// ─── Family space switcher ────────────────────────────────────────────
+
+function FamilySpaceSwitcher() {
+  const { spaces, activeSpace, activeSpaceId, setActiveSpaceId } = useActiveFamilySpace();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onEsc);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onEsc);
+    };
+  }, [open]);
+
+  if (spaces.length === 0) return null;
+
+  const label = activeSpace?.name?.trim() || 'Family space';
+  const single = spaces.length === 1;
+
+  return (
+    <div className="space-switcher" ref={wrapRef}>
+      <button
+        type="button"
+        className="space-switcher__trigger"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={single}
+        onClick={() => !single && setOpen(o => !o)}
+      >
+        <span className="space-switcher__label">{label}</span>
+        {!single && <ChevronDownIcon />}
+      </button>
+      {open && !single && (
+        <ul className="space-switcher__menu" role="listbox">
+          {spaces.map(s => {
+            const isActive = s.ulid === activeSpaceId;
+            return (
+              <li key={s.ulid}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={isActive}
+                  className={`space-switcher__item${isActive ? ' is-active' : ''}`}
+                  onClick={() => {
+                    setActiveSpaceId(s.ulid);
+                    setOpen(false);
+                  }}
+                >
+                  <span className="space-switcher__item-name">
+                    {s.name?.trim() || s.ulid}
+                  </span>
+                  {isActive && <CheckIcon />}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
 
 // ─── Nav data ─────────────────────────────────────────────────────────
 
@@ -130,6 +215,10 @@ export default function AppNav({ user }: { user: AuthUser }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-kinloom.png" alt="Kinloom" style={{ height: 56, width: 'auto' }} />
         </Link>
+      </div>
+
+      <div style={{ padding: '8px 16px 4px' }}>
+        <FamilySpaceSwitcher />
       </div>
 
       {/* Primary nav */}

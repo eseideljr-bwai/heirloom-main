@@ -17,17 +17,14 @@ export default function OnboardingLayout({ children }: { children: React.ReactNo
   const pathname = usePathname();
 
   useEffect(() => {
-    if (!loading && !user) router.replace('/');
+    if (!loading && !user) router.replace('/?reason=session_expired');
   }, [loading, user, router]);
 
-  if (loading || !user) {
-    return (
-      <div style={{ minHeight: '100vh', background: '#fdfcfa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo-kinloom.png" alt="Kinloom" style={{ height: 56, width: 'auto', opacity: 0.35 }} />
-      </div>
-    );
-  }
+  // Epic 2: middleware already gated unauthenticated visitors and the
+  // auth context hydrates `user` synchronously from cache, so we render
+  // immediately without a loading splash. The `null` here only triggers
+  // for a single frame on a brand-new tab right after sign-up.
+  if (!user) return null;
 
   const currentStep = STEPS.findIndex(s => s.href === pathname);
 

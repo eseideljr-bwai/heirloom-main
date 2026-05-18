@@ -3,14 +3,14 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../lib/auth-context';
-import { getActiveFamilySpaceId } from '../../../lib/auth';
+import { useActiveFamilySpace } from '../../../lib/active-family-space';
 import { onboardingFirstKinloom } from '../../../lib/kinloom';
 import { ApiError } from '../../../lib/api';
 
 export default function OnboardingFirstKinloom() {
   const router = useRouter();
-  const { user, refresh } = useAuth();
-  const familySpaceId = getActiveFamilySpaceId(user);
+  const { refresh } = useAuth();
+  const { activeSpaceId: familySpaceId } = useActiveFamilySpace();
 
   const [content, setContent] = useState('');
   const [saving, setSaving] = useState(false);

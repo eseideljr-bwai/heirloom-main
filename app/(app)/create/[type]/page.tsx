@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { KINLOOM_TYPE_MAP } from '../../../lib/kinloom-types';
 import { useAuth } from '../../../../lib/auth-context';
-import { getActiveFamilySpaceId, parseFamilySpaces } from '../../../../lib/auth';
+import { useActiveFamilySpace } from '../../../../lib/active-family-space';
+import { parseFamilySpaces } from '../../../../lib/auth';
 import {
   createKinloom,
   getCreateContext,
@@ -53,7 +54,7 @@ function StepIndicator({ current, total = 3 }: { current: Step; total?: number }
 export default function CreateTypePage({ params }: { params: { type: string } }) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const familySpaceId = useMemo(() => getActiveFamilySpaceId(user), [user]);
+  const { activeSpaceId: familySpaceId } = useActiveFamilySpace();
   const noFamilySpace = !authLoading && !familySpaceId;
 
   const fallbackType = KINLOOM_TYPE_MAP[params.type];
@@ -245,9 +246,14 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   };
 
   const otherMembers = useMemo(() => {
-    const myMemberId = parseFamilySpaces(user?.family_spaces)[0]?.member_id ?? null;
+    // Tag-from-me list should hide ME in the *currently active* space, not
+    // whichever space happens to be first. Falls back to the first space's
+    // member_id when no active id is set (parity with old behaviour).
+    const spaces = parseFamilySpaces(user?.family_spaces);
+    const mine = spaces.find(s => s.ulid === familySpaceId) ?? spaces[0];
+    const myMemberId = mine?.member_id ?? null;
     return taggableMembers.filter(m => m.member_id !== myMemberId);
-  }, [taggableMembers, user]);
+  }, [taggableMembers, user, familySpaceId]);
 
   const taggedKinObjects = useMemo(
     () => taggedKin

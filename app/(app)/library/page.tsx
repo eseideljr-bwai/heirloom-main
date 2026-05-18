@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../../lib/auth-context';
-import { getActiveFamilySpaceId } from '../../../lib/auth';
+import { useActiveFamilySpace } from '../../../lib/active-family-space';
 import {
   bodyParagraphs,
   formatKinloomDate,
@@ -85,8 +85,8 @@ function KinloomCard({ row }: { row: LibraryRow }) {
 }
 
 export default function LibraryPage() {
-  const { user, loading: authLoading } = useAuth();
-  const familySpaceId = getActiveFamilySpaceId(user);
+  const { loading: authLoading } = useAuth();
+  const { activeSpaceId: familySpaceId } = useActiveFamilySpace();
 
   const [rows, setRows] = useState<LibraryRow[]>([]);
   const [total, setTotal] = useState(0);
