@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../../../lib/auth-context';
 import { getActiveFamilySpaceId } from '../../../../lib/auth';
@@ -72,6 +72,21 @@ export default function KinloomDetailPage({ params }: { params: { id: string } }
   const [playing, setPlaying] = useState(false);
   const [holdState, setHoldState] = useState<{ held_by_me: boolean; count: number }>({ held_by_me: false, count: 0 });
   const [togglingHold, setTogglingHold] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const togglePlay = async () => {
+    const a = audioRef.current;
+    if (!a) return;
+    try {
+      if (a.paused) {
+        await a.play();
+      } else {
+        a.pause();
+      }
+    } catch (err) {
+      console.error('[kinloom] audio play failed', err);
+    }
+  };
 
   useEffect(() => {
     if (authLoading) return;
@@ -84,6 +99,10 @@ export default function KinloomDetailPage({ params }: { params: { id: string } }
       try {
         const k = await getKinloom(familySpaceId, params.id);
         if (cancelled) return;
+        // TEMP debug: inspect what the API returns for photo/audio.
+        if (typeof window !== 'undefined') {
+          console.log('[kinloom]', k.ulid, 'photo=', k.photo, 'audio=', k.audio);
+        }
         setKinloom(k);
         setHoldState(k.hold ?? { held_by_me: false, count: 0 });
       } catch (err) {
@@ -171,14 +190,32 @@ export default function KinloomDetailPage({ params }: { params: { id: string } }
           <figure style={{ margin: '0 0 32px' }}>
             <div style={{ aspectRatio: '4/3', borderRadius: 12, overflow: 'hidden', background: '#f5f4f1' }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={k.photo.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              <img
+                src={k.photo.url}
+                alt=""
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                onError={(e) => {
+                  console.error('[kinloom] photo failed to load', k.photo?.url, e);
+                }}
+              />
             </div>
           </figure>
         )}
 
         {k.audio?.url && (
           <div style={{ background: 'rgba(85,107,91,0.05)', border: '1px solid rgba(85,107,91,0.20)', borderRadius: 12, padding: 20, marginBottom: 32, display: 'flex', alignItems: 'center', gap: 16 }}>
-            <button onClick={() => setPlaying(p => !p)}
+            <audio
+              ref={audioRef}
+              src={k.audio.url}
+              preload="metadata"
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={() => setPlaying(false)}
+              onError={(e) => console.error('[kinloom] audio failed to load', k.audio?.url, e)}
+            />
+            <button
+              onClick={togglePlay}
+              aria-label={playing ? 'Pause voice' : 'Play voice'}
               style={{ width: 44, height: 44, borderRadius: '50%', background: '#556b5b', border: 'none', color: '#fdfcfa', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
               {playing
                 ? <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { KINLOOM_TYPE_MAP } from '../../../lib/kinloom-types';
@@ -9,11 +9,16 @@ import { getActiveFamilySpaceId, parseFamilySpaces } from '../../../../lib/auth'
 import {
   createKinloom,
   getCreateContext,
+  MAX_UPLOAD_BYTES,
+  PHOTO_MIME_TYPES,
+  uploadKinloomAudio,
+  uploadKinloomPhoto,
   type KinloomType,
   type TaggableMember,
   type Visibility,
 } from '../../../../lib/kinloom';
 import { ApiError } from '../../../../lib/api';
+import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
 
 type Step = 1 | 2 | 3;
 
@@ -56,8 +61,14 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [hasVoice, setHasVoice] = useState(false);
-  const [hasPhoto, setHasPhoto] = useState(false);
+  const [voiceValue, setVoiceValue] = useState<VoiceRecorderValue | null>(null);
+  const [showVoice, setShowVoice] = useState(false);
+  const hasVoice = voiceValue !== null;
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const hasPhoto = photoFile !== null;
   const [taggedKin, setTaggedKin] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<Visibility>('family');
 
@@ -68,6 +79,9 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [voiceUploadError, setVoiceUploadError] = useState<string | null>(null);
+  const [savedKinloomId, setSavedKinloomId] = useState<string | null>(null);
 
   useEffect(() => {
     if (authLoading) return;
@@ -96,6 +110,16 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     return () => { cancelled = true; };
   }, [authLoading, familySpaceId, params.type]);
 
+  useEffect(() => {
+    if (!photoFile) {
+      setPhotoPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(photoFile);
+    setPhotoPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [photoFile]);
+
   if (!typeData && !contextLoading) {
     return (
       <div style={{ padding: '48px' }}>
@@ -106,6 +130,33 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   }
 
   const resolvedType = typeData ?? fallbackType!;
+
+  const handlePickPhoto = () => {
+    setPhotoError(null);
+    photoInputRef.current?.click();
+  };
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    if (!(PHOTO_MIME_TYPES as readonly string[]).includes(file.type)) {
+      setPhotoError('That file type isn\u2019t supported. Use JPG, PNG, GIF, or WebP.');
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setPhotoError('That photo is too large. Max 500 MB.');
+      return;
+    }
+    setPhotoError(null);
+    setPhotoFile(file);
+  };
+
+  const handleRemovePhoto = () => {
+    setPhotoFile(null);
+    setPhotoError(null);
+  };
 
   const handleSave = async () => {
     if (!familySpaceId) {
@@ -120,25 +171,73 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
     setSaving(true);
     setSaveError(null);
+    setPhotoUploadError(null);
+    setVoiceUploadError(null);
+
+    let createdId = savedKinloomId;
 
     try {
-      const created = await createKinloom(familySpaceId, {
-        type_slug: resolvedType.slug,
-        title: title.trim() || 'Untitled',
-        body: body.trim(),
-        visibility,
-        status: 'published',
-        tagged_member_ids: taggedKin,
-      });
-      router.push(`/library/${created.ulid}`);
+      if (!createdId) {
+        const created = await createKinloom(familySpaceId, {
+          type_slug: resolvedType.slug,
+          title: title.trim() || 'Untitled',
+          body: body.trim(),
+          visibility,
+          status: 'published',
+          tagged_member_ids: taggedKin,
+        });
+        createdId = created.ulid;
+        setSavedKinloomId(createdId);
+      }
     } catch (err) {
       const msg = err instanceof ApiError
         ? (err.firstFieldError() || err.message)
         : 'Something went wrong saving your kinloom.';
       setSaveError(msg);
-    } finally {
       setSaving(false);
+      return;
     }
+
+    if (photoFile && createdId) {
+      try {
+        await uploadKinloomPhoto(familySpaceId, createdId, photoFile);
+      } catch (uploadErr) {
+        const msg = uploadErr instanceof ApiError
+          ? (uploadErr.firstFieldError() || uploadErr.message)
+          : uploadErr instanceof Error
+            ? uploadErr.message
+            : 'Could not upload the photo.';
+        console.error('Photo upload failed:', uploadErr);
+        setPhotoUploadError(msg);
+        setSaving(false);
+        return;
+      }
+    }
+
+    if (voiceValue && createdId) {
+      try {
+        await uploadKinloomAudio(familySpaceId, createdId, voiceValue.file, {
+          durationSeconds: voiceValue.durationSeconds,
+        });
+      } catch (uploadErr) {
+        const msg = uploadErr instanceof ApiError
+          ? (uploadErr.firstFieldError() || uploadErr.message)
+          : uploadErr instanceof Error
+            ? uploadErr.message
+            : 'Could not upload the voice recording.';
+        console.error('Voice upload failed:', uploadErr);
+        setVoiceUploadError(msg);
+        setSaving(false);
+        return;
+      }
+    }
+
+    router.push(`/library/${createdId}`);
+  };
+
+  const handleSkipMedia = () => {
+    if (!savedKinloomId) return;
+    router.push(`/library/${savedKinloomId}`);
   };
 
   const toggleKin = (id: string) => {
@@ -244,23 +343,59 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               style={{ width: '100%', padding: '16px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 16, fontFamily: 'var(--font-serif)', lineHeight: 1.75, resize: 'vertical', outline: 'none', color: '#1a1a1a', boxSizing: 'border-box' }}
             />
 
-            {/* Attachment options (UI only for now — media upload is a separate flow) */}
-            <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+            {/* Attachment options */}
+            <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
               <button
-                onClick={() => setHasVoice(v => !v)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', cursor: 'pointer', background: hasVoice ? 'rgba(85,107,91,0.10)' : 'transparent', color: hasVoice ? '#556b5b' : 'rgba(26,26,26,0.55)', border: `1px solid ${hasVoice ? 'rgba(85,107,91,0.30)' : '#d4d2cc'}` }}
+                onClick={() => setShowVoice(s => !s)}
+                className={`attach-btn ${hasVoice || showVoice ? 'attach-btn--on' : ''}`}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="22"/></svg>
                 {hasVoice ? 'Voice added' : 'Add voice'}
               </button>
               <button
-                onClick={() => setHasPhoto(p => !p)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '9px 16px', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', cursor: 'pointer', background: hasPhoto ? 'rgba(85,107,91,0.10)' : 'transparent', color: hasPhoto ? '#556b5b' : 'rgba(26,26,26,0.55)', border: `1px solid ${hasPhoto ? 'rgba(85,107,91,0.30)' : '#d4d2cc'}` }}
+                onClick={handlePickPhoto}
+                className={`attach-btn ${hasPhoto ? 'attach-btn--on' : ''}`}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                {hasPhoto ? 'Photo added' : 'Add photo'}
+                {hasPhoto ? 'Change photo' : 'Add photo'}
               </button>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept={PHOTO_MIME_TYPES.join(',')}
+                onChange={handlePhotoChange}
+                className="visually-hidden"
+              />
             </div>
+
+            {(showVoice || hasVoice) && (
+              <VoiceRecorder value={voiceValue} onChange={setVoiceValue} disabled={saving} />
+            )}
+
+            {photoError && (
+              <p className="create-banner create-banner--error create-banner--inline">
+                {photoError}
+              </p>
+            )}
+
+            {photoPreview && photoFile && (
+              <div className="photo-preview">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photoPreview} alt="Selected photo preview" className="photo-preview__img" />
+                <div className="photo-preview__meta">
+                  <p className="photo-preview__name">{photoFile.name}</p>
+                  <p className="photo-preview__size">{(photoFile.size / 1024 / 1024).toFixed(2)} MB</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  className="photo-preview__remove"
+                  aria-label="Remove photo"
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
               <button
@@ -377,18 +512,47 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               <p className="create-banner create-banner--error">{saveError}</p>
             )}
 
-            <div style={{ display: 'flex', gap: 12 }}>
+            {photoUploadError && (
+              <div className="create-banner create-banner--error">
+                <p style={{ margin: '0 0 8px', fontWeight: 500 }}>Your kinloom was saved, but the photo failed to upload.</p>
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>{photoUploadError}</p>
+              </div>
+            )}
+
+            {voiceUploadError && (
+              <div className="create-banner create-banner--error">
+                <p style={{ margin: '0 0 8px', fontWeight: 500 }}>Your kinloom was saved, but the voice recording failed to upload.</p>
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>{voiceUploadError}</p>
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <button
                 onClick={handleSave}
                 disabled={saving || noFamilySpace}
                 className="btn-disabled-soft"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: (saving || noFamilySpace) ? 'not-allowed' : 'pointer' }}
               >
-                {saving ? 'Saving…' : 'Save kinloom'}
+                {saving
+                  ? (photoFile || voiceValue ? 'Saving & uploading…' : 'Saving…')
+                  : (photoUploadError || voiceUploadError)
+                    ? 'Retry upload'
+                    : savedKinloomId
+                      ? 'Continue'
+                      : 'Save kinloom'}
                 {!saving && (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 )}
               </button>
+              {(photoUploadError || voiceUploadError) && savedKinloomId && (
+                <button
+                  onClick={handleSkipMedia}
+                  disabled={saving}
+                  style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 22px', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', cursor: saving ? 'not-allowed' : 'pointer' }}
+                >
+                  Continue without media
+                </button>
+              )}
               <button
                 onClick={() => setStep(2)}
                 disabled={saving}

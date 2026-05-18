@@ -313,6 +313,258 @@ button {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.create-banner--inline {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
+
+/* ─── Attachment toggle buttons (voice / photo) ──────────── */
+.attach-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: rgba(26,26,26,0.55);
+  border: 1px solid var(--border);
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.attach-btn:hover {
+  color: var(--primary);
+  border-color: rgba(85,107,91,0.30);
+}
+.attach-btn--on {
+  background: rgba(85,107,91,0.10);
+  color: var(--primary);
+  border-color: rgba(85,107,91,0.30);
+}
+
+/* Visually-hidden helper (for the file input). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ─── Photo preview card ─────────────────────────────────── */
+.photo-preview {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.photo-preview__img {
+  width: 88px;
+  height: 88px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: var(--secondary);
+}
+.photo-preview__meta {
+  flex: 1;
+  min-width: 0;
+}
+.photo-preview__name {
+  margin: 0 0 4px;
+  font-size: 14px;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.photo-preview__size {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-4);
+}
+.photo-preview__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-4);
+  cursor: pointer;
+  flex-shrink: 0;
+  font-family: inherit;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.photo-preview__remove:hover {
+  background: rgba(212,24,61,0.06);
+  color: var(--destructive);
+  border-color: rgba(212,24,61,0.30);
+}
+
+/* ─── Voice recorder ─────────────────────────────────────── */
+.voice-recorder {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.voice-recorder__row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.voice-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.voice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.voice-btn--primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: 1px solid var(--primary);
+}
+.voice-btn--primary:hover:not(:disabled) { background: #475c4d; }
+.voice-btn--ghost {
+  background: transparent;
+  color: rgba(26,26,26,0.65);
+  border: 1px solid var(--border);
+}
+.voice-btn--ghost:hover:not(:disabled) {
+  color: var(--primary);
+  border-color: rgba(85,107,91,0.30);
+}
+
+.voice-recorder__status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--fg-4);
+  font-style: italic;
+}
+
+.voice-recorder__recording {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(212,24,61,0.25);
+  background: rgba(212,24,61,0.04);
+  border-radius: 10px;
+}
+.voice-recorder__stop {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.voice-recorder__pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--destructive);
+  animation: voice-pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+@keyframes voice-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.35; transform: scale(0.75); }
+}
+.voice-recorder__time {
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--foreground);
+  min-width: 48px;
+}
+.voice-recorder__hint {
+  font-size: 12px;
+  color: var(--fg-4);
+}
+
+.voice-recorder__preview {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+.voice-recorder__audio {
+  width: 100%;
+  min-width: 220px;
+}
+.voice-recorder__meta {
+  min-width: 0;
+}
+.voice-recorder__filename {
+  margin: 0 0 2px;
+  font-size: 13px;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+.voice-recorder__sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--fg-4);
+}
+.voice-recorder__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-4);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.voice-recorder__remove:hover {
+  background: rgba(212,24,61,0.06);
+  color: var(--destructive);
+  border-color: rgba(212,24,61,0.30);
+}
+
+.voice-recorder__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--destructive);
+}
 
 /* ─── Modal ──────────────────────────────────────────────── */
 .modal-backdrop {

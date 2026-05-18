@@ -21,9 +21,17 @@ const csp = [
   `default-src 'self'`,
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ''}`,
   `style-src 'self' 'unsafe-inline'`,
-  `img-src 'self' data: blob:`,
+  // GCS-hosted media (signed download URLs returned by /media/{id}/url
+  // live under storage.googleapis.com, or per-bucket subdomain variants).
+  `img-src 'self' data: blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com`,
+  // <audio>/<video> elements – needs its own directive, otherwise falls
+  // back to default-src and blocks GCS-hosted audio/video playback.
+  `media-src 'self' blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com`,
   `font-src 'self' data:`,
-  `connect-src 'self'${isDev ? ' ws: wss:' : ''}`,
+  // Direct PUT to GCS signed upload URLs requires connect-src for the
+  // bucket host. Browser uploads now go through /api/media-upload-proxy
+  // (same origin) so this is mostly defense-in-depth.
+  `connect-src 'self' https://storage.googleapis.com https://*.storage.googleapis.com${isDev ? ' ws: wss:' : ''}`,
   `frame-ancestors 'none'`,
   `form-action 'self'`,
   `base-uri 'self'`,
