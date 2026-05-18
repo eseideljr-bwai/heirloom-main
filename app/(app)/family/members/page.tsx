@@ -1,36 +1,77 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { getManageMembers } from '../../../../lib/server/queries';
 
-export default function FamilyMembersPage() {
+export const dynamic = 'force-dynamic';
+
+export default async function FamilyMembersPage() {
+  const familySpaceId = await getActiveSpaceId();
+  if (!familySpaceId) redirect('/onboarding/profile');
+
+  const { members, pending } = await getManageMembers(familySpaceId);
+
   return (
-    <div style={{ padding: '48px' }}>
-
-      <Link href="/family" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(26,26,26,0.6)', textDecoration: 'none', marginBottom: 32 }}>
+    <div className="manage-page">
+      <Link href="/family" className="link-back manage-page__back">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
         Family
       </Link>
 
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 40 }}>
+      <div className="manage-page__header">
         <div>
-          <p style={{ fontSize: 13, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#556b5b', margin: '0 0 12px' }}>Members</p>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 42, lineHeight: 1.15, margin: 0, color: '#1a1a1a' }}>Manage your family space.</h1>
+          <p className="eyebrow manage-page__eyebrow">Members</p>
+          <h1 className="manage-page__title">Manage your family space.</h1>
         </div>
-        <button style={{ background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '12px 24px', borderRadius: 8, fontSize: 14, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' }}>
-          + Invite member
-        </button>
+        {/* Invite mutation lands in Epic 4. */}
+        <button type="button" className="btn-primary" disabled>+ Invite member</button>
       </div>
 
-      <div style={{ background: 'rgba(245,244,241,0.40)', border: '1px solid #d4d2cc', borderRadius: 12, padding: '64px 48px', textAlign: 'center' }}>
-        <p style={{ fontFamily: 'var(--font-serif)', fontSize: 22, color: 'rgba(26,26,26,0.45)', margin: '0 0 8px' }}>
-          No family members yet.
-        </p>
-        <p style={{ fontSize: 15, color: 'rgba(26,26,26,0.5)', margin: '0 0 28px' }}>
-          Your family space is invite-only. Invite the people you want to include.
-        </p>
-        <button style={{ background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '12px 24px', borderRadius: 8, fontSize: 14, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' }}>
-          Send an invitation
-        </button>
-      </div>
+      <h2 className="manage-page__h2">Members ({members.length})</h2>
+      {members.length === 0 ? (
+        <div className="empty-card">
+          <p className="empty-card__text">No family members yet.</p>
+          <p className="empty-card__sub">Your family space is invite-only. Invite the people you want to include.</p>
+        </div>
+      ) : (
+        <ul className="manage-list">
+          {members.map(m => (
+            <li key={m.member_id} className="manage-list__row">
+              <span className="manage-list__avatar" style={{ background: (m.tone || '#a39376') + '28', color: m.tone || '#556b5b' }}>
+                {m.initials || m.name?.charAt(0) || '?'}
+              </span>
+              <div className="manage-list__body">
+                <p className="manage-list__name">{m.name}{m.is_me ? ' · You' : ''}</p>
+                <p className="manage-list__sub">
+                  {m.role_label || m.kin_term || ''}
+                  {m.deceased ? ' · Passed' : ''}
+                </p>
+              </div>
+              <Link href={`/family/${m.member_id}`} className="manage-list__link">View</Link>
+            </li>
+          ))}
+        </ul>
+      )}
 
+      {pending.length > 0 && (
+        <>
+          <h2 className="manage-page__h2 manage-page__h2--spaced">Pending invitations ({pending.length})</h2>
+          <ul className="manage-list">
+            {pending.map(inv => (
+              <li key={inv.ulid} className="manage-list__row">
+                <span className="manage-list__avatar manage-list__avatar--pending">@</span>
+                <div className="manage-list__body">
+                  <p className="manage-list__name">{inv.email}</p>
+                  <p className="manage-list__sub">
+                    {inv.role_label || 'Invited'}
+                    {inv.invited_at ? ` · sent ${inv.invited_at}` : ''}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }

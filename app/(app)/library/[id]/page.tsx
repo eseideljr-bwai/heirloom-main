@@ -1,21 +1,19 @@
-'use client';
-
-import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useAuth } from '../../../../lib/auth-context';
-import { useActiveFamilySpace } from '../../../../lib/active-family-space';
+import { notFound, redirect } from 'next/navigation';
+import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { getKinloomServer } from '../../../../lib/server/queries';
+import { ApiError } from '../../../../lib/api';
 import {
   bodyParagraphs,
   formatKinloomDate,
-  getKinloom,
   normalizeList,
-  toggleHold,
-  type Kinloom,
   type KinloomAuthor,
   type TaggableMember,
 } from '../../../../lib/kinloom';
-import { ApiError } from '../../../../lib/api';
 import { AudioPlayer } from '../../../components/AudioPlayer';
+import HoldButton from './HoldButton';
+
+export const dynamic = 'force-dynamic';
 
 type AnyMember = KinloomAuthor | TaggableMember;
 
@@ -24,7 +22,7 @@ function Silhouette({ member, size = 40, idKey }: { member: AnyMember; size?: nu
   const tone = member.tone || '#a39376';
   const bg = tone + '22';
   return (
-    <svg viewBox="0 0 80 80" width={size} height={size} aria-label={member.name} style={{ display: 'block', borderRadius: '50%', flexShrink: 0 }}>
+    <svg viewBox="0 0 80 80" width={size} height={size} aria-label={member.name} className="silhouette">
       <defs><clipPath id={`clip-det-${idKey}`}><circle cx="40" cy="40" r="40" /></clipPath></defs>
       <g clipPath={`url(#clip-det-${idKey})`}>
         <rect width="80" height="80" fill={bg} />
@@ -40,150 +38,59 @@ function Silhouette({ member, size = 40, idKey }: { member: AnyMember; size?: nu
   );
 }
 
-function NotFoundBlock() {
-  return (
-    <div style={{ padding: '48px' }}>
-      <Link href="/library" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(26,26,26,0.6)', textDecoration: 'none', marginBottom: 24 }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
-        Library
-      </Link>
-      <p style={{ fontFamily: 'var(--font-serif)', fontSize: 22, color: 'rgba(26,26,26,0.5)' }}>
-        Kinloom not found.
-      </p>
-    </div>
-  );
-}
+export default async function KinloomDetailPage({ params }: { params: { id: string } }) {
+  const familySpaceId = await getActiveSpaceId();
+  if (!familySpaceId) redirect('/onboarding/profile');
 
-function LoadingBlock() {
-  return (
-    <div style={{ padding: '48px' }}>
-      <p className="create-banner create-banner--muted" style={{ display: 'inline-block' }}>Loading kinloom…</p>
-    </div>
-  );
-}
+  let k;
+  try {
+    k = await getKinloomServer(familySpaceId, params.id);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) notFound();
+    throw err;
+  }
 
-export default function KinloomDetailPage({ params }: { params: { id: string } }) {
-  const { loading: authLoading } = useAuth();
-  const { activeSpaceId: familySpaceId } = useActiveFamilySpace();
-
-  const [kinloom, setKinloom] = useState<Kinloom | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [notFound, setNotFound] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [holdState, setHoldState] = useState<{ held_by_me: boolean; count: number }>({ held_by_me: false, count: 0 });
-  const [togglingHold, setTogglingHold] = useState(false);
-
-  useEffect(() => {
-    if (authLoading) return;
-    if (!familySpaceId) { setLoading(false); return; }
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setNotFound(false);
-    (async () => {
-      try {
-        const k = await getKinloom(familySpaceId, params.id);
-        if (cancelled) return;
-        // TEMP debug: inspect what the API returns for photo/audio.
-        if (typeof window !== 'undefined') {
-          console.log('[kinloom]', k.ulid, 'photo=', k.photo, 'audio=', k.audio);
-        }
-        setKinloom(k);
-        setHoldState(k.hold ?? { held_by_me: false, count: 0 });
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 404) {
-          setNotFound(true);
-        } else {
-          setError(err instanceof ApiError ? err.message : 'Could not load this kinloom.');
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [authLoading, familySpaceId, params.id]);
-
-  if (loading || authLoading) return <LoadingBlock />;
-  if (notFound || !kinloom) return <NotFoundBlock />;
-
-  const k = kinloom;
   const author = k.author;
   const tagged = normalizeList<TaggableMember>(k.tagged_kin);
   const paragraphs = bodyParagraphs(k.body_paragraphs);
   const dateLabel = formatKinloomDate(k.created_at);
-
-  const onToggleHold = async () => {
-    if (!familySpaceId || togglingHold) return;
-    setTogglingHold(true);
-    try {
-      const next = await toggleHold(familySpaceId, k.ulid);
-      setHoldState(next);
-    } catch {
-      // best-effort; ignore for now
-    } finally {
-      setTogglingHold(false);
-    }
-  };
+  const hold = k.hold ?? { held_by_me: false, count: 0 };
 
   return (
     <div>
-      <div style={{ borderBottom: '1px solid #d4d2cc', padding: '20px 0', marginBottom: 48 }}>
-        <div style={{ padding: '0 48px', maxWidth: 760 }}>
-          <Link href="/library" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(26,26,26,0.6)', textDecoration: 'none' }}>
+      <div className="detail-back">
+        <div className="detail-back__inner">
+          <Link href="/library" className="link-back">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
             Library
           </Link>
         </div>
       </div>
 
-      <article style={{ padding: '0 48px 80px', maxWidth: 720 }}>
-        {error && (
-          <p className="create-banner create-banner--error">{error}</p>
-        )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-          {k.type_label && (
-            <span style={{ display: 'inline-block', padding: '4px 12px', borderRadius: 9999, fontSize: 12, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b' }}>
-              {k.type_label}
-            </span>
-          )}
-          {dateLabel && <span style={{ fontSize: 13, color: 'rgba(26,26,26,0.5)' }}>{dateLabel}</span>}
+      <article className="detail-article">
+        <div className="detail-meta">
+          {k.type_label && <span className="badge">{k.type_label}</span>}
+          {dateLabel && <span className="detail-meta__date">{dateLabel}</span>}
         </div>
 
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 52, lineHeight: 1.1, margin: '0 0 24px', letterSpacing: '-0.005em', color: '#1a1a1a' }}>
-          {k.title}
-        </h1>
+        <h1 className="detail-title">{k.title || 'Untitled'}</h1>
 
         {author && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 32, marginBottom: 32, borderBottom: '1px solid #d4d2cc' }}>
+          <div className="detail-author">
             <Silhouette member={author} size={44} idKey={author.member_id} />
             <div>
-              <p style={{ margin: 0, fontSize: 14, color: '#1a1a1a' }}>
-                Kept by <strong style={{ fontWeight: 500 }}>{author.name}</strong>
-              </p>
+              <p className="detail-author__line">Kept by <strong>{author.name}</strong></p>
               {(author.role_label || author.kin_term) && (
-                <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(26,26,26,0.5)' }}>
-                  {author.role_label ?? author.kin_term}
-                </p>
+                <p className="detail-author__role">{author.role_label ?? author.kin_term}</p>
               )}
             </div>
           </div>
         )}
 
         {k.photo?.url && (
-          <figure style={{ margin: '0 0 32px' }}>
-            <div style={{ aspectRatio: '4/3', borderRadius: 12, overflow: 'hidden', background: '#f5f4f1' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={k.photo.url}
-                alt=""
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                onError={(e) => {
-                  console.error('[kinloom] photo failed to load', k.photo?.url, e);
-                }}
-              />
-            </div>
+          <figure className="detail-photo">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={k.photo.url} alt="" />
           </figure>
         )}
 
@@ -193,48 +100,37 @@ export default function KinloomDetailPage({ params }: { params: { id: string } }
             title={`${author?.name.split(' ')[0] ?? 'Voice'}\u2019s voice`}
             transcript={k.audio.transcript_text}
             fallbackDurationSeconds={
-              k.audio.duration_seconds != null
-                ? Number(k.audio.duration_seconds) || null
-                : null
+              k.audio.duration_seconds != null ? Number(k.audio.duration_seconds) || null : null
             }
           />
         )}
 
-        <div>
-          {paragraphs.map((p, i) => (
-            <p key={i} style={{ fontFamily: 'var(--font-serif)', fontSize: 19, lineHeight: 1.75, color: '#1a1a1a', margin: '0 0 24px' }}>
-              {p}
-            </p>
-          ))}
+        <div className="detail-body">
+          {paragraphs.map((p, i) => <p key={i}>{p}</p>)}
         </div>
 
         {tagged.length > 0 && (
-          <div style={{ paddingTop: 28, marginTop: 32, borderTop: '1px solid #d4d2cc' }}>
-            <p className="eyebrow" style={{ marginBottom: 14 }}>For</p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+          <div className="detail-tagged">
+            <p className="eyebrow">For</p>
+            <div className="detail-tagged__row">
               {tagged.map(m => (
-                <div key={m.member_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px 6px 6px', background: '#f5f4f1', borderRadius: 9999 }}>
+                <div key={m.member_id} className="detail-tagged__chip">
                   <Silhouette member={m} size={28} idKey={m.member_id} />
-                  <span style={{ fontSize: 13, color: 'rgba(26,26,26,0.8)' }}>{m.name}</span>
+                  <span>{m.name}</span>
                 </div>
               ))}
             </div>
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 8, marginTop: 48, paddingTop: 24, borderTop: '1px solid #d4d2cc', flexWrap: 'wrap' }}>
-          <button
-            onClick={onToggleHold}
-            disabled={togglingHold}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: holdState.held_by_me ? 'rgba(85,107,91,0.10)' : 'transparent', color: holdState.held_by_me ? '#556b5b' : 'rgba(26,26,26,0.65)', border: `1px solid ${holdState.held_by_me ? 'rgba(85,107,91,0.40)' : '#d4d2cc'}`, padding: '8px 14px', borderRadius: 8, fontSize: 13, fontFamily: 'inherit', cursor: togglingHold ? 'not-allowed' : 'pointer' }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
-            {holdState.held_by_me ? 'Holding' : 'Hold a moment'}
-            {holdState.count > 0 && <span style={{ fontSize: 12, opacity: 0.7 }}>· {holdState.count}</span>}
-          </button>
-          <Link href="/create" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'transparent', color: 'rgba(26,26,26,0.65)', border: '1px solid #d4d2cc', padding: '8px 14px', borderRadius: 8, fontSize: 13, textDecoration: 'none' }}>
-            Reply with a kinloom
-          </Link>
+        <div className="detail-actions">
+          <HoldButton
+            familySpaceId={familySpaceId}
+            kinloomId={k.ulid}
+            initialHeldByMe={hold.held_by_me}
+            initialCount={hold.count}
+          />
+          <Link href="/create" className="btn-outline btn-outline--sm">Reply with a kinloom</Link>
         </div>
       </article>
     </div>
