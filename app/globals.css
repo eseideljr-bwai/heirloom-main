@@ -566,6 +566,181 @@ button {
   color: var(--destructive);
 }
 
+/* ─── Audio player (kinloom detail) ──────────────────────── */
+.audio-player {
+  background: rgba(85,107,91,0.05);
+  border: 1px solid rgba(85,107,91,0.20);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin: 0 0 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.audio-player__head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.audio-player__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+.audio-player__transcript {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(26,26,26,0.55);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.audio-player__controls {
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+.audio-player__play,
+.audio-player__skip {
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+.audio-player__play {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.audio-player__play:hover:not(:disabled) { background: #475c4d; }
+.audio-player__skip {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(26,26,26,0.55);
+}
+.audio-player__skip:hover:not(:disabled) {
+  background: rgba(85,107,91,0.10);
+  color: var(--primary);
+}
+.audio-player__play:disabled,
+.audio-player__skip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.audio-player__scrub {
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+}
+.audio-player__track {
+  position: absolute;
+  inset: 50% 0 auto 0;
+  height: 4px;
+  transform: translateY(-50%);
+  background: rgba(85,107,91,0.18);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.audio-player__progress {
+  height: 100%;
+  background: var(--primary);
+  border-radius: 9999px;
+  transition: width 100ms linear;
+}
+.audio-player__range {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+}
+.audio-player__range:disabled { cursor: not-allowed; }
+.audio-player__range::-webkit-slider-runnable-track {
+  height: 4px;
+  background: transparent;
+}
+.audio-player__range::-moz-range-track {
+  height: 4px;
+  background: transparent;
+  border: none;
+}
+.audio-player__range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--background);
+  margin-top: -5px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  transition: transform 120ms ease;
+}
+.audio-player__range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 2px solid var(--background);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+  transition: transform 120ms ease;
+}
+.audio-player__range:active::-webkit-slider-thumb,
+.audio-player__range:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.2);
+}
+.audio-player__range:active::-moz-range-thumb,
+.audio-player__range:focus-visible::-moz-range-thumb {
+  transform: scale(1.2);
+}
+.audio-player__range:focus { outline: none; }
+
+.audio-player__time {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(26,26,26,0.55);
+  white-space: nowrap;
+}
+.audio-player__time-sep { opacity: 0.5; margin: 0 2px; }
+
+.audio-player__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--destructive);
+}
+
+@media (max-width: 520px) {
+  .audio-player__controls {
+    grid-template-columns: auto auto auto 1fr;
+  }
+  .audio-player__time {
+    grid-column: 1 / -1;
+    text-align: right;
+  }
+}
+
 /* ─── Modal ──────────────────────────────────────────────── */
 .modal-backdrop {
   position: fixed;

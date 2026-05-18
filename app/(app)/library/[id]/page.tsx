@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../../../../lib/auth-context';
 import { getActiveFamilySpaceId } from '../../../../lib/auth';
@@ -15,6 +15,7 @@ import {
   type TaggableMember,
 } from '../../../../lib/kinloom';
 import { ApiError } from '../../../../lib/api';
+import { AudioPlayer } from '../../../components/AudioPlayer';
 
 type AnyMember = KinloomAuthor | TaggableMember;
 
@@ -69,24 +70,8 @@ export default function KinloomDetailPage({ params }: { params: { id: string } }
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [playing, setPlaying] = useState(false);
   const [holdState, setHoldState] = useState<{ held_by_me: boolean; count: number }>({ held_by_me: false, count: 0 });
   const [togglingHold, setTogglingHold] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  const togglePlay = async () => {
-    const a = audioRef.current;
-    if (!a) return;
-    try {
-      if (a.paused) {
-        await a.play();
-      } else {
-        a.pause();
-      }
-    } catch (err) {
-      console.error('[kinloom] audio play failed', err);
-    }
-  };
 
   useEffect(() => {
     if (authLoading) return;
@@ -203,41 +188,16 @@ export default function KinloomDetailPage({ params }: { params: { id: string } }
         )}
 
         {k.audio?.url && (
-          <div style={{ background: 'rgba(85,107,91,0.05)', border: '1px solid rgba(85,107,91,0.20)', borderRadius: 12, padding: 20, marginBottom: 32, display: 'flex', alignItems: 'center', gap: 16 }}>
-            <audio
-              ref={audioRef}
-              src={k.audio.url}
-              preload="metadata"
-              onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
-              onEnded={() => setPlaying(false)}
-              onError={(e) => console.error('[kinloom] audio failed to load', k.audio?.url, e)}
-            />
-            <button
-              onClick={togglePlay}
-              aria-label={playing ? 'Pause voice' : 'Play voice'}
-              style={{ width: 44, height: 44, borderRadius: '50%', background: '#556b5b', border: 'none', color: '#fdfcfa', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              {playing
-                ? <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14"/><rect x="14" y="5" width="4" height="14"/></svg>
-                : <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
-              }
-            </button>
-            <div style={{ flex: 1 }}>
-              <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: '#1a1a1a' }}>
-                {author?.name.split(' ')[0] ?? 'Voice'}&apos;s voice
-              </p>
-              {k.audio.transcript_text && (
-                <p style={{ margin: '4px 0 0', fontSize: 12, color: 'rgba(26,26,26,0.55)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                  {k.audio.transcript_text}
-                </p>
-              )}
-            </div>
-            {k.audio.duration_seconds != null && (
-              <span style={{ fontSize: 12, color: 'rgba(26,26,26,0.5)' }}>
-                {Math.round(Number(k.audio.duration_seconds) || 0)}s
-              </span>
-            )}
-          </div>
+          <AudioPlayer
+            src={k.audio.url}
+            title={`${author?.name.split(' ')[0] ?? 'Voice'}\u2019s voice`}
+            transcript={k.audio.transcript_text}
+            fallbackDurationSeconds={
+              k.audio.duration_seconds != null
+                ? Number(k.audio.duration_seconds) || null
+                : null
+            }
+          />
         )}
 
         <div>
