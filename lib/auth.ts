@@ -1,4 +1,6 @@
-import { apiFetch, saveTokens, clearTokens, AuthTokens } from './api';
+import { apiFetch, ApiError, type AuthTokens } from './api';
+
+export type { AuthTokens };
 
 /**
  * One family space the current user belongs to.
@@ -68,15 +70,40 @@ export function getActiveFamilySpaceId(user: AuthUser | null): string | null {
   return spaces[0]?.ulid ?? null;
 }
 
-type AuthResponse = AuthTokens & { user: AuthUser };
+/**
+ * Auth endpoints. After Epic 3 these talk to the Next.js BFF
+ * (`/api/auth/*`), not to Laravel directly. The BFF sets HttpOnly
+ * cookies; the browser never sees the bearer or refresh token.
+ */
+
+async function authFetch<T>(path: string, body?: unknown): Promise<T> {
+  const init: RequestInit = {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+    credentials: 'same-origin',
+  };
+  if (body !== undefined) {
+    init.headers = { ...init.headers, 'Content-Type': 'application/json' };
+    init.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, init);
+  const text = await res.text();
+  let data: unknown = null;
+  if (text) {
+    try { data = JSON.parse(text); } catch { data = text; }
+  }
+  if (!res.ok) {
+    const message =
+      data && typeof data === 'object' && 'message' in data && typeof (data as { message: unknown }).message === 'string'
+        ? (data as { message: string }).message
+        : `Request failed (${res.status})`;
+    throw new ApiError(res.status, message, data);
+  }
+  return data as T;
+}
 
 export async function login(email: string, password: string): Promise<AuthUser> {
-  const res = await apiFetch<AuthResponse>('/auth/login', {
-    method: 'POST',
-    body: { email, password },
-    anonymous: true,
-  });
-  saveTokens(res);
+  const res = await authFetch<{ user: AuthUser }>('/api/auth/login', { email, password });
   return res.user;
 }
 
@@ -88,12 +115,7 @@ export type RegisterPayload = {
 };
 
 export async function register(payload: RegisterPayload): Promise<AuthUser> {
-  const res = await apiFetch<AuthResponse>('/auth/register', {
-    method: 'POST',
-    body: payload,
-    anonymous: true,
-  });
-  saveTokens(res);
+  const res = await authFetch<{ user: AuthUser }>('/api/auth/register', payload);
   return res.user;
 }
 
@@ -105,13 +127,18 @@ export async function forgotPassword(email: string): Promise<void> {
   });
 }
 
-export function logout() {
-  clearTokens();
+export async function logout(): Promise<void> {
+  try {
+    await authFetch<{ ok: true }>('/api/auth/logout');
+  } catch {
+    // Best effort — cookies should clear server-side. If not, the next
+    // protected request will 401 and middleware will redirect.
+  }
 }
 
 export async function getMe(): Promise<AuthUser> {
-  const res = await apiFetch<{ data: AuthUser }>('/me');
-  return res.data;
+  const res = await authFetch<{ user: AuthUser }>('/api/auth/me');
+  return res.user;
 }
 
 // ─── Settings: profile / password / account ───────────────────────
@@ -153,7 +180,7 @@ export async function changePassword(payload: ChangePasswordPayload): Promise<vo
 
 export async function deleteAccount(): Promise<void> {
   await apiFetch<void>('/me', { method: 'DELETE' });
-  clearTokens();
+  await logout();
 }
 
 // ─── Onboarding ───────────────────────────────────────────────────

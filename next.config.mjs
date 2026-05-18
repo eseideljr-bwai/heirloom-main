@@ -82,20 +82,11 @@ const nextConfig = {
     ];
   },
 
-  // Proxy backend API through Next.js so the browser sees same-origin
-  // requests (avoids CORS). Override the destination with BACKEND_API_URL.
-  async rewrites() {
-    const backend = (
-      process.env.BACKEND_API_URL ||
-      'https://kinloom-api-laravel-fz0wpjzb.on-forge.com/api'
-    ).replace(/\/$/, '');
-    return [
-      {
-        source: '/proxy/:path*',
-        destination: `${backend}/:path*`,
-      },
-    ];
-  },
+  // Note: previously a `/proxy/:path*` rewrite forwarded directly to
+  // Laravel. After Epic 3 the browser talks to a BFF route handler at
+  // `/api/proxy/[...path]` instead, which reads the HttpOnly id_token
+  // cookie and attaches the Bearer header. The server-only Laravel host
+  // is configured via `KINLOOM_API_URL` (or `BACKEND_API_URL`).
 };
 
 export default nextConfig;

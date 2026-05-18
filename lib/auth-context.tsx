@@ -1,16 +1,20 @@
 'use client';
 
 /**
- * Client-side auth state. Replaces Firebase's `onAuthStateChanged`.
+ * Client-side auth state.
  *
- * Epic 2 behaviour:
- *   - Caches the last-known `/me` payload to localStorage so protected
- *     routes can render synchronously on repeat visits (no auth-flicker
- *     "loading splash" between hydration and `/me` resolving).
- *   - Enforces an idle 24h timeout and an absolute 30d session lifetime.
- *     Activity = pointer/keyboard input on the document, or any
- *     authenticated API call (see `apiFetch` in ./api).
- *   - On expiry, tokens are cleared and the user is bounced to `/`.
+ * Post-Epic-3:
+ *   - `initialUser` is provided by the server root layout, so first paint
+ *     is always correct without a /me round-trip.
+ *   - Tokens live in HttpOnly cookies and never touch JS. The client
+ *     can't read them; we use the non-HttpOnly `kinloom_session_started_at`
+ *     cookie as a "session exists" probe for the idle/absolute watchdog.
+ *   - Login/register/logout go through the Next.js BFF (`/api/auth/*`),
+ *     which sets/clears the cookies and returns the user payload.
+ *   - Idle 24h + absolute 30d are still enforced client-side; on expiry
+ *     we hit /api/auth/logout (clears cookies) and bounce to `/`.
+ *   - Multi-tab sync via BroadcastChannel (storage events can't see
+ *     HttpOnly cookies).
  */
 
 import {
@@ -32,8 +36,7 @@ import {
 import {
   ABSOLUTE_TIMEOUT_MS,
   checkSessionStatus,
-  clearTokens,
-  getIdToken,
+  getSessionStartedAt,
   IDLE_TIMEOUT_MS,
   touchActivity,
 } from './api';
@@ -43,129 +46,72 @@ type AuthContextValue = {
   loading: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
   register: (payload: RegisterPayload) => Promise<AuthUser>;
-  logout: () => void;
+  logout: () => Promise<void>;
   refresh: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const USER_CACHE_KEY = 'heirloom.user_cache';
+/**
+ * Server-rendered initial user. Passed by the root layout (server
+ * component) so the very first paint already has the right `user` and
+ * no /me round-trip is needed on cold starts.
+ */
+export type AuthProviderProps = {
+  children: React.ReactNode;
+  initialUser?: AuthUser | null;
+};
 
-function readCachedUser(): AuthUser | null {
-  if (typeof window === 'undefined') return null;
-  if (!window.localStorage.getItem('heirloom.id_token')) return null;
-  try {
-    const raw = window.localStorage.getItem(USER_CACHE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as AuthUser;
-  } catch {
-    return null;
-  }
-}
-
-function writeCachedUser(user: AuthUser | null) {
-  if (typeof window === 'undefined') return;
-  if (user) {
-    window.localStorage.setItem(USER_CACHE_KEY, JSON.stringify(user));
-  } else {
-    window.localStorage.removeItem(USER_CACHE_KEY);
-  }
-}
-
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // Initialize from cache so we don't render a loading state on every
-  // protected route load. Middleware already redirected un-authed users.
-  const [user, setUser] = useState<AuthUser | null>(() => readCachedUser());
-  // `loading` only matters on cold starts when we have a token but no
-  // cached user. Otherwise we're "loaded" immediately.
-  const [loading, setLoading] = useState(() => {
-    if (typeof window === 'undefined') return true;
-    return !!getIdToken() && !readCachedUser();
-  });
-
-  const setUserPersist = useCallback((next: AuthUser | null) => {
-    setUser(next);
-    writeCachedUser(next);
-  }, []);
+export function AuthProvider({ children, initialUser = null }: AuthProviderProps) {
+  const [user, setUser] = useState<AuthUser | null>(initialUser);
+  // No loading state on cold start anymore — server already resolved the
+  // user. `loading` is only here for backwards-compat with callers that
+  // gate on it; it stays `false`.
+  const [loading] = useState(false);
 
   const refresh = useCallback(async () => {
-    if (!getIdToken()) {
-      setUserPersist(null);
+    if (!getSessionStartedAt()) {
+      setUser(null);
       return;
     }
     try {
       const me = await getMe();
-      setUserPersist(me);
+      setUser(me);
     } catch {
-      clearTokens();
-      setUserPersist(null);
+      setUser(null);
     }
-  }, [setUserPersist]);
+  }, []);
 
-  // Cold-start hydration: validate the cached user against /me, but in
-  // the background so we don't block first paint.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      // First, check that the session hasn't expired while the tab was
-      // closed. If it has, clear everything before we even hit the network.
-      const status = checkSessionStatus();
-      if (status === 'idle_expired' || status === 'absolute_expired') {
-        clearTokens();
-        setUserPersist(null);
-        setLoading(false);
-        return;
-      }
-      if (!getIdToken()) {
-        setUserPersist(null);
-        setLoading(false);
-        return;
-      }
-      try {
-        const me = await getMe();
-        if (!cancelled) setUserPersist(me);
-      } catch {
-        if (!cancelled) {
-          clearTokens();
-          setUserPersist(null);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [setUserPersist]);
+  const broadcast = useCallback((msg: 'login' | 'logout') => {
+    if (typeof BroadcastChannel === 'undefined') return;
+    try {
+      const bc = new BroadcastChannel('kinloom_auth');
+      bc.postMessage(msg);
+      bc.close();
+    } catch {
+      // ignore
+    }
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const u = await apiLogin(email, password);
-    try {
-      const me = await getMe();
-      setUserPersist(me);
-      return me;
-    } catch {
-      setUserPersist(u);
-      return u;
-    }
-  }, [setUserPersist]);
+    setUser(u);
+    broadcast('login');
+    return u;
+  }, [broadcast]);
 
   const register = useCallback(async (payload: RegisterPayload) => {
     const u = await apiRegister(payload);
-    try {
-      const me = await getMe();
-      setUserPersist(me);
-      return me;
-    } catch {
-      setUserPersist(u);
-      return u;
-    }
-  }, [setUserPersist]);
+    setUser(u);
+    broadcast('login');
+    return u;
+  }, [broadcast]);
 
-  const logout = useCallback(() => {
-    apiLogout();
-    setUserPersist(null);
-  }, [setUserPersist]);
+  const logout = useCallback(async () => {
+    await apiLogout();
+    setUser(null);
+    broadcast('logout');
+  }, [broadcast]);
 
   // ─── Activity tracking (idle 24h) ───────────────────────────────
   // Debounced: at most one localStorage write per ACTIVITY_THROTTLE_MS.
@@ -220,29 +166,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user, logout]);
 
-  // ─── Cross-tab sync ────────────────────────────────────────────
-  // If another tab logs in/out, mirror the change here instead of
-  // running on stale state.
+  // ─── Cross-tab sync via BroadcastChannel ───────────────────────
+  // Token cookies are HttpOnly so we can't watch them via `storage`.
+  // Instead, login/logout broadcasts a message and other tabs refetch.
   useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === 'heirloom.id_token') {
-        if (!e.newValue) {
-          setUser(null);
-        } else if (!user) {
-          // Another tab signed in — pull the fresh profile.
-          refresh();
-        }
-      } else if (e.key === USER_CACHE_KEY && e.newValue) {
-        try {
-          setUser(JSON.parse(e.newValue) as AuthUser);
-        } catch {
-          // ignore
-        }
-      }
+    if (typeof BroadcastChannel === 'undefined') return;
+    const bc = new BroadcastChannel('kinloom_auth');
+    bc.onmessage = (e) => {
+      if (e.data === 'logout') setUser(null);
+      else if (e.data === 'login') refresh();
     };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, [user, refresh]);
+    return () => bc.close();
+  }, [refresh]);
 
   return (
     <AuthContext.Provider value={{ user, loading, login, register, logout, refresh }}>

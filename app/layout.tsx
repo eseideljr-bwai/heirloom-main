@@ -3,6 +3,7 @@ import { Inter, Crimson_Pro } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '../lib/auth-context';
 import { ActiveFamilySpaceProvider } from '../lib/active-family-space';
+import { getCurrentUser, getActiveSpaceId } from '../lib/server/auth';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -23,12 +24,24 @@ export const metadata: Metadata = {
   description: 'A private family platform that helps you create, preserve, and stay connected through what matters most.',
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+/**
+ * Server component. Resolves the current user + active space from
+ * cookies during render so providers boot with the right state — no
+ * client-side /me round-trip needed on first paint (Epic 3).
+ */
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const [user, activeSpaceId] = await Promise.all([
+    getCurrentUser(),
+    getActiveSpaceId(),
+  ]);
+
   return (
     <html lang="en" className={`${inter.variable} ${crimsonPro.variable}`}>
       <body>
-        <AuthProvider>
-          <ActiveFamilySpaceProvider>{children}</ActiveFamilySpaceProvider>
+        <AuthProvider initialUser={user}>
+          <ActiveFamilySpaceProvider initialActiveSpaceId={activeSpaceId}>
+            {children}
+          </ActiveFamilySpaceProvider>
         </AuthProvider>
       </body>
     </html>

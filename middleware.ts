@@ -1,21 +1,17 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 /**
- * Server-side route protection for Epic 2.
+ * Server-side route protection.
  *
- * Reads the `kinloom_session` cookie (mirrored client-side from the
- * `id_token` localStorage entry). Tokens themselves stay in localStorage
- * (matches the existing Firebase-era persistence model); this cookie is
- * just a "session present" flag so we can redirect on the edge before any
- * protected HTML is shipped. Without this, unauthenticated users see the
- * protected app's HTML for a frame before the `useEffect` guard runs.
+ * Reads the HttpOnly `kinloom_id_token` cookie (set by /api/auth/login
+ * and /api/auth/register). Protected routes redirect to `/` when it's
+ * missing; auth-entry routes redirect to `/home` when it's present.
  *
- * NOTE: cookie is HttpOnly=false on purpose — the client owns it. If we
- * ever move tokens out of localStorage and into HttpOnly cookies, this
- * flag goes with them.
+ * This runs before any React renders, so unauthenticated users never
+ * receive protected HTML.
  */
 
-const SESSION_COOKIE = 'kinloom_session';
+const SESSION_COOKIE = 'kinloom_id_token';
 
 const PROTECTED_PREFIXES = [
   '/home',
@@ -38,7 +34,7 @@ function isProtected(pathname: string): boolean {
 
 export function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
-  const hasSession = req.cookies.get(SESSION_COOKIE)?.value === '1';
+  const hasSession = !!req.cookies.get(SESSION_COOKIE)?.value;
 
   if (!hasSession && isProtected(pathname)) {
     const url = req.nextUrl.clone();
