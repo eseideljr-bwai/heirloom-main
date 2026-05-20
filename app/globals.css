@@ -188,3 +188,61 @@ body.has-texture::before {
   background-position: 0 0, 3px 3px;
   mix-blend-mode: multiply;
 }
+
+/* ─── Create flow animations and helpers ───────────────────── */
+@keyframes kinloomPulse {
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 1; }
+}
+@keyframes kinloomFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kinloomSlideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes kinloomLoadingBar {
+  0%, 100% { transform: scaleY(0.3); opacity: 0.3; }
+  50%       { transform: scaleY(1);   opacity: 0.85; }
+}
+.kinloom-loading-bar {
+  display: inline-block;
+  width: 3px; height: 18px;
+  background: #556b5b;
+  border-radius: 1.5px;
+  transform-origin: center;
+  animation: kinloomLoadingBar 1.1s ease-in-out infinite;
+}
+.write-body:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(26,26,26,0.35);
+  font-style: italic;
+  pointer-events: none;
+}
+.creation-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 48px;
+  height: 52px;
+  border-bottom: 1px solid #d4d2cc;
+  background: rgba(253,252,250,0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex-shrink: 0;
+}
+.topbar-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 13px;
+  color: rgba(26,26,26,0.55);
+  cursor: pointer;
+  transition: color 150ms;
+}
+.topbar-link:hover { color: #556b5b; }
