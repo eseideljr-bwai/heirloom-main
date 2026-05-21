@@ -7,3 +7,8 @@ node_modules/
 # macOS
 .DS_Store
 **/.DS_Store
+
+# Env / secrets
+.env
+.env.local
+.env.*.local

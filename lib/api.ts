@@ -1,16 +1,21 @@
 /**
- * Browser-side Heirloom API fetcher.
+ * Browser-side Heirloom API fetcher (Epic 1: Firebase-backed).
  *
- * After Epic 3, tokens live in HttpOnly cookies and never touch JS.
- * The browser only talks to the BFF (`/api/proxy/*` and `/api/auth/*`);
- * the BFF translates cookie → Bearer header → Laravel.
+ *   Browser  →  /api/proxy/<...>  (BFF, same origin)
+ *           →  attaches Bearer from the kinloom_id_token cookie
+ *           →  forwards to Laravel
  *
- * Server components / route handlers should NOT use this — they should
- * import `serverApiFetch` from `lib/server/api.ts` instead, which talks
- * directly to Laravel.
+ * The browser does NOT touch Firebase here on purpose: keeping this
+ * module free of any Firebase Web SDK imports lets server code import
+ * `ApiError` / `apiFetch` without dragging the SDK into the SSR
+ * bundle. Token refresh is driven by `onIdTokenChanged` in
+ * lib/auth-context.tsx, which re-posts the fresh ID token to
+ * /api/auth/session and the cookie stays current.
+ *
+ * Server components and route handlers should use `serverApiFetch`
+ * from lib/server/api.ts.
  */
 
-/** Base for all client API calls. The BFF lives at the same origin. */
 export const API_BASE = '/api/proxy';
 
 const SESSION_STARTED_AT_COOKIE = 'kinloom_session_started_at';
@@ -19,14 +24,6 @@ const LAST_ACTIVITY_KEY = 'kinloom.last_activity_at';
 // Epic 2: idle 24h, absolute 30d.
 export const IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 export const ABSOLUTE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
-
-// ─── Token shape (still used by route handlers + server fetcher) ────
-
-export type AuthTokens = {
-  id_token: string;
-  refresh_token: string;
-  expires_in: number;
-};
 
 // ─── Errors ────────────────────────────────────────────────────────
 
@@ -97,9 +94,9 @@ export type SessionStatus =
   | 'absolute_expired';
 
 /**
- * The presence of a session is gated by the cookie, but the cookie is
- * HttpOnly so the client can't read it directly. We use the existence
- * of `session_started_at` (set by the login route) as a proxy.
+ * Session-presence proxy. The Firebase session cookie is HttpOnly so
+ * the client can't read it directly; `session_started_at` (set by the
+ * server when the session cookie is minted) doubles as a probe.
  */
 export function checkSessionStatus(now: number = Date.now()): SessionStatus {
   const startedAt = getSessionStartedAt();
@@ -129,6 +126,10 @@ export async function apiFetch<T = unknown>(
     ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     ...((headers as Record<string, string>) || {}),
   };
+  if (anonymous) {
+    // Hint to the BFF that no Bearer should be attached.
+    h['X-Kinloom-Anonymous'] = '1';
+  }
 
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
 
@@ -136,7 +137,6 @@ export async function apiFetch<T = unknown>(
     ...rest,
     headers: h,
     body: body !== undefined ? JSON.stringify(body) : undefined,
-    // Cookies need to ride along for the BFF to forward.
     credentials: 'same-origin',
   });
 

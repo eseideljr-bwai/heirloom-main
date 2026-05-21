@@ -1,29 +1,30 @@
 /**
- * Catch-all BFF proxy for any client-side API call that isn't auth-related.
+ * Catch-all BFF proxy for client-side API calls (Epic 1: Firebase-backed).
  *
  *   Browser  →  GET /api/proxy/family-spaces/X/library
- *   Next     →  reads kinloom_id_token cookie, adds Bearer header
- *            →  forwards to https://kinloom-api.../api/family-spaces/X/library
+ *   Next     →  reads kinloom_id_token cookie, attaches Bearer
+ *           →  forwards to Laravel
  *
- * Why a BFF and not a rewrite? Because Next.js `rewrites()` can't read or
- * mutate cookies. Tokens live in HttpOnly cookies (Epic 3 prerequisite),
- * so we need a server hop to translate cookie → Authorization header.
+ * Why a BFF at all (not a Next rewrite to Laravel)?
  *
- * Auto-refresh on 401: if Laravel rejects the bearer, we try /auth/refresh
- * once (using the refresh_token cookie), rotate cookies, and retry.
+ *   • Same-origin requests sidestep CORS for the Laravel host.
+ *   • CSP can stay as `connect-src 'self' ...` instead of having to
+ *     allowlist the Laravel origin in every browser.
+ *   • The Firebase Web SDK doesn't need to be imported into every
+ *     module that calls an API — the BFF reads the short-lived ID
+ *     token cookie (kept fresh by lib/auth-context.tsx's
+ *     onIdTokenChanged listener). If the cookie is stale, the
+ *     server-side resolver mints a fresh ID token via custom-token
+ *     exchange. Either way, the browser never has to think about it.
  *
- * Multipart uploads (the media upload path) are forwarded as-is — we
- * stream the request body rather than parsing it.
+ * Multipart uploads are streamed as-is (we don't buffer or parse).
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { cookies } from 'next/headers';
-import { SERVER_API_BASE } from '../../../../lib/server/api';
-import { setSessionCookies, clearSessionCookies } from '../../../../lib/server/auth-routes';
-import { COOKIES } from '../../../../lib/server/cookies';
-import type { AuthTokens } from '../../../../lib/auth';
+import { SERVER_API_BASE, resolveBearerForProxy } from '../../../../lib/server/api';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 const ALLOWED_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
 type Method = typeof ALLOWED_METHODS[number];
@@ -41,70 +42,34 @@ async function handle(
   const search = req.nextUrl.search;
   const target = `${SERVER_API_BASE}/${pathSegments}${search}`;
 
-  // Buffer the body once so we can retry after refresh without
-  // consuming a stream twice.
-  const bodyBuf: ArrayBuffer | null =
-    method === 'GET' || method === 'DELETE' ? null : await req.arrayBuffer();
+  const anonymous = req.headers.get('x-kinloom-anonymous') === '1';
 
-  const idToken = () => cookies().get(COOKIES.idToken)?.value;
-  const refreshToken = () => cookies().get(COOKIES.refreshToken)?.value;
-
-  const buildHeaders = (token: string | undefined): HeadersInit => {
-    const h: Record<string, string> = {};
-    // Forward content-type + accept; drop hop-by-hop headers.
-    const ct = req.headers.get('content-type');
-    const accept = req.headers.get('accept');
-    if (ct) h['Content-Type'] = ct;
-    h['Accept'] = accept || 'application/json';
-    if (token) h['Authorization'] = `Bearer ${token}`;
-    return h;
-  };
-
-  const send = (token: string | undefined) =>
-    fetch(target, {
-      method,
-      headers: buildHeaders(token),
-      body: bodyBuf,
-      cache: 'no-store',
-      // Don't follow redirects opaquely — pass them back to the browser.
-      redirect: 'manual',
-    });
-
-  let upstream = await send(idToken());
-
-  // Try one auto-refresh on 401.
-  let rotatedTokens: AuthTokens | null = null;
-  if (upstream.status === 401) {
-    const rt = refreshToken();
-    if (rt) {
-      const refreshRes = await fetch(`${SERVER_API_BASE}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({ refresh_token: rt }),
-        cache: 'no-store',
-      });
-      if (refreshRes.ok) {
-        rotatedTokens = (await refreshRes.json()) as AuthTokens;
-        upstream = await send(rotatedTokens.id_token);
-      }
-    }
+  const headers = new Headers();
+  const ct = req.headers.get('content-type');
+  const accept = req.headers.get('accept');
+  if (ct) headers.set('Content-Type', ct);
+  headers.set('Accept', accept || 'application/json');
+  if (!anonymous) {
+    const bearer = await resolveBearerForProxy();
+    if (bearer) headers.set('Authorization', `Bearer ${bearer}`);
   }
 
-  // Mirror upstream status + content-type to the browser.
+  const body: ArrayBuffer | null =
+    method === 'GET' || method === 'DELETE' ? null : await req.arrayBuffer();
+
+  const upstream = await fetch(target, {
+    method,
+    headers,
+    body,
+    cache: 'no-store',
+    redirect: 'manual',
+  });
+
   const respHeaders = new Headers();
   const upstreamCt = upstream.headers.get('content-type');
   if (upstreamCt) respHeaders.set('content-type', upstreamCt);
   const buf = await upstream.arrayBuffer();
-  const res = new NextResponse(buf, { status: upstream.status, headers: respHeaders });
-
-  if (rotatedTokens) {
-    setSessionCookies(res, rotatedTokens);
-  } else if (upstream.status === 401) {
-    // Bearer is dead and no refresh worked — wipe the session.
-    clearSessionCookies(res);
-  }
-
-  return res;
+  return new NextResponse(buf, { status: upstream.status, headers: respHeaders });
 }
 
 export async function GET(req: NextRequest, ctx: { params: { path: string[] } }) {

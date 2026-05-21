@@ -1,9 +1,11 @@
 /**
- * GET /api/auth/me — current user via the HttpOnly id_token cookie.
+ * GET /api/auth/me — current user via the Firebase session cookie.
  *
- * Used by the client `AuthProvider.refresh()` to revalidate the cached
- * user after mutations (profile update, etc). Server components should
- * call `getCurrentUser()` from `lib/server/auth.ts` instead.
+ * After Epic 1 the client `AuthProvider.refresh()` calls Laravel
+ * `/me` directly via the BFF proxy. This endpoint is left in place
+ * as a diagnostic ("am I signed in, server-side?") and for any
+ * legacy callers; it returns the same Laravel profile but via the
+ * route handler so 401 status comes through cleanly.
  */
 
 import { NextResponse } from 'next/server';

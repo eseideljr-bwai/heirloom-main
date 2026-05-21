@@ -5,6 +5,10 @@ import { AuthProvider } from '../lib/auth-context';
 import { ActiveFamilySpaceProvider } from '../lib/active-family-space';
 import { getCurrentUser, getActiveSpaceId } from '../lib/server/auth';
 
+// We read cookies during render to hydrate auth state — the root
+// layout must be dynamic.
+export const dynamic = 'force-dynamic';
+
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',

@@ -1,17 +1,25 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 /**
- * Server-side route protection.
+ * Edge middleware — does two things:
  *
- * Reads the HttpOnly `kinloom_id_token` cookie (set by /api/auth/login
- * and /api/auth/register). Protected routes redirect to `/` when it's
- * missing; auth-entry routes redirect to `/home` when it's present.
+ *   1. Route protection (Epic 2).
+ *      Presence-checks the `kinloom_session` cookie. Protected routes
+ *      redirect to `/` when it's missing; auth-entry routes redirect
+ *      to `/home` when it's present. Actual signature verification
+ *      happens in `getCurrentUser` (server component) — middleware
+ *      runs hot enough that a remote verify per request would be
+ *      wasteful.
  *
- * This runs before any React renders, so unauthenticated users never
- * receive protected HTML.
+ *   2. Strict CSP with a per-request nonce (Epic 1).
+ *      Replaces the old `'unsafe-inline'` script-src policy with a
+ *      nonce so inline bootstrap scripts are still allowed but
+ *      arbitrary injected ones are blocked. Next.js detects the
+ *      nonce on the response and applies it to its own inline
+ *      scripts automatically.
  */
 
-const SESSION_COOKIE = 'kinloom_id_token';
+const SESSION_COOKIE = 'kinloom_session';
 
 const PROTECTED_PREFIXES = [
   '/home',
@@ -32,14 +40,52 @@ function isProtected(pathname: string): boolean {
   );
 }
 
+function generateNonce(): string {
+  const arr = new Uint8Array(16);
+  crypto.getRandomValues(arr);
+  let bin = '';
+  for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
+  // Base64-url without padding — CSP-safe.
+  return btoa(bin).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+function buildCsp(nonce: string, isDev: boolean): string {
+  return [
+    `default-src 'self'`,
+    // 'strict-dynamic' lets a script loaded with the nonce trust its
+    // dynamically-imported children, which Next.js relies on. In dev
+    // we keep 'unsafe-eval' for React Refresh / HMR.
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''}`,
+    // Allow inline styles — React emits `style="..."` attributes and
+    // the codebase uses them widely. Moving to a nonce'd style-src
+    // would require purging hundreds of inline-style call sites.
+    `style-src 'self' 'unsafe-inline'`,
+    // GCS-hosted media (signed download URLs returned by /media/{id}/url).
+    `img-src 'self' data: blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com https://*.googleusercontent.com`,
+    `media-src 'self' blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com`,
+    `font-src 'self' data:`,
+    // connect-src:
+    //   • 'self'                              — BFF proxy + same-origin API routes
+    //   • storage.googleapis.com              — defence-in-depth (uploads now go through /api/media-upload-proxy)
+    //   • Firebase Identity Toolkit + secure  — Firebase Auth Web SDK
+    //     token + Google APIs
+    `connect-src 'self' https://storage.googleapis.com https://*.storage.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com${isDev ? ' ws: wss:' : ''}`,
+    `frame-ancestors 'none'`,
+    `form-action 'self'`,
+    `base-uri 'self'`,
+    `object-src 'none'`,
+    `upgrade-insecure-requests`,
+  ].join('; ');
+}
+
 export function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
   const hasSession = !!req.cookies.get(SESSION_COOKIE)?.value;
 
+  // ─── Route protection ─────────────────────────────────────────
   if (!hasSession && isProtected(pathname)) {
     const url = req.nextUrl.clone();
     url.pathname = '/';
-    // Preserve where they were headed so we can bounce them back after login.
     if (pathname !== '/') {
       url.searchParams.set('next', pathname + (search || ''));
     } else {
@@ -47,7 +93,6 @@ export function middleware(req: NextRequest) {
     }
     return NextResponse.redirect(url);
   }
-
   if (hasSession && AUTH_ENTRY_PATHS.has(pathname)) {
     const url = req.nextUrl.clone();
     url.pathname = '/home';
@@ -55,13 +100,33 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  // ─── Strict CSP with nonce ────────────────────────────────────
+  const nonce = generateNonce();
+  const isDev = process.env.NODE_ENV !== 'production';
+  const csp = buildCsp(nonce, isDev);
+
+  // Pass the nonce to the React tree via a request header. Next.js
+  // picks `x-nonce` up automatically and threads it through to its
+  // bootstrap <script> tags.
+  const requestHeaders = new Headers(req.headers);
+  requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('content-security-policy', csp);
+
+  const res = NextResponse.next({ request: { headers: requestHeaders } });
+  res.headers.set('Content-Security-Policy', csp);
+  return res;
 }
 
 export const config = {
-  // Skip Next internals, static assets, and the media-upload proxy (which
-  // is hit while authenticated but doesn't need the redirect dance).
   matcher: [
-    '/((?!_next/|api/|proxy/|favicon\\.ico|robots\\.txt|sitemap\\.xml|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|woff|woff2|ttf|otf)).*)',
+    // Skip Next internals, static assets, and the media-upload proxy.
+    {
+      source:
+        '/((?!_next/static|_next/image|favicon\\.ico|robots\\.txt|sitemap\\.xml|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|woff|woff2|ttf|otf)).*)',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
   ],
 };

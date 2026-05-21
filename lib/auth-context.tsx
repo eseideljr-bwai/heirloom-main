@@ -1,20 +1,24 @@
 'use client';
 
 /**
- * Client-side auth state.
+ * Client-side auth state (Epic 1: Firebase-backed).
  *
- * Post-Epic-3:
- *   - `initialUser` is provided by the server root layout, so first paint
- *     is always correct without a /me round-trip.
- *   - Tokens live in HttpOnly cookies and never touch JS. The client
- *     can't read them; we use the non-HttpOnly `kinloom_session_started_at`
- *     cookie as a "session exists" probe for the idle/absolute watchdog.
- *   - Login/register/logout go through the Next.js BFF (`/api/auth/*`),
- *     which sets/clears the cookies and returns the user payload.
- *   - Idle 24h + absolute 30d are still enforced client-side; on expiry
- *     we hit /api/auth/logout (clears cookies) and bounce to `/`.
- *   - Multi-tab sync via BroadcastChannel (storage events can't see
- *     HttpOnly cookies).
+ * Lifecycle:
+ *   1. Root layout (server) hydrates `initialUser` from the Firebase
+ *      session cookie via /me. First paint has the right user.
+ *   2. On mount, this component subscribes to Firebase via
+ *      onIdTokenChanged. That fires:
+ *        • when the user signs in,
+ *        • when the user signs out,
+ *        • automatically ~5 minutes before the ID token expires.
+ *      Every fire posts the fresh ID token to /api/auth/session so
+ *      the server-side cookie used for SSR Bearer attachment stays
+ *      fresh.
+ *   3. login/register/logout call the helpers in lib/auth.ts, which
+ *      drive Firebase + sync the server-side session.
+ *
+ * Epic-2 timeouts (idle 24h, absolute 30d) are still enforced
+ * client-side; on expiry we sign out of Firebase and bounce to `/`.
  */
 
 import {
@@ -25,6 +29,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { onIdTokenChanged } from 'firebase/auth';
 import {
   AuthUser,
   RegisterPayload,
@@ -32,7 +37,9 @@ import {
   login as apiLogin,
   logout as apiLogout,
   register as apiRegister,
+  syncSessionRefresh,
 } from './auth';
+import { firebaseAuth } from './firebase-client';
 import {
   ABSOLUTE_TIMEOUT_MS,
   checkSessionStatus,
@@ -52,21 +59,17 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/**
- * Server-rendered initial user. Passed by the root layout (server
- * component) so the very first paint already has the right `user` and
- * no /me round-trip is needed on cold starts.
- */
 export type AuthProviderProps = {
   children: React.ReactNode;
+  /** Server-rendered initial user (from the root layout). */
   initialUser?: AuthUser | null;
 };
 
 export function AuthProvider({ children, initialUser = null }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(initialUser);
-  // No loading state on cold start anymore — server already resolved the
-  // user. `loading` is only here for backwards-compat with callers that
-  // gate on it; it stays `false`.
+  // Loading is only true between mount and the first onIdTokenChanged
+  // tick when we already have a server-hydrated user — practically
+  // unobservable.
   const [loading] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -113,8 +116,31 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
     broadcast('logout');
   }, [broadcast]);
 
+  // ─── Firebase ID-token rotation ─────────────────────────────────
+  // onIdTokenChanged fires on sign-in, sign-out, and ~5min before
+  // expiry. We push the fresh token to the server so the SSR Bearer
+  // cookie stays usable.
+  useEffect(() => {
+    const unsub = onIdTokenChanged(firebaseAuth(), async (fbUser) => {
+      if (!fbUser) {
+        // Signed out either by us or remotely (e.g. revoked refresh).
+        // Don't yank `user` here on initial mount — login() already
+        // sets it; this branch matters only when sign-out happens
+        // outside our flow.
+        return;
+      }
+      try {
+        const idToken = await fbUser.getIdToken();
+        await syncSessionRefresh(idToken);
+      } catch {
+        // Server didn't accept the refresh. Next SSR fetch will 401
+        // and middleware will redirect.
+      }
+    });
+    return unsub;
+  }, []);
+
   // ─── Activity tracking (idle 24h) ───────────────────────────────
-  // Debounced: at most one localStorage write per ACTIVITY_THROTTLE_MS.
   const lastWriteRef = useRef(0);
   useEffect(() => {
     if (!user) return;
@@ -125,8 +151,6 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
       lastWriteRef.current = now;
       touchActivity(now);
     };
-    // First touch on mount so an active tab doesn't get killed by an
-    // ancient last-activity timestamp from a previous session.
     onActivity();
     const events: (keyof DocumentEventMap)[] = [
       'mousemove',
@@ -156,8 +180,6 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
     };
     tick();
     const id = window.setInterval(tick, 60_000);
-    // Also re-check immediately when the tab becomes visible — covers
-    // laptops closed past the timeout.
     const onVis = () => tick();
     document.addEventListener('visibilitychange', onVis);
     return () => {
@@ -167,8 +189,6 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   }, [user, logout]);
 
   // ─── Cross-tab sync via BroadcastChannel ───────────────────────
-  // Token cookies are HttpOnly so we can't watch them via `storage`.
-  // Instead, login/logout broadcasts a message and other tabs refetch.
   useEffect(() => {
     if (typeof BroadcastChannel === 'undefined') return;
     const bc = new BroadcastChannel('kinloom_auth');
@@ -194,5 +214,4 @@ export function useAuth(): AuthContextValue {
   return ctx;
 }
 
-// Re-export for any callers that previously imported them from ./api.
 export { IDLE_TIMEOUT_MS, ABSOLUTE_TIMEOUT_MS };

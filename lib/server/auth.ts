@@ -1,7 +1,16 @@
 /**
- * Server-side auth helpers. Use these from server components and route
- * handlers to figure out who the request is for without touching the
- * client-side AuthProvider.
+ * Server-side auth helpers (Epic 1: Firebase-backed).
+ *
+ * `getCurrentUser` is the single entry point used by server components
+ * and the /api/auth/me route. It:
+ *
+ *   1. Verifies the Firebase session cookie via the Admin SDK. No
+ *      network round-trip — Admin SDK validates signatures locally.
+ *   2. Calls Laravel /me with the (short-lived) ID-token cookie as
+ *      Bearer to fetch the profile + family-space metadata.
+ *
+ * Both steps share a single `cache()` so multiple server components
+ * inside the same request hit them only once.
  */
 
 import 'server-only';
@@ -11,17 +20,34 @@ import { ApiError } from '../api';
 import { type AuthUser, parseFamilySpaces, type FamilySpaceRef } from '../auth';
 import { serverApiFetch } from './api';
 import { COOKIES } from './cookies';
+import { adminAuth } from './firebase-admin';
 
 /**
- * Fetch the current user from /me. Wrapped in `cache()` so multiple
- * server components in the same request share one round-trip.
- *
- * Returns `null` when the user is unauthenticated, the cookie is
- * invalid/expired, or the backend is unreachable — callers should
- * decide whether to redirect or render an unauth state.
+ * Verify the Firebase session cookie. Returns the decoded claims
+ * (uid, email, ...) or null if missing/invalid. Wrapped in cache()
+ * so /api/proxy and getCurrentUser share the same verify pass.
+ */
+export const verifySession = cache(async (): Promise<{
+  uid: string;
+  email: string | null;
+} | null> => {
+  const cookie = cookies().get(COOKIES.session)?.value;
+  if (!cookie) return null;
+  try {
+    const decoded = await adminAuth().verifySessionCookie(cookie, true);
+    return { uid: decoded.uid, email: decoded.email ?? null };
+  } catch {
+    return null;
+  }
+});
+
+/**
+ * Fetch the current Laravel profile. Returns null for unauthenticated
+ * users, expired sessions, or backend 401/403. Wrapped in cache().
  */
 export const getCurrentUser = cache(async (): Promise<AuthUser | null> => {
-  if (!cookies().get(COOKIES.idToken)?.value) return null;
+  const session = await verifySession();
+  if (!session) return null;
   try {
     const res = await serverApiFetch<{ data: AuthUser }>('/me');
     return res.data;
@@ -29,7 +55,6 @@ export const getCurrentUser = cache(async (): Promise<AuthUser | null> => {
     if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
       return null;
     }
-    // Surface other backend errors so error.tsx can show them.
     throw err;
   }
 });
@@ -59,10 +84,10 @@ export const getFamilySpaces = cache(async (): Promise<FamilySpaceRef[]> => {
 });
 
 /**
- * Convenience: throws a typed error when no user is logged in. Use this
- * in server components inside the protected (app) route group when you
- * want a hard failure rather than rendering an empty state — middleware
- * already redirected unauthenticated visitors before we got here.
+ * Convenience: throws when no user is logged in. Use this inside the
+ * protected (app) route group when you want a hard failure rather
+ * than rendering an empty state — middleware already redirected
+ * unauthenticated visitors before we got here.
  */
 export async function requireUser(): Promise<AuthUser> {
   const u = await getCurrentUser();
