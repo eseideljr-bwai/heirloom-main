@@ -17,14 +17,21 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 
-function readPublicEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) {
+// Webpack/Next only inlines `process.env.NEXT_PUBLIC_*` when accessed via
+// direct dot-notation with a literal key. Bracket access (`process.env[name]`)
+// or a helper that takes a string would be left in the bundle un-substituted,
+// leaving the browser with `undefined` even when the dev server has the value.
+const PUBLIC_API_KEY = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
+const PUBLIC_AUTH_DOMAIN = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
+const PUBLIC_PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID;
+
+function requirePublic(name: string, value: string | undefined): string {
+  if (!value) {
     throw new Error(
       `Missing ${name}. Set Firebase web-config values in .env.local — see README.`,
     );
   }
-  return v;
+  return value;
 }
 
 let cachedApp: FirebaseApp | null = null;
@@ -37,9 +44,9 @@ function getApp(): FirebaseApp {
     return existing;
   }
   cachedApp = initializeApp({
-    apiKey: readPublicEnv('NEXT_PUBLIC_FIREBASE_API_KEY'),
-    authDomain: readPublicEnv('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN'),
-    projectId: readPublicEnv('NEXT_PUBLIC_FIREBASE_PROJECT_ID'),
+    apiKey: requirePublic('NEXT_PUBLIC_FIREBASE_API_KEY', PUBLIC_API_KEY),
+    authDomain: requirePublic('NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN', PUBLIC_AUTH_DOMAIN),
+    projectId: requirePublic('NEXT_PUBLIC_FIREBASE_PROJECT_ID', PUBLIC_PROJECT_ID),
   });
   return cachedApp;
 }
@@ -55,5 +62,5 @@ export function firebaseAuth(): Auth {
  * (Server reads the *same* NEXT_PUBLIC_* value; it's not secret.)
  */
 export function firebaseWebApiKey(): string {
-  return readPublicEnv('NEXT_PUBLIC_FIREBASE_API_KEY');
+  return requirePublic('NEXT_PUBLIC_FIREBASE_API_KEY', PUBLIC_API_KEY);
 }
