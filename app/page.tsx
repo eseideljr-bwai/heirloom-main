@@ -1,10 +1,17 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../lib/auth-context';
 import { ApiError } from '../lib/api';
+
+function safeNext(value: string | null): string {
+  if (!value) return '/home';
+  // Only allow same-origin paths to avoid open-redirect.
+  if (!value.startsWith('/') || value.startsWith('//')) return '/home';
+  return value;
+}
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,11 +19,13 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const params = useSearchParams();
+  const next = safeNext(params.get('next'));
   const { user, loading: authLoading, login } = useAuth();
 
   useEffect(() => {
-    if (!authLoading && user) router.replace('/home');
-  }, [authLoading, user, router]);
+    if (!authLoading && user) router.replace(next);
+  }, [authLoading, user, router, next]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

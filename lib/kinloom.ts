@@ -95,6 +95,21 @@ export type CreateKinloomPayload = {
   tagged_member_ids?: string[];
 };
 
+export type UpdateKinloomPayload = Partial<CreateKinloomPayload>;
+
+export type Comment = {
+  ulid: string;
+  body: string;
+  created_at: string;
+  author: {
+    member_id: string;
+    name: string;
+    gender: string;
+    tone: string;
+    initials: string | null;
+  } | null;
+};
+
 // ─── Helpers ────────────────────────────────────────────────────────
 
 /** Normalize array-ish fields that the API may return as a JSON string. */
@@ -184,6 +199,67 @@ export async function getKinloom(
   return apiFetch<Kinloom>(
     `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}`,
   );
+}
+
+/** PATCH /family-spaces/{familySpace}/kinlooms/{kinloom} */
+export async function updateKinloom(
+  familySpaceId: string,
+  kinloomId: string,
+  payload: UpdateKinloomPayload,
+): Promise<Kinloom> {
+  return apiFetch<Kinloom>(
+    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}`,
+    { method: 'PATCH', body: payload },
+  );
+}
+
+/** DELETE /family-spaces/{familySpace}/kinlooms/{kinloom} */
+export async function deleteKinloom(
+  familySpaceId: string,
+  kinloomId: string,
+): Promise<void> {
+  await apiFetch<void>(
+    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/** POST /family-spaces/{familySpace}/kinlooms/{kinloom}/comments */
+export async function addComment(
+  familySpaceId: string,
+  kinloomId: string,
+  body: string,
+): Promise<Comment> {
+  return apiFetch<Comment>(
+    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}/comments`,
+    { method: 'POST', body: { body } },
+  );
+}
+
+/** DELETE /family-spaces/{familySpace}/kinlooms/{kinloom}/comments/{comment} */
+export async function deleteComment(
+  familySpaceId: string,
+  kinloomId: string,
+  commentId: string,
+): Promise<void> {
+  await apiFetch<void>(
+    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}/comments/${encodeURIComponent(commentId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/** Normalize the `comments` field on a Kinloom (the API ships it as a JSON string). */
+export function normalizeComments(value: unknown): Comment[] {
+  if (Array.isArray(value)) return value as Comment[];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 /** POST /family-spaces/{familySpace}/kinlooms/{kinloom}/hold — toggle */
@@ -367,6 +443,27 @@ export async function confirmMediaUpload(
   return apiFetch<ConfirmMediaUploadResponse>(
     `/family-spaces/${encodeURIComponent(familySpaceId)}/media`,
     { method: 'POST', body: payload },
+  );
+}
+
+/** DELETE /family-spaces/{familySpace}/media/{mediaAttachment} */
+export async function deleteMediaAttachment(
+  familySpaceId: string,
+  mediaId: string,
+): Promise<void> {
+  await apiFetch<void>(
+    `/family-spaces/${encodeURIComponent(familySpaceId)}/media/${encodeURIComponent(mediaId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+/** GET /family-spaces/{familySpace}/media/{mediaAttachment}/url — fresh signed URL. */
+export async function getMediaUrl(
+  familySpaceId: string,
+  mediaId: string,
+): Promise<{ url: string; expires_at: string }> {
+  return apiFetch<{ url: string; expires_at: string }>(
+    `/family-spaces/${encodeURIComponent(familySpaceId)}/media/${encodeURIComponent(mediaId)}/url`,
   );
 }
 

@@ -66,8 +66,11 @@ async function handle(
   });
 
   const respHeaders = new Headers();
-  const upstreamCt = upstream.headers.get('content-type');
-  if (upstreamCt) respHeaders.set('content-type', upstreamCt);
+  const passthrough = ['content-type', 'content-disposition', 'content-length', 'cache-control'];
+  for (const h of passthrough) {
+    const v = upstream.headers.get(h);
+    if (v) respHeaders.set(h, v);
+  }
   const buf = await upstream.arrayBuffer();
   return new NextResponse(buf, { status: upstream.status, headers: respHeaders });
 }

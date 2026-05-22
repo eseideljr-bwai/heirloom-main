@@ -1,10 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../../lib/auth-context';
 import { ApiError } from '../../lib/api';
+
+function safeNext(value: string | null): string | null {
+  if (!value) return null;
+  if (!value.startsWith('/') || value.startsWith('//')) return null;
+  return value;
+}
 
 export default function Signup() {
   const [name, setName] = useState('');
@@ -14,11 +20,13 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const params = useSearchParams();
+  const next = safeNext(params.get('next'));
   const { user, loading: authLoading, register } = useAuth();
 
   useEffect(() => {
-    if (!authLoading && user) router.replace('/onboarding');
-  }, [authLoading, user, router]);
+    if (!authLoading && user) router.replace(next ?? '/onboarding');
+  }, [authLoading, user, router, next]);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -14,6 +14,7 @@ import 'server-only';
 import { cache } from 'react';
 import { serverApiFetch } from './api';
 import { normalizeList, type Kinloom, type KinloomAuthor, type LibraryRow, type LibraryResponse } from '../kinloom';
+import type { MeSettings } from '../auth';
 
 // ─── Home ────────────────────────────────────────────────────────────
 
@@ -289,6 +290,15 @@ export type LegacyBankResponse = {
   recent_conversations: LegacyBankConversation[] | string;
   available_subjects: LegacyBankSubject[] | string;
 };
+
+// ─── Me settings ─────────────────────────────────────────────────────
+
+export const getMeSettings = cache(async (
+  familySpaceId?: string | null,
+): Promise<MeSettings> => {
+  const qs = familySpaceId ? `?family_space_id=${encodeURIComponent(familySpaceId)}` : '';
+  return serverApiFetch<MeSettings>(`/me/settings${qs}`);
+});
 
 export const getLegacyBank = cache(async (familySpaceId: string): Promise<{
   progress: LegacyBankProgress;

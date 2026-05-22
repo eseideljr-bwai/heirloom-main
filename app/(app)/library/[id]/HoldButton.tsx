@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { toggleHold } from '../../../../lib/kinloom';
+import { revalidateKinloomData } from '../../../actions';
 
 type Props = {
   familySpaceId: string;
@@ -11,6 +13,7 @@ type Props = {
 };
 
 export default function HoldButton({ familySpaceId, kinloomId, initialHeldByMe, initialCount }: Props) {
+  const router = useRouter();
   const [held, setHeld] = useState({ by_me: initialHeldByMe, count: initialCount });
   const [pending, setPending] = useState(false);
 
@@ -20,6 +23,8 @@ export default function HoldButton({ familySpaceId, kinloomId, initialHeldByMe, 
     try {
       const next = await toggleHold(familySpaceId, kinloomId);
       setHeld({ by_me: next.held_by_me, count: next.count });
+      void revalidateKinloomData(kinloomId);
+      router.refresh();
     } catch {
       // ignore
     } finally {

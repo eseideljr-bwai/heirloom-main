@@ -1,17 +1,21 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { getActiveSpaceId, getCurrentUser } from '../../../../lib/server/auth';
 import { getKinloomServer } from '../../../../lib/server/queries';
 import { ApiError } from '../../../../lib/api';
+import { parseFamilySpaces } from '../../../../lib/auth';
 import {
   bodyParagraphs,
   formatKinloomDate,
+  normalizeComments,
   normalizeList,
   type KinloomAuthor,
   type TaggableMember,
 } from '../../../../lib/kinloom';
 import { AudioPlayer } from '../../../components/AudioPlayer';
 import HoldButton from './HoldButton';
+import KinloomActions from './KinloomActions';
+import Comments from './Comments';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,11 +54,16 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
     throw err;
   }
 
+  const user = await getCurrentUser();
+  const myMemberId = parseFamilySpaces(user?.family_spaces).find(s => s.ulid === familySpaceId)?.member_id ?? null;
+  const isAuthor = !!myMemberId && k.author?.member_id === myMemberId;
+
   const author = k.author;
   const tagged = normalizeList<TaggableMember>(k.tagged_kin);
   const paragraphs = bodyParagraphs(k.body_paragraphs);
   const dateLabel = formatKinloomDate(k.created_at);
   const hold = k.hold ?? { held_by_me: false, count: 0 };
+  const comments = normalizeComments(k.comments);
 
   return (
     <div>
@@ -64,6 +73,12 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
             Library
           </Link>
+          <KinloomActions
+            familySpaceId={familySpaceId}
+            kinloom={k}
+            canEdit={isAuthor}
+            canDelete={isAuthor}
+          />
         </div>
       </div>
 
@@ -132,6 +147,13 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
           />
           <Link href="/create" className="btn-outline btn-outline--sm">Reply with a kinloom</Link>
         </div>
+
+        <Comments
+          familySpaceId={familySpaceId}
+          kinloomId={k.ulid}
+          initialComments={comments}
+          currentMemberId={myMemberId}
+        />
       </article>
     </div>
   );

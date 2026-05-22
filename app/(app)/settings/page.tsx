@@ -9,6 +9,7 @@ import {
   updateProfile,
 } from '../../../lib/auth';
 import { ApiError } from '../../../lib/api';
+import { revalidateSettingsData } from '../../actions';
 
 export default function SettingsPage() {
   const { user, refresh, logout } = useAuth();
@@ -37,6 +38,8 @@ export default function SettingsPage() {
     try {
       await updateProfile({ display_name: displayName.trim() });
       await refresh();
+      void revalidateSettingsData();
+      router.refresh();
       setProfileMsg({ kind: 'ok', text: 'Profile updated.' });
     } catch (err) {
       const message =

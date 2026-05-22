@@ -335,6 +335,59 @@ export async function deleteAccount(): Promise<void> {
   await destroySession();
 }
 
+// ─── Settings (privacy + notifications) ───────────────────────────
+
+export type ProfileVisibility = 'family' | 'invite_only';
+export type DefaultKinloomVisibility = 'family' | 'private';
+export type LegacyBankAccess = 'family' | 'none';
+
+export type PrivacySettings = {
+  profile_visibility: ProfileVisibility | string;
+  default_kinloom_visibility: DefaultKinloomVisibility | string;
+  ai_legacy_bank_access: LegacyBankAccess | string;
+};
+
+export type NotificationSettings = {
+  family_activity: boolean;
+  new_members: boolean;
+  create_reminders: boolean;
+  legacy_bank_responses: boolean;
+};
+
+export type MeSettings = {
+  profile: {
+    display_name: string | null;
+    email: string;
+    avatar_url: string | null;
+  };
+  privacy: PrivacySettings;
+  notifications: NotificationSettings;
+};
+
+/** GET /me/settings */
+export async function getSettings(familySpaceId?: string | null): Promise<MeSettings> {
+  const qs = familySpaceId ? `?family_space_id=${encodeURIComponent(familySpaceId)}` : '';
+  return apiFetch<MeSettings>(`/me/settings${qs}`);
+}
+
+/** PATCH /me/settings/privacy */
+export async function updatePrivacySettings(
+  payload: Partial<PrivacySettings>,
+  familySpaceId?: string | null,
+): Promise<void> {
+  const qs = familySpaceId ? `?family_space_id=${encodeURIComponent(familySpaceId)}` : '';
+  await apiFetch<void>(`/me/settings/privacy${qs}`, { method: 'PATCH', body: payload });
+}
+
+/** PATCH /me/settings/notifications */
+export async function updateNotificationSettings(
+  payload: Partial<NotificationSettings>,
+  familySpaceId?: string | null,
+): Promise<void> {
+  const qs = familySpaceId ? `?family_space_id=${encodeURIComponent(familySpaceId)}` : '';
+  await apiFetch<void>(`/me/settings/notifications${qs}`, { method: 'PATCH', body: payload });
+}
+
 // ─── Onboarding ───────────────────────────────────────────────────
 
 export type OnboardingProfilePayload = {

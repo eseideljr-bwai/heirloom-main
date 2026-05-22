@@ -20,6 +20,7 @@ import {
 } from '../../../../lib/kinloom';
 import { ApiError } from '../../../../lib/api';
 import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
+import { revalidateKinloomData } from '../../../actions';
 
 type Step = 1 | 2 | 3;
 
@@ -233,12 +234,16 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       }
     }
 
+    void revalidateKinloomData(createdId);
     router.push(`/library/${createdId}`);
+    router.refresh();
   };
 
   const handleSkipMedia = () => {
     if (!savedKinloomId) return;
+    void revalidateKinloomData(savedKinloomId);
     router.push(`/library/${savedKinloomId}`);
+    router.refresh();
   };
 
   const toggleKin = (id: string) => {
