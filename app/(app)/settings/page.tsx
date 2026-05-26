@@ -41,6 +41,10 @@ export default function SettingsPage() {
       void revalidateSettingsData();
       router.refresh();
       setProfileMsg({ kind: 'ok', text: 'Profile updated.' });
+      // Auto-clear the success line so it doesn't linger on the form.
+      setTimeout(() => {
+        setProfileMsg(curr => (curr && curr.kind === 'ok' ? null : curr));
+      }, 2500);
     } catch (err) {
       const message =
         err instanceof ApiError

@@ -9,9 +9,11 @@ import { useActiveFamilySpace } from '../../../../lib/active-family-space';
 import { parseFamilySpaces } from '../../../../lib/auth';
 import {
   createKinloom,
+  deleteKinloom,
   getCreateContext,
   MAX_UPLOAD_BYTES,
   PHOTO_MIME_TYPES,
+  updateKinloom,
   uploadKinloomAudio,
   uploadKinloomPhoto,
   type KinloomType,
@@ -83,7 +85,15 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const [saveError, setSaveError] = useState<string | null>(null);
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
   const [voiceUploadError, setVoiceUploadError] = useState<string | null>(null);
+  /**
+   * The kinloom is created as a `draft` on first save attempt; we only
+   * flip it to `published` after all media uploads succeed. While a
+   * draft exists, navigating away or hitting "Discard" purges it so
+   * abandoned flows leave no orphaned data (Epic 4 acceptance).
+   */
   const [savedKinloomId, setSavedKinloomId] = useState<string | null>(null);
+  const [publishedId, setPublishedId] = useState<string | null>(null);
+  const [discarding, setDiscarding] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
@@ -121,6 +131,53 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     setPhotoPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [photoFile]);
+
+  // ─── Abandon-on-unload cleanup ─────────────────────────────────────
+  //
+  // If the user closes the tab / navigates away with a draft still
+  // unpublished, fire a best-effort DELETE so the draft doesn't sit in
+  // their library. `keepalive: true` lets the request survive the
+  // unload — cookies stay attached because /api/proxy is same-origin.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!savedKinloomId || publishedId === savedKinloomId) return;
+      const url = `/api/proxy/family-spaces/${encodeURIComponent(familySpaceId!)}/kinlooms/${encodeURIComponent(savedKinloomId)}`;
+      try {
+        fetch(url, { method: 'DELETE', credentials: 'same-origin', keepalive: true });
+      } catch {
+        // best-effort
+      }
+      // Prompt the user — most browsers ignore the custom string but
+      // still show their own "unsaved changes" dialog.
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [savedKinloomId, publishedId, familySpaceId]);
+
+  // In-app navigation (clicking the Back link, the family logo, etc.)
+  // triggers React unmount. Fire the same best-effort DELETE so
+  // soft-navigations leave no orphan either. Capture the latest IDs
+  // through a ref so the unmount cleanup sees current values.
+  const draftRef = useRef<{ id: string | null; published: string | null; spaceId: string | null }>({
+    id: null, published: null, spaceId: null,
+  });
+  useEffect(() => {
+    draftRef.current = { id: savedKinloomId, published: publishedId, spaceId: familySpaceId };
+  }, [savedKinloomId, publishedId, familySpaceId]);
+  useEffect(() => {
+    return () => {
+      const { id, published, spaceId } = draftRef.current;
+      if (!id || !spaceId || published === id) return;
+      const url = `/api/proxy/family-spaces/${encodeURIComponent(spaceId)}/kinlooms/${encodeURIComponent(id)}`;
+      try {
+        fetch(url, { method: 'DELETE', credentials: 'same-origin', keepalive: true });
+      } catch {
+        // best-effort
+      }
+    };
+  }, []);
 
   if (!typeData && !contextLoading) {
     return (
@@ -178,6 +235,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
     let createdId = savedKinloomId;
 
+    // Step 1: ensure a draft row exists (idempotent on retry).
     try {
       if (!createdId) {
         const created = await createKinloom(familySpaceId, {
@@ -185,11 +243,19 @@ export default function CreateTypePage({ params }: { params: { type: string } })
           title: title.trim() || 'Untitled',
           body: body.trim(),
           visibility,
-          status: 'published',
+          status: 'draft',
           tagged_member_ids: taggedKin,
         });
         createdId = created.ulid;
         setSavedKinloomId(createdId);
+      } else {
+        // Sync the latest text/visibility/tags into the existing draft.
+        await updateKinloom(familySpaceId, createdId, {
+          title: title.trim() || 'Untitled',
+          body: body.trim(),
+          visibility,
+          tagged_member_ids: taggedKin,
+        });
       }
     } catch (err) {
       const msg = err instanceof ApiError
@@ -200,6 +266,8 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       return;
     }
 
+    // Step 2 + 3: upload media. Errors here halt the publish step but
+    // the user keeps the draft + can retry / continue without media.
     if (photoFile && createdId) {
       try {
         await uploadKinloomPhoto(familySpaceId, createdId, photoFile);
@@ -234,16 +302,58 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       }
     }
 
-    void revalidateKinloomData(createdId);
+    // Step 4: flip the draft to published — the only atomic commit.
+    try {
+      await updateKinloom(familySpaceId, createdId!, { status: 'published' });
+    } catch (err) {
+      const msg = err instanceof ApiError
+        ? (err.firstFieldError() || err.message)
+        : 'Could not finalize publishing.';
+      setSaveError(msg);
+      setSaving(false);
+      return;
+    }
+
+    setPublishedId(createdId);
+    void revalidateKinloomData(createdId!);
     router.push(`/library/${createdId}`);
     router.refresh();
   };
 
-  const handleSkipMedia = () => {
-    if (!savedKinloomId) return;
-    void revalidateKinloomData(savedKinloomId);
-    router.push(`/library/${savedKinloomId}`);
-    router.refresh();
+  const handleSkipMedia = async () => {
+    if (!savedKinloomId || !familySpaceId) return;
+    setSaving(true);
+    try {
+      await updateKinloom(familySpaceId, savedKinloomId, { status: 'published' });
+      setPublishedId(savedKinloomId);
+      void revalidateKinloomData(savedKinloomId);
+      router.push(`/library/${savedKinloomId}`);
+      router.refresh();
+    } catch (err) {
+      const msg = err instanceof ApiError
+        ? (err.firstFieldError() || err.message)
+        : 'Could not finalize publishing.';
+      setSaveError(msg);
+      setSaving(false);
+    }
+  };
+
+  const handleDiscard = async () => {
+    if (!savedKinloomId || !familySpaceId) {
+      router.push('/create');
+      return;
+    }
+    setDiscarding(true);
+    try {
+      await deleteKinloom(familySpaceId, savedKinloomId);
+    } catch {
+      // best-effort — we'd rather move on than block the user
+    } finally {
+      setSavedKinloomId(null);
+      setDiscarding(false);
+      void revalidateKinloomData(savedKinloomId);
+      router.push('/create');
+    }
   };
 
   const toggleKin = (id: string) => {
@@ -566,11 +676,20 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               )}
               <button
                 onClick={() => setStep(2)}
-                disabled={saving}
-                style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 22px', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', cursor: saving ? 'not-allowed' : 'pointer' }}
+                disabled={saving || discarding}
+                style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 22px', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', cursor: (saving || discarding) ? 'not-allowed' : 'pointer' }}
               >
                 Back
               </button>
+              {savedKinloomId && !publishedId && (
+                <button
+                  onClick={handleDiscard}
+                  disabled={saving || discarding}
+                  className="btn-danger-outline"
+                >
+                  {discarding ? 'Discarding…' : 'Discard draft'}
+                </button>
+              )}
             </div>
           </div>
 

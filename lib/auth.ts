@@ -95,6 +95,21 @@ export function getActiveFamilySpaceId(user: AuthUser | null): string | null {
   return spaces[0]?.ulid ?? null;
 }
 
+/** Returns the user's role in the given space, or null if they aren't a member of it. */
+export function getRoleInSpace(
+  user: AuthUser | null,
+  spaceId: string | null,
+): 'owner' | 'member' | null {
+  if (!user || !spaceId) return null;
+  const space = parseFamilySpaces(user.family_spaces).find(s => s.ulid === spaceId);
+  return (space?.role as 'owner' | 'member' | undefined) ?? null;
+}
+
+/** True if the user is the owner of the given space. */
+export function isOwnerOfSpace(user: AuthUser | null, spaceId: string | null): boolean {
+  return getRoleInSpace(user, spaceId) === 'owner';
+}
+
 // ─── Server-side session sync ───────────────────────────────────────
 
 /**

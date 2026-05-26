@@ -1,15 +1,26 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../../lib/auth-context';
 import { ApiError } from '../../lib/api';
 
-function safeNext(value: string | null): string | null {
+function safeNext(value: string | null | undefined): string | null {
   if (!value) return null;
   if (!value.startsWith('/') || value.startsWith('//')) return null;
   return value;
+}
+
+/** See app/page.tsx for why we read window.location instead of useSearchParams. */
+function useNextParam(): string | null {
+  const [next, setNext] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    setNext(safeNext(params.get('next')));
+  }, []);
+  return next;
 }
 
 export default function Signup() {
@@ -20,8 +31,7 @@ export default function Signup() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const params = useSearchParams();
-  const next = safeNext(params.get('next'));
+  const next = useNextParam();
   const { user, loading: authLoading, register } = useAuth();
 
   useEffect(() => {

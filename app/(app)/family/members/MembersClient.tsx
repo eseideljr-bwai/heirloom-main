@@ -20,6 +20,8 @@ type Props = {
   familySpaceId: string;
   members: FamilyMember[];
   pending: PendingInvitation[];
+  /** Whether the current viewer is an owner of this space — gates write actions. */
+  isOwner: boolean;
 };
 
 type Modal =
@@ -30,7 +32,7 @@ type Modal =
   | { kind: 'revoke-invite'; invitation: PendingInvitation }
   | null;
 
-export default function MembersClient({ familySpaceId, members, pending }: Props) {
+export default function MembersClient({ familySpaceId, members, pending, isOwner }: Props) {
   const router = useRouter();
   const [modal, setModal] = useState<Modal>(null);
 
@@ -45,16 +47,25 @@ export default function MembersClient({ familySpaceId, members, pending }: Props
       <div className="manage-page__header">
         <div>
           <p className="eyebrow manage-page__eyebrow">Members</p>
-          <h1 className="manage-page__title">Manage your family space.</h1>
+          <h1 className="manage-page__title">
+            {isOwner ? 'Manage your family space.' : 'Your family space.'}
+          </h1>
+          {!isOwner && (
+            <p className="settings-card-text">
+              Only owners can invite, add, or remove members.
+            </p>
+          )}
         </div>
-        <div className="manage-page__actions">
-          <button type="button" className="btn-outline" onClick={() => setModal({ kind: 'add-member' })}>
-            + Add member
-          </button>
-          <button type="button" className="btn-primary" onClick={() => setModal({ kind: 'invite' })}>
-            + Invite member
-          </button>
-        </div>
+        {isOwner && (
+          <div className="manage-page__actions">
+            <button type="button" className="btn-outline" onClick={() => setModal({ kind: 'add-member' })}>
+              + Add member
+            </button>
+            <button type="button" className="btn-primary" onClick={() => setModal({ kind: 'invite' })}>
+              + Invite member
+            </button>
+          </div>
+        )}
       </div>
 
       <h2 className="manage-page__h2">Members ({members.length})</h2>
@@ -79,16 +90,18 @@ export default function MembersClient({ familySpaceId, members, pending }: Props
               </div>
               <div className="manage-list__row-actions">
                 <Link href={`/family/${m.member_id}`} className="manage-list__link">View</Link>
-                <button
-                  type="button"
-                  className="manage-list__icon-btn"
-                  onClick={() => setModal({ kind: 'edit-member', member: m })}
-                  aria-label="Edit member"
-                  title="Edit"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>
-                </button>
-                {!m.is_me && (
+                {isOwner && (
+                  <button
+                    type="button"
+                    className="manage-list__icon-btn"
+                    onClick={() => setModal({ kind: 'edit-member', member: m })}
+                    aria-label="Edit member"
+                    title="Edit"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  </button>
+                )}
+                {isOwner && !m.is_me && (
                   <button
                     type="button"
                     className="manage-list__icon-btn manage-list__icon-btn--danger"
@@ -119,17 +132,19 @@ export default function MembersClient({ familySpaceId, members, pending }: Props
                     {inv.invited_at ? ` · sent ${inv.invited_at}` : ''}
                   </p>
                 </div>
-                <div className="manage-list__row-actions">
-                  <button
-                    type="button"
-                    className="manage-list__icon-btn manage-list__icon-btn--danger"
-                    onClick={() => setModal({ kind: 'revoke-invite', invitation: inv })}
-                    aria-label="Revoke invitation"
-                    title="Revoke"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                  </button>
-                </div>
+                {isOwner && (
+                  <div className="manage-list__row-actions">
+                    <button
+                      type="button"
+                      className="manage-list__icon-btn manage-list__icon-btn--danger"
+                      onClick={() => setModal({ kind: 'revoke-invite', invitation: inv })}
+                      aria-label="Revoke invitation"
+                      title="Revoke"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                  </div>
+                )}
               </li>
             ))}
           </ul>

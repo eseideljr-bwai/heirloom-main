@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { getActiveSpaceId, getCurrentUser } from '../../../../lib/server/auth';
 import { getManageMembers } from '../../../../lib/server/queries';
+import { isOwnerOfSpace } from '../../../../lib/auth';
 import MembersClient from './MembersClient';
 
 export const dynamic = 'force-dynamic';
@@ -10,7 +11,11 @@ export default async function FamilyMembersPage() {
   const familySpaceId = await getActiveSpaceId();
   if (!familySpaceId) redirect('/onboarding/profile');
 
-  const { members, pending } = await getManageMembers(familySpaceId);
+  const [{ members, pending }, user] = await Promise.all([
+    getManageMembers(familySpaceId),
+    getCurrentUser(),
+  ]);
+  const isOwner = isOwnerOfSpace(user, familySpaceId);
 
   return (
     <div className="manage-page">
@@ -23,6 +28,7 @@ export default async function FamilyMembersPage() {
         familySpaceId={familySpaceId}
         members={members}
         pending={pending}
+        isOwner={isOwner}
       />
     </div>
   );

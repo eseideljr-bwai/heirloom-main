@@ -1,16 +1,32 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../lib/auth-context';
 import { ApiError } from '../lib/api';
 
-function safeNext(value: string | null): string {
+function safeNext(value: string | null | undefined): string {
   if (!value) return '/home';
   // Only allow same-origin paths to avoid open-redirect.
   if (!value.startsWith('/') || value.startsWith('//')) return '/home';
   return value;
+}
+
+/**
+ * Reading `?next=` via `window.location` (inside a client component
+ * useEffect) avoids `useSearchParams`, which would force a Suspense
+ * boundary or block this page from being statically prerendered — and
+ * trips Next.js's pages-router error-fallback prerender during build.
+ */
+function useNextParam(): string {
+  const [next, setNext] = useState('/home');
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    setNext(safeNext(params.get('next')));
+  }, []);
+  return next;
 }
 
 export default function Login() {
@@ -19,8 +35,7 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const params = useSearchParams();
-  const next = safeNext(params.get('next'));
+  const next = useNextParam();
   const { user, loading: authLoading, login } = useAuth();
 
   useEffect(() => {
