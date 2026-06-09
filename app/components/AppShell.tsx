@@ -1,53 +1,56 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+/**
+ * Auth/onboarding gate for the (app) route group.
+ *
+ * Epic 2 AC: "Protected pages never render a loading state."
+ *   • Middleware already bounced unauthenticated visitors at the edge, so
+ *     by the time this component mounts there's a session cookie.
+ *   • AuthProvider hydrates `user` synchronously from a localStorage
+ *     cache on repeat visits → we can render the real shell immediately,
+ *     no centered-logo splash.
+ *   • The only case where `user` is null but we got past middleware is
+ *     a brand-new tab where the user just signed in (no cache yet) —
+ *     we render `null` (blank, not a splash) for the few ms until /me
+ *     resolves. Effectively invisible.
+ */
+
+import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { onAuthStateChanged } from 'firebase/auth';
-import type { User } from 'firebase/auth';
-import { auth } from '../../lib/firebase';
+import { useAuth } from '../../lib/auth-context';
+import { useActiveFamilySpace } from '../../lib/active-family-space';
 import AppNav from './AppNav';
 
-function LoadingScreen() {
-  return (
-    <div style={{ minHeight: '100vh', background: '#fdfcfa', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/logo-kinloom.png" alt="Kinloom" style={{ height: 56, width: 'auto', opacity: 0.35 }} />
-    </div>
-  );
-}
-
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { user, loading } = useAuth();
+  const { activeSpaceId, spaces } = useActiveFamilySpace();
   const router = useRouter();
   const routerRef = useRef(router);
   useEffect(() => { routerRef.current = router; });
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
-    return unsub;
-  }, []);
-
-  // Redirect only after auth is confirmed absent. routerRef avoids adding
-  // router to deps, which would re-run this effect on every navigation.
-  useEffect(() => {
-    if (!loading && !user) {
-      routerRef.current.replace('/');
+    if (loading) return;
+    if (!user) {
+      // Session expired or token revoked while the tab was open.
+      routerRef.current.replace('/?reason=session_expired');
+      return;
     }
-  }, [loading, user]);
+    if (spaces.length === 0) {
+      // No family space yet → finish onboarding.
+      routerRef.current.replace('/onboarding/profile');
+    }
+  }, [loading, user, spaces]);
 
-  if (loading) return <LoadingScreen />;
   if (!user) return null;
+  if (spaces.length === 0) return null;
+  // Active space hasn't been picked yet (first render between user and
+  // provider reconciliation) — render nothing for one frame.
+  if (!activeSpaceId) return null;
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#fdfcfa' }}>
+    <div className="app-shell">
       <AppNav user={user} />
-      <main style={{ flex: 1, marginLeft: 240, minHeight: '100vh' }}>
-        {children}
-      </main>
+      <main className="app-shell__main">{children}</main>
     </div>
   );
 }

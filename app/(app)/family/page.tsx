@@ -1,13 +1,19 @@
 import Link from 'next/link';
-import { MEMBERS, KINLOOMS, type Member } from '../../lib/mock-data';
+import { redirect } from 'next/navigation';
+import { getActiveSpaceId } from '../../../lib/server/auth';
+import { getFamilyOverview, type FamilyMember } from '../../../lib/server/queries';
 
-function Silhouette({ member, size = 40 }: { member: Member; size?: number }) {
-  const { gender = 'n', tone = '#a39376', isMe } = member;
+export const dynamic = 'force-dynamic';
+
+function Silhouette({ member, size = 44 }: { member: FamilyMember; size?: number }) {
+  const gender = member.gender || 'n';
+  const tone = member.tone || '#a39376';
+  const isMe = !!member.is_me;
   const bg = tone + '22';
   return (
-    <svg viewBox="0 0 80 80" width={size} height={size} aria-label={member.name} style={{ display: 'block', borderRadius: '50%', flexShrink: 0 }}>
-      <defs><clipPath id={`clip-fam-${member.id}`}><circle cx="40" cy="40" r="40" /></clipPath></defs>
-      <g clipPath={`url(#clip-fam-${member.id})`}>
+    <svg viewBox="0 0 80 80" width={size} height={size} aria-label={member.name} className="silhouette">
+      <defs><clipPath id={`clip-fam-${member.member_id}`}><circle cx="40" cy="40" r="40" /></clipPath></defs>
+      <g clipPath={`url(#clip-fam-${member.member_id})`}>
         <rect width="80" height="80" fill={bg} />
         <rect y="48" width="80" height="32" fill={tone} opacity="0.10" />
         {gender === 'f' && <ellipse cx="40" cy="34" rx="16" ry="18" fill={tone} opacity="0.38" />}
@@ -22,83 +28,76 @@ function Silhouette({ member, size = 40 }: { member: Member; size?: number }) {
   );
 }
 
-const genLabels: Record<number, string> = { 1: 'Grandparents', 2: 'Parents & Aunt', 3: 'You & Siblings', 4: 'Children' };
+function memberSecondaryLine(m: FamilyMember): string {
+  const role = m.role_label || m.kin_term || '';
+  const passed = m.deceased ? ' · Passed' : '';
+  const count = m.kinloom_count ?? 0;
+  const counts = count > 0 ? `${count} kinloom${count !== 1 ? 's' : ''}` : 'No kinlooms yet';
+  return [role, passed.replace(/^ · /, '') || null, counts].filter(Boolean).join(' · ');
+}
 
-export default function FamilyPage() {
-  const byGen: Record<number, Member[]> = {};
-  for (const m of MEMBERS) {
-    if (!byGen[m.gen]) byGen[m.gen] = [];
-    byGen[m.gen].push(m);
-  }
+export default async function FamilyPage() {
+  const familySpaceId = await getActiveSpaceId();
+  if (!familySpaceId) redirect('/onboarding/profile');
 
-  const kinloomsByAuthor: Record<string, number> = {};
-  for (const k of KINLOOMS) {
-    kinloomsByAuthor[k.author] = (kinloomsByAuthor[k.author] || 0) + 1;
-  }
+  const { space, generations } = await getFamilyOverview(familySpaceId);
 
   return (
-    <div style={{ padding: '48px' }}>
+    <div className="family-page">
 
-      <div style={{ marginBottom: 48 }}>
-        <p className="eyebrow" style={{ marginBottom: 12 }}>Family</p>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 48, lineHeight: 1.1, margin: '0 0 16px', color: '#1a1a1a' }}>
-          Your family space.
-        </h1>
-        <p style={{ fontSize: 18, lineHeight: 1.65, color: 'rgba(26,26,26,0.7)', margin: 0, maxWidth: 520 }}>
-          A private, invite-only space where your family's stories, voices, and legacy come together.
+      <div className="family-page__header">
+        <p className="eyebrow family-page__eyebrow">Family</p>
+        <h1 className="family-page__title">{space.name || 'Your family space.'}</h1>
+        <p className="family-page__intro">
+          A private, invite-only space where your family&rsquo;s stories, voices, and legacy come together.
         </p>
       </div>
 
-      {/* Member roster by generation */}
-      <div style={{ marginBottom: 48 }}>
-        {[1, 2, 3, 4].map(gen => (
-          <div key={gen} style={{ marginBottom: 32 }}>
-            <p style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'rgba(26,26,26,0.4)', margin: '0 0 14px' }}>
-              {genLabels[gen]}
-            </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-              {(byGen[gen] || []).map(m => {
-                const count = kinloomsByAuthor[m.id] || 0;
-                return (
-                  <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px 12px 10px', background: '#fff', border: `1px solid ${m.isMe ? 'rgba(85,107,91,0.40)' : '#d4d2cc'}`, borderRadius: 12 }}>
-                    <Silhouette member={m} size={44} />
-                    <div>
-                      <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: '#1a1a1a' }}>{m.name}</p>
-                      <p style={{ margin: '2px 0 0', fontSize: 12, color: 'rgba(26,26,26,0.5)' }}>
-                        {m.role}{m.deceased ? ' · Passed' : ''} · {count > 0 ? `${count} kinloom${count !== 1 ? 's' : ''}` : 'No kinlooms yet'}
-                      </p>
-                    </div>
+      <div className="family-roster">
+        {generations.length === 0 && (
+          <p className="family-roster__empty">No family members added yet.</p>
+        )}
+        {generations.map(g => (
+          <div key={g.generation} className="family-gen">
+            <p className="family-gen__label">{g.label}</p>
+            <div className="family-gen__row">
+              {g.members.map(m => (
+                <Link
+                  key={m.member_id}
+                  href={`/family/${m.member_id}`}
+                  className={`family-card${m.is_me ? ' is-me' : ''}`}
+                >
+                  <Silhouette member={m} size={44} />
+                  <div>
+                    <p className="family-card__name">{m.name}</p>
+                    <p className="family-card__sub">{memberSecondaryLine(m)}</p>
                   </div>
-                );
-              })}
+                </Link>
+              ))}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Quick nav */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 40 }}>
+      <div className="family-nav-grid">
         {[
           { href: '/family/feed',    label: 'Family kinlooms',  desc: 'See what your family has been creating.' },
           { href: '/family/tree',    label: 'Family tree',      desc: 'Visualize relationships across generations.' },
           { href: '/family/members', label: 'Manage members',   desc: "Invite and manage who's in your space." },
         ].map(s => (
-          <Link key={s.href} href={s.href} style={{ display: 'block', background: '#fff', border: '1px solid #d4d2cc', borderRadius: 12, padding: '24px 22px', textDecoration: 'none' }}>
-            <h3 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 20, margin: '0 0 6px', color: '#1a1a1a' }}>{s.label}</h3>
-            <p style={{ fontSize: 14, lineHeight: 1.55, color: 'rgba(26,26,26,0.65)', margin: 0 }}>{s.desc}</p>
+          <Link key={s.href} href={s.href} className="family-nav-card">
+            <h3 className="family-nav-card__title">{s.label}</h3>
+            <p className="family-nav-card__desc">{s.desc}</p>
           </Link>
         ))}
       </div>
 
-      {/* Invite CTA */}
-      <div style={{ background: 'rgba(85,107,91,0.05)', border: '1px solid rgba(85,107,91,0.20)', borderRadius: 12, padding: '28px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24 }}>
+      <div className="family-invite">
         <div>
-          <h3 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 22, margin: '0 0 6px', color: '#1a1a1a' }}>Invite your family</h3>
-          <p style={{ fontSize: 14, color: 'rgba(26,26,26,0.65)', margin: 0 }}>Your family space is invite-only. Bring in the people who matter.</p>
+          <h3 className="family-invite__title">Invite your family</h3>
+          <p className="family-invite__sub">Your family space is invite-only. Bring in the people who matter.</p>
         </div>
-        <Link href="/family/members" style={{ display: 'inline-block', background: '#556b5b', color: '#fdfcfa', padding: '11px 22px', borderRadius: 8, fontSize: 14, fontWeight: 500, textDecoration: 'none', flexShrink: 0 }}>
-          Manage members
-        </Link>
+        <Link href="/family/members" className="btn-primary">Manage members</Link>
       </div>
 
     </div>

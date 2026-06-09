@@ -2,19 +2,41 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { onboardingProfile } from '../../../lib/auth';
+import { useAuth } from '../../../lib/auth-context';
+import { ApiError } from '../../../lib/api';
+
+const ROLES = ['Parent', 'Grandparent', 'Sibling', 'Child', 'Spouse', 'Other'];
 
 export default function OnboardingProfile() {
+  const router = useRouter();
+  const { refresh } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [familyName, setFamilyName] = useState('');
   const [role, setRole] = useState('');
-  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    router.push('/onboarding/first-kinloom');
+    if (!firstName.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onboardingProfile({
+        first_name: firstName.trim(),
+        family_name: familyName.trim() || null,
+        role: role || null,
+      });
+      await refresh();
+      router.push('/onboarding/first-kinloom');
+    } catch (err) {
+      const msg = err instanceof ApiError ? (err.firstFieldError() || err.message) : 'Could not save your profile.';
+      setError(msg);
+    } finally {
+      setSaving(false);
+    }
   };
-
-  const ROLES = ['Parent', 'Grandparent', 'Sibling', 'Child', 'Spouse', 'Other'];
 
   return (
     <div style={{ maxWidth: 600, margin: '64px auto', padding: '0 32px' }}>
@@ -73,11 +95,17 @@ export default function OnboardingProfile() {
             </div>
           </div>
 
+          {error && (
+            <p className="create-banner create-banner--error" style={{ margin: 0 }}>{error}</p>
+          )}
+
           <button
             type="submit"
-            style={{ background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '14px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', marginTop: 8 }}
+            disabled={saving || !firstName.trim()}
+            className="btn-disabled-soft"
+            style={{ background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '14px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: (saving || !firstName.trim()) ? 'not-allowed' : 'pointer', marginTop: 8 }}
           >
-            Continue
+            {saving ? 'Saving…' : 'Continue'}
           </button>
         </form>
       </div>
