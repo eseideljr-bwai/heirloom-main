@@ -179,6 +179,29 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     };
   }, []);
 
+  // One-time handoff from Talk mode: consume a pre-filled draft and jump to Step 3.
+  useEffect(() => {
+    const HANDOFF_KEY = 'kinloom:draft-handoff';
+    try {
+      const raw = sessionStorage.getItem(HANDOFF_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (
+        typeof parsed !== 'object' || parsed === null ||
+        typeof (parsed as Record<string, unknown>).title !== 'string' ||
+        typeof (parsed as Record<string, unknown>).body !== 'string' ||
+        typeof (parsed as Record<string, unknown>).type_slug !== 'string'
+      ) return;
+      const { title: t, body: b } = parsed as { title: string; body: string; type_slug: string };
+      sessionStorage.removeItem(HANDOFF_KEY);
+      setTitle(t);
+      setBody(b);
+      setStep(3);
+    } catch {
+      // malformed or storage unavailable — proceed with Step 1 normally
+    }
+  }, []);
+
   if (!typeData && !contextLoading) {
     return (
       <div style={{ padding: '48px' }}>

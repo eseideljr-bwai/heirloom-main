@@ -65,6 +65,8 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
+  console.log('[converse] incoming messages:', JSON.stringify((raw as Record<string, unknown>)?.messages, null, 2));
+
   const validated = validateRequest(raw);
   if (validated.error) {
     return NextResponse.json({ error: validated.error }, { status: 400 });

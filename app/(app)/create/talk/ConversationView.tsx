@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { ContentBlock, MessageParam, ConverseResponse } from '../../../../lib/agent/types';
 import { loadTalkSession, saveTalkSession, clearTalkSession } from '../../../../lib/agent/client-storage';
 import { ShapingCard, type ProposeDraftInput } from './ShapingCard';
@@ -115,6 +116,7 @@ function UserQuote({ content }: { content: string }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function ConversationView() {
+  const router = useRouter();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -254,11 +256,18 @@ export default function ConversationView() {
   };
 
   const handlePublish = (input: ProposeDraftInput) => {
-    console.log('[kinloom draft]', input);
+    const { title, type_slug, body } = input;
+    try {
+      sessionStorage.setItem('kinloom:draft-handoff', JSON.stringify({ title, type_slug, body }));
+    } catch {
+      clearTalkSession();
+      setTurns([makeOpener()]);
+      setDraft('');
+      setError('Could not open the editor — storage may be full. Your conversation has been cleared.');
+      return;
+    }
     clearTalkSession();
-    setTurns([makeOpener()]);
-    setDraft('');
-    setError(null);
+    router.push(`/create/${type_slug}`);
   };
 
   type ProposedKinloom = SplitIntoMultipleInput['proposed_kinlooms'][number];
