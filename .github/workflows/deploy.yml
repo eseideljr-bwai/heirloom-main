@@ -49,6 +49,10 @@ jobs:
           # This will build and deploy the source code in the current directory
           source: './'
           project_id: 'bw-heirloom-dev'
+          # Server-side Firebase Admin credentials (single-line base64 of the
+          # service-account JSON). Consumed by lib/server/firebase-admin.ts.
+          env_vars: |
+            FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
 
   deploy-prod:
       name: Deploy to Prod
@@ -108,6 +112,10 @@ jobs:
           source: './'
           project_id: 'bw-heirloom-dev'
           flags: '--allow-unauthenticated'
+          # Server-side Firebase Admin credentials (single-line base64 of the
+          # service-account JSON). Consumed by lib/server/firebase-admin.ts.
+          env_vars: |
+            FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
       - name: 'Comment PR'
         uses: 'actions/github-script@v7'
         with:
