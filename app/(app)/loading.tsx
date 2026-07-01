@@ -9,7 +9,7 @@ export default function AppLoading() {
       <div className="app-loading__dot" />
       <div className="app-loading__dot" />
       <div className="app-loading__dot" />
-      <span className="app-loading__label">Loading\u2026</span>
+      <span className="app-loading__label">Loading...</span>
     </div>
   );
 }

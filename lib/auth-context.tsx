@@ -51,6 +51,7 @@ import {
 type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
+  authReady: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
   register: (payload: RegisterPayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
@@ -67,10 +68,8 @@ export type AuthProviderProps = {
 
 export function AuthProvider({ children, initialUser = null }: AuthProviderProps) {
   const [user, setUser] = useState<AuthUser | null>(initialUser);
-  // Loading is only true between mount and the first onIdTokenChanged
-  // tick when we already have a server-hydrated user — practically
-  // unobservable.
   const [loading] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
 
   const refresh = useCallback(async () => {
     if (!getSessionStartedAt()) {
@@ -123,18 +122,19 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   useEffect(() => {
     const unsub = onIdTokenChanged(firebaseAuth(), async (fbUser) => {
       if (!fbUser) {
-        // Signed out either by us or remotely (e.g. revoked refresh).
-        // Don't yank `user` here on initial mount — login() already
-        // sets it; this branch matters only when sign-out happens
-        // outside our flow.
+        setUser(null);
+        setAuthReady(true);
         return;
       }
       try {
         const idToken = await fbUser.getIdToken();
         await syncSessionRefresh(idToken);
+        const me = await getMe();
+        setUser(me);
       } catch {
-        // Server didn't accept the refresh. Next SSR fetch will 401
-        // and middleware will redirect.
+        // Keep initialUser as-is; AppShell will redirect if needed.
+      } finally {
+        setAuthReady(true);
       }
     });
     return unsub;
@@ -200,7 +200,7 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   }, [refresh]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, authReady, login, register, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   );

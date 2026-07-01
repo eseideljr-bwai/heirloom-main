@@ -38,7 +38,7 @@ function rowExcerpt(row: LibraryRow): string {
   if (row.excerpt) return row.excerpt;
   if (row.body_paragraphs) {
     const first = bodyParagraphs(row.body_paragraphs)[0] ?? '';
-    return first.length > 180 ? `${first.slice(0, 180).trim()}\u2026` : first;
+    return first.length > 180 ? `${first.slice(0, 180).trim()}...` : first;
   }
   return '';
 }

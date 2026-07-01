@@ -22,29 +22,26 @@ import { useActiveFamilySpace } from '../../lib/active-family-space';
 import AppNav from './AppNav';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, authReady } = useAuth();
   const { activeSpaceId, spaces } = useActiveFamilySpace();
   const router = useRouter();
   const routerRef = useRef(router);
   useEffect(() => { routerRef.current = router; });
 
   useEffect(() => {
-    if (loading) return;
+    if (!authReady) return;
     if (!user) {
-      // Session expired or token revoked while the tab was open.
       routerRef.current.replace('/?reason=session_expired');
       return;
     }
     if (spaces.length === 0) {
-      // No family space yet → finish onboarding.
       routerRef.current.replace('/onboarding/profile');
     }
-  }, [loading, user, spaces]);
+  }, [authReady, user, spaces]);
 
+  if (!authReady) return null;
   if (!user) return null;
   if (spaces.length === 0) return null;
-  // Active space hasn't been picked yet (first render between user and
-  // provider reconciliation) — render nothing for one frame.
   if (!activeSpaceId) return null;
 
   return (
