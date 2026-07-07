@@ -28,6 +28,21 @@ const MODES = [
     ),
   },
   {
+    key: 'import',
+    label: 'Import',
+    description: "Upload something you've already written. The Biographer reads it and helps you turn it into kinlooms.",
+    href: '/create/import',
+    available: true,
+    icon: (
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M16 3H8a2 2 0 0 0-2 2v18a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
+        <polyline points="16 3 16 9 22 9" />
+        <line x1="14" y1="20" x2="14" y2="14" />
+        <line x1="11" y1="17" x2="17" y2="17" />
+      </svg>
+    ),
+  },
+  {
     key: 'record',
     label: 'Record',
     description: 'Speak it out loud. The agent listens, then helps you shape what you said into a kinloom.',

@@ -11,7 +11,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 
 /** Canonical kinloom type slugs supported by the backend. */
-const KINLOOM_TYPE_SLUGS = [
+export const KINLOOM_TYPE_SLUGS = [
   'story',
   'lesson',
   'belief',
@@ -57,14 +57,14 @@ export const CONVERSE_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: 'split_into_multiple',
     description:
-      "Call this when the user has described material that should become 2 separate kinlooms — for example, two distinct moments, or a story plus a separate lesson drawn from it. The user will pick which to develop first; the other can be captured later. Do not use this to avoid landing a single kinloom — only when the material genuinely contains two atomic units.",
+      "Call this when the material contains multiple distinct kinlooms — propose them as a reviewable batch with a working title, one-line summary, and type for each. The Talk agent uses this for exactly 2 items; the Biographer uses it for larger batches. Do not use this to avoid landing a single kinloom — only when the material genuinely contains separate atomic units.",
     input_schema: {
       type: 'object',
       properties: {
         proposed_kinlooms: {
           type: 'array',
           minItems: 2,
-          maxItems: 2,
+          maxItems: 20,
           items: {
             type: 'object',
             properties: {
