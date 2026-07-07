@@ -48,10 +48,10 @@ export default function LibraryFilters({ types, type, q }: Props) {
           type="text"
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="Search by title, words, or feeling\u2026"
+          placeholder="Search by title, words, or feeling..."
           className="library-search__input"
         />
-        {pending && <span className="library-search__pending">\u2026</span>}
+        {pending && <span className="library-search__pending">...</span>}
       </div>
 
       <div className="library-filters">

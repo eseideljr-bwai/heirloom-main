@@ -6,14 +6,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start -p ${PORT:-8080}",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",
     "@tailwindcss/cli": "^4.1.18",
     "firebase": "^12.13.0",
     "firebase-admin": "^13.10.0",
+    "mammoth": "^1.12.0",
     "next": "^14.2.33",
+    "pdfjs-dist": "^6.1.200",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

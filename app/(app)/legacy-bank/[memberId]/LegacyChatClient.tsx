@@ -144,7 +144,7 @@ export default function LegacyChatClient({ member, kinlooms }: LegacyChatClientP
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder={`Ask ${firstName} something\u2026`}
+          placeholder={`Ask ${firstName} something...`}
           disabled={sending}
           className="chat-input__field"
         />
