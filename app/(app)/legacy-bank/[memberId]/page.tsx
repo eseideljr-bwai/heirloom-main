@@ -3,9 +3,23 @@ import { notFound, redirect } from 'next/navigation';
 import { getActiveSpaceId } from '../../../../lib/server/auth';
 import { getMemberProfile } from '../../../../lib/server/queries';
 import { ApiError } from '../../../../lib/api';
-import LegacyChatClient from './LegacyChatClient';
+import type { FamilyMember } from '../../../../lib/server/queries';
+import type { LibraryRow } from '../../../../lib/kinloom';
+import LegacyChatThread from '../LegacyChatThread';
 
 export const dynamic = 'force-dynamic';
+
+function suggestedQuestions(member: FamilyMember, kinlooms: LibraryRow[]): string[] {
+  const firstName = member.name?.split(' ')[0] || 'them';
+  const types = new Set(kinlooms.map(k => k.type_slug).filter(Boolean));
+  const out: string[] = [];
+  if (types.has('story')) out.push(`What's a story from ${firstName}'s life that shaped them?`);
+  if (types.has('lesson')) out.push(`What life lessons did ${firstName} most want to pass on?`);
+  if (types.has('belief')) out.push(`What did ${firstName} believe was most worth holding onto?`);
+  if (types.has('message')) out.push(`What did ${firstName} want their family to remember?`);
+  if (out.length < 2) out.push(`What did ${firstName} find most meaningful?`);
+  return out.slice(0, 3);
+}
 
 export default async function LegacyBankChatPage({ params }: { params: { memberId: string } }) {
   const familySpaceId = await getActiveSpaceId();
@@ -19,6 +33,7 @@ export default async function LegacyBankChatPage({ params }: { params: { memberI
     throw err;
   }
   const { member, kinlooms, kinloomCount } = data;
+  const firstName = member.name?.split(' ')[0] || 'them';
 
   return (
     <div className="lb-chat-page">
@@ -44,7 +59,15 @@ export default async function LegacyBankChatPage({ params }: { params: { memberI
         </div>
       </div>
 
-      <LegacyChatClient member={member} kinlooms={kinlooms} />
+      <LegacyChatThread
+        familySpaceId={familySpaceId}
+        conversationId={null}
+        mode={member.deceased ? 'sealed' : 'living'}
+        subjectMemberId={member.member_id}
+        subjectDisplayName={firstName}
+        corpusKinlooms={kinlooms}
+        suggestedQuestions={suggestedQuestions(member, kinlooms)}
+      />
     </div>
   );
 }

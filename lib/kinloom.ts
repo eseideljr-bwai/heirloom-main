@@ -289,6 +289,33 @@ export function formatKinloomDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** Format an ISO timestamp as relative time, e.g. "2 days ago", "just now". */
+export function formatRelativeTime(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+
+  const seconds = Math.round((Date.now() - d.getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+
+  const units: [string, number][] = [
+    ['year', 31536000],
+    ['month', 2592000],
+    ['week', 604800],
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+  ];
+
+  for (const [name, secondsInUnit] of units) {
+    if (seconds >= secondsInUnit) {
+      const value = Math.floor(seconds / secondsInUnit);
+      return `${value} ${name}${value === 1 ? '' : 's'} ago`;
+    }
+  }
+  return 'just now';
+}
+
 /** GET /kinloom-types — global list, no family space needed. */
 export async function listKinloomTypes(): Promise<KinloomType[]> {
   const res = await apiFetch<{ types: KinloomType[] | string }>('/kinloom-types');
