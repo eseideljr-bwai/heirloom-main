@@ -1,11 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import Link from 'next/link';
-import type { FamilyMember } from '../../../../lib/server/queries';
-import type { LibraryRow } from '../../../../lib/kinloom';
+import ReactMarkdown from 'react-markdown';
+import type { LibraryRow } from '../../../lib/kinloom';
+import type { LegacyBankMessage as ApiLegacyBankMessage, LegacyBankSource } from '../../../lib/server/queries';
+import { askLegacyBank, createLegacyBankConversation, normalizeSources } from '../../../lib/legacy-bank';
 
-type Message = { role: 'user' | 'assistant'; text: string; sources?: string[] };
+type Message = { role: 'user' | 'assistant'; body: string; sources: LegacyBankSource[] };
 
 function ListeningOrb({ active = false }: { active?: boolean }) {
   return (
@@ -25,53 +27,77 @@ function ListeningOrb({ active = false }: { active?: boolean }) {
   );
 }
 
-function suggestedQuestions(member: FamilyMember, kinlooms: LibraryRow[]): string[] {
-  const firstName = member.name?.split(' ')[0] || 'them';
-  const types = new Set(kinlooms.map(k => k.type_slug).filter(Boolean));
-  const out: string[] = [];
-  if (types.has('story')) out.push(`What's a story from ${firstName}'s life that shaped them?`);
-  if (types.has('lesson')) out.push(`What life lessons did ${firstName} most want to pass on?`);
-  if (types.has('belief')) out.push(`What did ${firstName} believe was most worth holding onto?`);
-  if (types.has('message')) out.push(`What did ${firstName} want their family to remember?`);
-  if (out.length < 2) out.push(`What did ${firstName} find most meaningful?`);
-  return out.slice(0, 3);
+function SourceChips({ sources }: { sources: LegacyBankSource[] }) {
+  if (sources.length === 0) return null;
+  return (
+    <p className="chat-msg__sources">
+      {sources.map(s => (
+        <Link key={s.id} href={`/library/${s.id}`} className="chat-source-chip">
+          {s.type ? `${s.type} · ${s.title}` : s.title}
+        </Link>
+      ))}
+    </p>
+  );
 }
 
-export type LegacyChatClientProps = {
-  member: FamilyMember;
-  kinlooms: LibraryRow[];
+export type LegacyChatThreadProps = {
+  familySpaceId: string;
+  conversationId: string | null;
+  mode: 'living' | 'sealed';
+  subjectMemberId: string | null;
+  /** Used in copy: "Ask {subjectDisplayName} anything." / "Ask {subjectDisplayName} something..." */
+  subjectDisplayName: string;
+  initialMessages?: ApiLegacyBankMessage[];
+  /** Only passed by the live per-member chat — its presence is what shows the "Responding from" corpus cloud. */
+  corpusKinlooms?: LibraryRow[];
+  /** Only passed by the live chat, shown while the thread is still short. */
+  suggestedQuestions?: string[];
 };
 
-export default function LegacyChatClient({ member, kinlooms }: LegacyChatClientProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+export default function LegacyChatThread({
+  familySpaceId,
+  conversationId: initialConversationId,
+  mode,
+  subjectMemberId,
+  subjectDisplayName,
+  initialMessages,
+  corpusKinlooms,
+  suggestedQuestions,
+}: LegacyChatThreadProps) {
+  const [messages, setMessages] = useState<Message[]>(
+    () => (initialMessages || []).map(m => ({ role: m.role, body: m.body, sources: normalizeSources(m.sources) })),
+  );
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const firstName = member.name?.split(' ')[0] || 'them';
-  const suggestions = suggestedQuestions(member, kinlooms);
+  const conversationIdRef = useRef<string | null>(initialConversationId);
 
   async function send(text?: string) {
     const q = (text || input).trim();
     if (!q || sending) return;
     setInput('');
     setSending(true);
-    setMessages(prev => [...prev, { role: 'user', text: q }]);
+    setMessages(prev => [...prev, { role: 'user', body: q, sources: [] }]);
     try {
-      const res = await fetch('/api/legacy-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        body: JSON.stringify({ memberId: member.member_id, question: q, sealed: !!member.deceased }),
-      });
-      const data = await res.json();
+      let cid = conversationIdRef.current;
+      if (!cid) {
+        const convo = await createLegacyBankConversation(familySpaceId, {
+          mode,
+          subject_member_id: subjectMemberId,
+        });
+        cid = convo.ulid;
+        conversationIdRef.current = cid;
+      }
+      const assistant = await askLegacyBank(familySpaceId, cid, q);
       setMessages(prev => [...prev, {
         role: 'assistant',
-        text: data?.body || 'Something went quiet. Try again in a moment.',
-        sources: Array.isArray(data?.sources) ? data.sources : [],
+        body: assistant.body || 'Something went quiet. Try again in a moment.',
+        sources: normalizeSources(assistant.sources),
       }]);
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        text: 'Something went quiet. The vault is here — try again in a moment.',
+        body: 'Something went quiet. The vault is here — try again in a moment.',
+        sources: [],
       }]);
     } finally {
       setSending(false);
@@ -85,10 +111,10 @@ export default function LegacyChatClient({ member, kinlooms }: LegacyChatClientP
 
   return (
     <>
-      {kinlooms.length > 0 && (
+      {corpusKinlooms && corpusKinlooms.length > 0 && (
         <div className="chat-sources">
           <span className="chat-sources__label">Responding from:</span>
-          {kinlooms.map(k => (
+          {corpusKinlooms.map(k => (
             <Link key={k.ulid} href={`/library/${k.ulid}`} className="chat-source-chip">
               {k.title || 'Untitled'}
             </Link>
@@ -99,23 +125,16 @@ export default function LegacyChatClient({ member, kinlooms }: LegacyChatClientP
       <div className="chat-thread">
         {messages.length === 0 && (
           <div className="chat-empty">
-            <p className="chat-empty__title">Ask {firstName} anything.</p>
-            <p className="chat-empty__sub">Responses are grounded in what they chose to keep.</p>
+            <p className="chat-empty__title">Ask {subjectDisplayName} anything.</p>
+            <p className="chat-empty__sub">Responses are grounded in what was chosen to keep.</p>
           </div>
         )}
         {messages.map((m, i) => (
           <div key={i} className={`chat-msg chat-msg--${m.role}`}>
             {m.role === 'assistant' && <ListeningOrb />}
             <div className="chat-msg__bubble">
-              <p>{m.text}</p>
-              {m.sources && m.sources.length > 0 && (
-                <p className="chat-msg__source">
-                  Source{m.sources.length > 1 ? 's' : ''}: {m.sources.map(id => {
-                    const k = kinlooms.find(x => x.ulid === id);
-                    return k?.title || id;
-                  }).join(' · ')}
-                </p>
-              )}
+              <ReactMarkdown>{m.body}</ReactMarkdown>
+              {m.role === 'assistant' && <SourceChips sources={m.sources} />}
             </div>
           </div>
         ))}
@@ -129,11 +148,11 @@ export default function LegacyChatClient({ member, kinlooms }: LegacyChatClientP
         )}
       </div>
 
-      {messages.length <= 2 && suggestions.length > 0 && (
+      {messages.length <= 2 && suggestedQuestions && suggestedQuestions.length > 0 && (
         <div className="chat-suggested">
           <p className="chat-suggested__label">Suggested questions</p>
           <div className="chat-suggested__row">
-            {suggestions.map((q, i) => (
+            {suggestedQuestions.map((q, i) => (
               <button key={i} type="button" onClick={() => send(q)} className="chip-button">{q}</button>
             ))}
           </div>
@@ -144,7 +163,7 @@ export default function LegacyChatClient({ member, kinlooms }: LegacyChatClientP
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder={`Ask ${firstName} something...`}
+          placeholder={`Ask ${subjectDisplayName} something...`}
           disabled={sending}
           className="chat-input__field"
         />

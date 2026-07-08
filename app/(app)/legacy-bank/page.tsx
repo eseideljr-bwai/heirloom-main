@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getActiveSpaceId } from '../../../lib/server/auth';
 import { getLegacyBank } from '../../../lib/server/queries';
+import ConversationRow from './ConversationRow';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,6 +56,10 @@ export default async function LegacyBankPage() {
   if (!familySpaceId) redirect('/onboarding/profile');
 
   const { progress, conversations, subjects } = await getLegacyBank(familySpaceId);
+  const recentConversations = conversations.filter(c => c.last_message_at);
+  const subjectsById = Object.fromEntries(
+    subjects.map(s => [s.member_id, { tone: s.tone, initials: s.initials }]),
+  );
   const total = progress.total_kinlooms;
   const target = progress.target || 50;
   const pct = progress.percent != null
@@ -97,19 +102,22 @@ export default async function LegacyBankPage() {
         </div>
       )}
 
-      {conversations.length > 0 && (
+      {recentConversations.length > 0 && (
         <div className="lb-section">
-          <p className="eyebrow">Continue a conversation</p>
-          <ul className="lb-convo-list">
-            {conversations.map(c => (
-              <li key={c.ulid}>
-                <Link href={`/legacy-bank/chat?conversation=${c.ulid}`} className="lb-convo-row">
-                  <span className="lb-convo-row__subject">{c.subject_name}</span>
-                  {c.last_message_at && <span className="lb-convo-row__when">{c.last_message_at}</span>}
-                </Link>
-              </li>
+          <div className="lb-section__head">
+            <p className="eyebrow">Continue a conversation</p>
+            <Link href="/legacy-bank/history" className="lb-section__hint lb-section__hint--link">View all conversations →</Link>
+          </div>
+          <div className="lb-history-list">
+            {recentConversations.map(c => (
+              <ConversationRow
+                key={c.ulid}
+                conversation={c}
+                href={`/legacy-bank/history/${c.ulid}`}
+                subjectsById={subjectsById}
+              />
             ))}
-          </ul>
+          </div>
         </div>
       )}
 

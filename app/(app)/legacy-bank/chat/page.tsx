@@ -63,7 +63,7 @@ export default async function LegacyBankTryPage() {
           <ul className="lb-convo-list">
             {conversations.map(c => (
               <li key={c.ulid}>
-                <Link href={`/legacy-bank/${c.subject_member_id}?conversation=${c.ulid}`} className="lb-convo-row">
+                <Link href={`/legacy-bank/history/${c.ulid}`} className="lb-convo-row">
                   <span className="lb-convo-row__subject">{c.subject_name}</span>
                   {c.last_message_at && <span className="lb-convo-row__when">{c.last_message_at}</span>}
                 </Link>
