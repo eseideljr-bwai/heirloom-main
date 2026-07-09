@@ -9,10 +9,13 @@ import {
   deleteMember,
   revokeInvitation,
   updateMember,
+  type CreateInvitationResponse,
   type Gender,
   type InviteRole,
 } from '../../../../lib/family';
 import { ApiError } from '../../../../lib/api';
+import { firebaseAuth } from '../../../../lib/firebase-client';
+import { syncSessionRefresh } from '../../../../lib/auth';
 import type { FamilyMember, PendingInvitation } from '../../../../lib/server/queries';
 import { revalidateFamilyData } from '../../../actions';
 
@@ -205,6 +208,58 @@ export default function MembersClient({ familySpaceId, members, pending, isOwner
 
 // ─── Invite modal ───────────────────────────────────────────────────
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Force a fresh Firebase ID token and push it to the BFF session cookie so
+ * the next proxied call carries a valid Bearer. The browser normally never
+ * touches the token (the /api/proxy BFF attaches it), but on a hard 401 we
+ * rotate it here to satisfy the "fresh getIdToken(true) + single retry"
+ * contract. Returns false when there's no signed-in Firebase user, meaning a
+ * genuine re-login is required.
+ */
+async function refreshSessionToken(): Promise<boolean> {
+  try {
+    const user = firebaseAuth().currentUser;
+    if (!user) return false;
+    const fresh = await user.getIdToken(/* forceRefresh */ true);
+    await syncSessionRefresh(fresh);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Map a create-invitation failure to a message shown inline in the modal.
+ * Backend business errors use `{ error: "..." }`; Laravel validation uses
+ * `{ message, errors }`.
+ */
+function invitationErrorMessage(err: unknown): string {
+  if (!(err instanceof ApiError)) {
+    return 'Couldn’t send the invitation. Please try again.';
+  }
+  const body = err.body as { error?: unknown } | null;
+  const serverMsg =
+    err.firstFieldError() ||
+    (body && typeof body === 'object' && typeof body.error === 'string'
+      ? body.error
+      : undefined);
+
+  switch (err.status) {
+    case 422:
+      return serverMsg || 'That person is already a member or has a pending invite.';
+    case 429:
+      return 'You’re sending invites too quickly — give it a moment and try again.';
+    case 403:
+      return 'Only the family space owner can invite members.';
+    case 401:
+      return 'Your session has expired. Please sign in again.';
+    default:
+      return 'Couldn’t send the invitation. Please try again.';
+  }
+}
+
 function InviteModal({
   familySpaceId,
   onClose,
@@ -223,20 +278,44 @@ function InviteModal({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+
+    // Client-side validation first — non-empty and email-shaped — so we never
+    // flash the sending state or hit the network for an obviously bad address.
+    const trimmed = email.trim();
+    if (!trimmed) {
+      setError('Enter an email address.');
+      return;
+    }
+    if (!EMAIL_RE.test(trimmed)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+
     setError(null);
     setSubmitting(true);
     try {
-      const res = await createInvitation(familySpaceId, { email: email.trim(), role });
+      let res: CreateInvitationResponse;
+      try {
+        res = await createInvitation(familySpaceId, { email: trimmed, role });
+      } catch (err) {
+        // Token expired mid-flight: rotate the Firebase ID token, re-sync the
+        // BFF session cookie, and retry exactly once before giving up.
+        if (err instanceof ApiError && err.status === 401 && (await refreshSessionToken())) {
+          res = await createInvitation(familySpaceId, { email: trimmed, role });
+        } else {
+          throw err;
+        }
+      }
+      // The raw invite_token is a one-time reveal — this is the only place the
+      // frontend ever sees it. Build the share link from the current origin.
       const url = typeof window !== 'undefined'
         ? `${window.location.origin}/invite/${encodeURIComponent(res.invite_token)}`
         : `/invite/${encodeURIComponent(res.invite_token)}`;
       setLink(url);
+      // Refresh the Pending invitations list so the new invite appears.
       await onDone();
     } catch (err) {
-      const msg = err instanceof ApiError
-        ? (err.firstFieldError() || err.message)
-        : 'Could not send invitation.';
-      setError(msg);
+      setError(invitationErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
