@@ -10,12 +10,14 @@ import {
   normalizeComments,
   normalizeList,
   type KinloomAuthor,
+  type KinloomMedia,
   type TaggableMember,
 } from '../../../../lib/kinloom';
 import { AudioPlayer } from '../../../components/AudioPlayer';
 import HoldButton from './HoldButton';
 import KinloomActions from './KinloomActions';
 import Comments from './Comments';
+import PhotoGallery from './PhotoGallery';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +66,7 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
   const dateLabel = formatKinloomDate(k.created_at);
   const hold = k.hold ?? { held_by_me: false, count: 0 };
   const comments = normalizeComments(k.comments);
+  const photos = normalizeList<KinloomMedia>(k.photos);
 
   return (
     <div>
@@ -102,7 +105,9 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
           </div>
         )}
 
-        {k.photo?.url && (
+        {photos.length > 0 ? (
+          <PhotoGallery photos={photos} />
+        ) : k.photo?.url && (
           <figure className="detail-photo">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={k.photo.url} alt="" />

@@ -5,7 +5,9 @@ import { getLibraryServer } from '../../../lib/server/queries';
 import {
   bodyParagraphs,
   formatKinloomDate,
+  normalizeList,
   type KinloomAuthor,
+  type KinloomMedia,
   type LibraryRow,
 } from '../../../lib/kinloom';
 import { KINLOOM_TYPES } from '../../lib/kinloom-types';
@@ -44,7 +46,11 @@ function rowExcerpt(row: LibraryRow): string {
 }
 
 function hasAudio(row: LibraryRow): boolean { return Boolean(row.has_audio ?? row.audio?.url); }
-function hasPhoto(row: LibraryRow): boolean { return Boolean(row.has_photo ?? row.photo?.url); }
+function hasPhoto(row: LibraryRow): boolean {
+  if (row.has_photo != null) return row.has_photo;
+  const photos = normalizeList<KinloomMedia>(row.photos);
+  return photos.length > 0 || Boolean(row.photo?.url);
+}
 
 function KinloomCard({ row }: { row: LibraryRow }) {
   const excerpt = rowExcerpt(row);
