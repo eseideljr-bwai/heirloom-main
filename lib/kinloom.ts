@@ -80,7 +80,10 @@ export type Kinloom = {
   visibility: Visibility | string;
   author: KinloomAuthor | null;
   audio: KinloomMedia | null;
+  /** Legacy single-photo field. New writes populate `photos` instead. */
   photo: KinloomMedia | null;
+  /** May be absent on kinlooms created before multi-photo support. */
+  photos?: KinloomMedia[] | string;
   tagged_kin: TaggableMember[] | string;
   hold: { held_by_me: boolean; count: number };
   comments: unknown;
@@ -515,17 +518,25 @@ export async function uploadFileToSignedUrl(
     body: form,
   });
 
+  // [CP2-diag] proxy PUT status — this is the least-tested, byte-moving step.
+  console.log(`[CP2-diag] proxy PUT /api/media-upload-proxy — status=${res.status} ok=${res.ok} file=${file.name}`);
+
   if (!res.ok) {
     // Try to surface the underlying GCS error from the proxy.
     let detail = '';
+    let rawBody = '';
     try {
       const data = await res.json();
+      rawBody = JSON.stringify(data);
       detail = data?.error
         ? `${data.error}${data.body ? ` — ${String(data.body).slice(0, 200)}` : ''}`
         : '';
     } catch {
-      detail = await res.text().catch(() => '');
+      rawBody = await res.text().catch(() => '');
+      detail = rawBody;
     }
+    // [CP2-diag] full response body on non-2xx proxy result.
+    console.log(`[CP2-diag] proxy PUT failed body: ${rawBody}`);
     throw new Error(detail || `Upload failed (${res.status} ${res.statusText})`);
   }
 }
@@ -592,7 +603,12 @@ export async function uploadKinloomPhoto(
   familySpaceId: string,
   kinloomId: string,
   file: File,
+  options: { width?: number | null; height?: number | null } = {},
 ): Promise<ConfirmMediaUploadResponse> {
+  // [CP2-diag] upload-url request — apiFetch throws on non-2xx, so reaching
+  // the log below means the request succeeded; failures are logged in the
+  // catch block up in handleSave with the ApiError's real status.
+  console.log(`[CP2-diag] requesting upload-url — entry_id=${kinloomId} file=${file.name}`);
   const { upload_url, gcs_path, gcs_bucket } = await requestMediaUploadUrl(
     familySpaceId,
     {
@@ -602,12 +618,16 @@ export async function uploadKinloomPhoto(
       file_size: file.size,
     },
   );
+  console.log(`[CP2-diag] upload-url ok — upload_url=${!!upload_url} gcs_path=${gcs_path}`);
 
   await uploadFileToSignedUrl(upload_url, file);
 
-  const { width, height } = await readImageDimensions(file);
+  const { width, height } = options.width !== undefined && options.height !== undefined
+    ? options
+    : await readImageDimensions(file);
 
-  return confirmMediaUpload(familySpaceId, {
+  console.log(`[CP2-diag] confirming media — entry_id=${kinloomId} gcs_path=${gcs_path}`);
+  const confirmed = await confirmMediaUpload(familySpaceId, {
     entry_id: kinloomId,
     purpose: 'photo',
     gcs_path,
@@ -619,6 +639,10 @@ export async function uploadKinloomPhoto(
     width,
     height,
   });
+  console.log(
+    `[CP2-diag] confirm ok — media.id=${confirmed.id} media.entry_id=${confirmed.entry_id} matchesRequestedEntryId=${confirmed.entry_id === kinloomId}`,
+  );
+  return confirmed;
 }
 
 /**

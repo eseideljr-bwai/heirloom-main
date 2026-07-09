@@ -11,8 +11,8 @@ import {
   createKinloom,
   deleteKinloom,
   getCreateContext,
-  MAX_UPLOAD_BYTES,
   PHOTO_MIME_TYPES,
+  readImageDimensions,
   updateKinloom,
   uploadKinloomAudio,
   uploadKinloomPhoto,
@@ -25,6 +25,22 @@ import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/Voic
 import { revalidateKinloomData } from '../../../actions';
 
 type Step = 1 | 2 | 3;
+
+type PhotoUploadStatus = 'pending' | 'uploading' | 'done' | 'error';
+
+type PhotoItem = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  width: number | null;
+  height: number | null;
+  status: PhotoUploadStatus;
+  error?: string;
+  mediaId?: string;
+};
+
+const MAX_PHOTO_BYTES = 10 * 1024 * 1024; // 10 MB per photo
+const MAX_PHOTOS = 10;
 
 function StepIndicator({ current, total = 3 }: { current: Step; total?: number }) {
   return (
@@ -54,6 +70,52 @@ function StepIndicator({ current, total = 3 }: { current: Step; total?: number }
   );
 }
 
+function PhotoThumbnailGrid({
+  items,
+  onRemove,
+  disabled,
+}: {
+  items: PhotoItem[];
+  onRemove: (id: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="photo-grid">
+      {items.map(item => (
+        <div key={item.id} className="photo-grid__item">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={item.previewUrl} alt="" className="photo-grid__img" />
+          {item.status === 'uploading' && (
+            <div className="photo-grid__overlay" aria-hidden="true">
+              <span className="photo-grid__spinner" />
+            </div>
+          )}
+          {item.status === 'done' && (
+            <span className="photo-grid__badge photo-grid__badge--done" title="Uploaded">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+            </span>
+          )}
+          {item.status === 'error' && (
+            <span className="photo-grid__badge photo-grid__badge--error" title={item.error || 'Upload failed — click Save to retry'}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="8" x2="12" y2="13" /><circle cx="12" cy="16.5" r="0.5" fill="currentColor" /></svg>
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => onRemove(item.id)}
+            className="photo-grid__remove"
+            aria-label={`Remove ${item.file.name}`}
+            disabled={disabled}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <p className="photo-grid__name">{item.file.name}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function CreateTypePage({ params }: { params: { type: string } }) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -68,11 +130,10 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const [voiceValue, setVoiceValue] = useState<VoiceRecorderValue | null>(null);
   const [showVoice, setShowVoice] = useState(false);
   const hasVoice = voiceValue !== null;
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoItems, setPhotoItems] = useState<PhotoItem[]>([]);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const hasPhoto = photoFile !== null;
+  const hasPhoto = photoItems.length > 0;
   const [taggedKin, setTaggedKin] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<Visibility>('family');
 
@@ -122,15 +183,17 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     return () => { cancelled = true; };
   }, [authLoading, familySpaceId, params.type]);
 
+  // Object URLs are created on selection and revoked on removal (see
+  // handleRemovePhoto); this only catches URLs still outstanding on unmount.
+  const photoItemsRef = useRef<PhotoItem[]>([]);
   useEffect(() => {
-    if (!photoFile) {
-      setPhotoPreview(null);
-      return;
-    }
-    const url = URL.createObjectURL(photoFile);
-    setPhotoPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [photoFile]);
+    photoItemsRef.current = photoItems;
+  }, [photoItems]);
+  useEffect(() => {
+    return () => {
+      photoItemsRef.current.forEach(item => URL.revokeObjectURL(item.previewUrl));
+    };
+  }, []);
 
   // ─── Abandon-on-unload cleanup ─────────────────────────────────────
   //
@@ -218,25 +281,56 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     photoInputRef.current?.click();
   };
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (!file) return;
+    if (files.length === 0) return;
 
-    if (!(PHOTO_MIME_TYPES as readonly string[]).includes(file.type)) {
-      setPhotoError('That file type isn\u2019t supported. Use JPG, PNG, GIF, or WebP.');
-      return;
+    const errors: string[] = [];
+    const accepted: File[] = [];
+
+    for (const file of files) {
+      if (!(PHOTO_MIME_TYPES as readonly string[]).includes(file.type)) {
+        errors.push(`\u201c${file.name}\u201d isn\u2019t a supported file type. Use JPG, PNG, GIF, or WebP.`);
+        continue;
+      }
+      if (file.size > MAX_PHOTO_BYTES) {
+        errors.push(`\u201c${file.name}\u201d is too large. Max 10 MB per photo.`);
+        continue;
+      }
+      accepted.push(file);
     }
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setPhotoError('That photo is too large. Max 500 MB.');
-      return;
+
+    const remainingSlots = Math.max(MAX_PHOTOS - photoItems.length, 0);
+    const toAdd = accepted.slice(0, remainingSlots);
+    if (accepted.length > toAdd.length) {
+      errors.push(`You can add up to ${MAX_PHOTOS} photos. ${accepted.length - toAdd.length} photo${accepted.length - toAdd.length === 1 ? '' : 's'} were not added.`);
     }
-    setPhotoError(null);
-    setPhotoFile(file);
+
+    const newItems: PhotoItem[] = await Promise.all(toAdd.map(async (file) => {
+      const { width, height } = await readImageDimensions(file);
+      return {
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        width,
+        height,
+        status: 'pending' as const,
+      };
+    }));
+
+    if (newItems.length > 0) {
+      setPhotoItems(prev => [...prev, ...newItems]);
+    }
+    setPhotoError(errors.length > 0 ? errors.join(' ') : null);
   };
 
-  const handleRemovePhoto = () => {
-    setPhotoFile(null);
+  const handleRemovePhoto = (id: string) => {
+    setPhotoItems(prev => {
+      const item = prev.find(p => p.id === id);
+      if (item) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter(p => p.id !== id);
+    });
     setPhotoError(null);
   };
 
@@ -291,19 +385,53 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
     // Step 2 + 3: upload media. Errors here halt the publish step but
     // the user keeps the draft + can retry / continue without media.
-    if (photoFile && createdId) {
-      try {
-        await uploadKinloomPhoto(familySpaceId, createdId, photoFile);
-      } catch (uploadErr) {
-        const msg = uploadErr instanceof ApiError
-          ? (uploadErr.firstFieldError() || uploadErr.message)
-          : uploadErr instanceof Error
-            ? uploadErr.message
-            : 'Could not upload the photo.';
-        console.error('Photo upload failed:', uploadErr);
-        setPhotoUploadError(msg);
-        setSaving(false);
-        return;
+    //
+    // Photos upload sequentially, one at a time; already-`done` items are
+    // skipped so a retry after a partial failure only re-uploads what's
+    // left, against the same draft.
+    // [CP2-diag] entry snapshot — count 0 means photos weren't in the
+    // working set at save time (client never saw them to upload).
+    console.log(
+      `[CP2-diag] handleSave photo loop — createdId=${createdId} photoItems.length=${photoItems.length}`,
+      photoItems.map(p => ({ status: p.status, name: p.file.name, size: p.file.size })),
+    );
+    if (createdId) {
+      for (const item of photoItems) {
+        if (item.status === 'done') {
+          console.log(`[CP2-diag] skipping already-done photo — name=${item.file.name}`);
+          continue;
+        }
+        const kinloomId = createdId;
+        console.log(`[CP2-diag] entering upload for photo — name=${item.file.name} id=${item.id}`);
+        setPhotoItems(prev => prev.map(p =>
+          p.id === item.id ? { ...p, status: 'uploading', error: undefined } : p
+        ));
+        try {
+          const confirmed = await uploadKinloomPhoto(familySpaceId, kinloomId, item.file, {
+            width: item.width,
+            height: item.height,
+          });
+          setPhotoItems(prev => prev.map(p =>
+            p.id === item.id ? { ...p, status: 'done', mediaId: confirmed.id } : p
+          ));
+        } catch (uploadErr) {
+          const msg = uploadErr instanceof ApiError
+            ? (uploadErr.firstFieldError() || uploadErr.message)
+            : uploadErr instanceof Error
+              ? uploadErr.message
+              : 'Could not upload this photo.';
+          console.error('Photo upload failed:', uploadErr);
+          console.log(
+            `[CP2-diag] loop error on photo name=${item.file.name} — routing to photoUploadError banner (not handleSkipMedia; that's a separate manual action)`,
+            uploadErr instanceof ApiError ? { status: uploadErr.status, body: uploadErr.body } : uploadErr,
+          );
+          setPhotoItems(prev => prev.map(p =>
+            p.id === item.id ? { ...p, status: 'error', error: msg } : p
+          ));
+          setPhotoUploadError(msg);
+          setSaving(false);
+          return;
+        }
       }
     }
 
@@ -345,6 +473,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
   const handleSkipMedia = async () => {
     if (!savedKinloomId || !familySpaceId) return;
+    console.log('[CP2-diag] skip-media taken — publishing with zero photos');
     setSaving(true);
     try {
       await updateKinloom(familySpaceId, savedKinloomId, { status: 'published' });
@@ -501,12 +630,13 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                 className={`attach-btn ${hasPhoto ? 'attach-btn--on' : ''}`}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                {hasPhoto ? 'Change photo' : 'Add photo'}
+                {hasPhoto ? 'Add more photos' : 'Add photos'}
               </button>
               <input
                 ref={photoInputRef}
                 type="file"
                 accept={PHOTO_MIME_TYPES.join(',')}
+                multiple
                 onChange={handlePhotoChange}
                 className="visually-hidden"
               />
@@ -522,23 +652,8 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               </p>
             )}
 
-            {photoPreview && photoFile && (
-              <div className="photo-preview">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photoPreview} alt="Selected photo preview" className="photo-preview__img" />
-                <div className="photo-preview__meta">
-                  <p className="photo-preview__name">{photoFile.name}</p>
-                  <p className="photo-preview__size">{(photoFile.size / 1024 / 1024).toFixed(2)} MB</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRemovePhoto}
-                  className="photo-preview__remove"
-                  aria-label="Remove photo"
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                </button>
-              </div>
+            {photoItems.length > 0 && (
+              <PhotoThumbnailGrid items={photoItems} onRemove={handleRemovePhoto} disabled={saving} />
             )}
 
             <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
@@ -670,6 +785,12 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               </div>
             )}
 
+            {photoItems.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <PhotoThumbnailGrid items={photoItems} onRemove={handleRemovePhoto} disabled={saving} />
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <button
                 onClick={handleSave}
@@ -678,7 +799,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: (saving || noFamilySpace) ? 'not-allowed' : 'pointer' }}
               >
                 {saving
-                  ? (photoFile || voiceValue ? 'Saving & uploading…' : 'Saving…')
+                  ? (hasPhoto || voiceValue ? 'Saving & uploading…' : 'Saving…')
                   : (photoUploadError || voiceUploadError)
                     ? 'Retry upload'
                     : savedKinloomId
