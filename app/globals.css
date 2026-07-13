@@ -2671,6 +2671,31 @@ body.has-texture::before {
   cursor: pointer;
 }
 
+/* Selectable option rows (e.g. remove-member: full removal vs. placeholder) */
+.choice-row {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.choice-row.is-active {
+  border-color: var(--fg-2);
+  background: rgba(85,107,91,0.05);
+}
+.choice-row input[type="radio"] {
+  width: 16px; height: 16px;
+  margin-top: 2px;
+  cursor: pointer;
+}
+.choice-row__body { display: flex; flex-direction: column; gap: 3px; }
+.choice-row__label {
+  font-size: 15px; color: var(--fg-1); font-weight: 500;
+}
+.choice-row__text {
+  font-size: 13px; color: var(--fg-3);
+}
+
 /* Settings — notifications/privacy rows */
 .notif-row {
   display: flex; align-items: center; justify-content: space-between;

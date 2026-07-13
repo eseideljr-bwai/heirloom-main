@@ -175,17 +175,11 @@ export default function MembersClient({ familySpaceId, members, pending, isOwner
         />
       )}
       {modal?.kind === 'remove-member' && (
-        <ConfirmModal
-          title={`Remove ${modal.member.name}?`}
-          text="Their kinlooms remain in the library, but they will no longer be part of this family space."
-          confirmLabel="Remove"
-          danger
-          onCancel={close}
-          onConfirm={async () => {
-            await deleteMember(familySpaceId, modal.member.member_id);
-            close();
-            await refresh();
-          }}
+        <RemoveMemberModal
+          familySpaceId={familySpaceId}
+          member={modal.member}
+          onClose={close}
+          onDone={async () => { close(); await refresh(); }}
         />
       )}
       {modal?.kind === 'revoke-invite' && (
@@ -570,6 +564,115 @@ function MemberFormModal({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+// ─── Remove member modal ───────────────────────────────────────────
+
+/**
+ * Removing a member is not a single action — the owner chooses between fully
+ * removing the person (ends their access to the space) and converting them to
+ * a non-user placeholder (keeps them in the tree, no account/access). The two
+ * map to `deleteMember` with and without `{ convertToNonUser: true }`.
+ *
+ * Owner removal is rejected upstream with 422; that message is surfaced here
+ * rather than the generic fallback.
+ */
+function RemoveMemberModal({
+  familySpaceId,
+  member,
+  onClose,
+  onDone,
+}: {
+  familySpaceId: string;
+  member: FamilyMember;
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const [choice, setChoice] = useState<'remove' | 'convert'>('remove');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function go() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      if (choice === 'convert') {
+        // 200 + member object; keeps them in the tree as a placeholder.
+        await deleteMember(familySpaceId, member.member_id, { convertToNonUser: true });
+      } else {
+        // 204; full removal — backend also cleans tree edges + space access.
+        await deleteMember(familySpaceId, member.member_id);
+      }
+      await onDone();
+    } catch (err) {
+      // Surface the backend message (incl. the 422 owner-removal message)
+      // instead of collapsing to a generic error.
+      const msg = err instanceof ApiError ? err.message : 'Something went wrong.';
+      setError(msg);
+      setSubmitting(false);
+    }
+  }
+
+  const options: { id: 'remove' | 'convert'; label: string; text: string }[] = [
+    {
+      id: 'remove',
+      label: 'Remove from family',
+      text: 'Ends their access to this family space. Their kinlooms stay in the library.',
+    },
+    {
+      id: 'convert',
+      label: 'Convert to non-user placeholder',
+      text: 'Keeps them visible in the family tree as a placeholder — no account, no access.',
+    },
+  ];
+
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={e => { if (e.target === e.currentTarget && !submitting) onClose(); }}
+    >
+      <div className="modal">
+        <h3 className="modal-title">Remove {member.name}?</h3>
+        <p className="modal-text">Choose how to remove them from this family space.</p>
+
+        <div className="settings-fields">
+          {options.map(opt => (
+            <label
+              key={opt.id}
+              className={`choice-row${choice === opt.id ? ' is-active' : ''}`}
+            >
+              <input
+                type="radio"
+                name="remove-choice"
+                value={opt.id}
+                checked={choice === opt.id}
+                onChange={() => setChoice(opt.id)}
+                disabled={submitting}
+              />
+              <span className="choice-row__body">
+                <span className="choice-row__label">{opt.label}</span>
+                <span className="choice-row__text">{opt.text}</span>
+              </span>
+            </label>
+          ))}
+
+          {error && <p className="form-status form-status--error">{error}</p>}
+        </div>
+
+        <div className="modal-actions">
+          <button type="button" className="btn-outline" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button
+            type="button"
+            className={choice === 'remove' ? 'btn-danger-solid' : 'btn-save'}
+            onClick={go}
+            disabled={submitting}
+          >
+            {submitting ? '…' : choice === 'remove' ? 'Remove' : 'Convert'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
