@@ -7,6 +7,7 @@ import {
   getCreateContext,
   updateKinloom,
   type Kinloom,
+  type UpdateKinloomPayload,
   type Visibility,
   type TaggableMember,
 } from '../../../../lib/kinloom';
@@ -133,6 +134,27 @@ function taggedIds(value: Kinloom['tagged_kin']): string[] {
   return [];
 }
 
+/** Order-independent equality for two lists of member ids. */
+function sameIdSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every(id => set.has(id));
+}
+
+/** Map a failed edit request to a human message. */
+function editErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    switch (err.status) {
+      case 403: return 'You don’t have permission to edit this kinloom.';
+      case 404: return 'This kinloom no longer exists. It may have been deleted.';
+      case 422: return err.firstFieldError() || err.message || 'Please check your changes and try again.';
+      case 429: return 'You’re making changes too quickly. Wait a moment and try again.';
+      default: return err.message || 'Could not save changes.';
+    }
+  }
+  return 'Could not save changes.';
+}
+
 function EditKinloomModal({
   familySpaceId,
   kinloom,
@@ -144,10 +166,24 @@ function EditKinloomModal({
   onCancel: () => void;
   onSaved: () => void | Promise<void>;
 }) {
-  const [title, setTitle] = useState(kinloom.title || '');
-  const [body, setBody] = useState(bodyToText(kinloom.body_paragraphs));
-  const [visibility, setVisibility] = useState<Visibility>((kinloom.visibility as Visibility) || 'family');
-  const [tagged, setTagged] = useState<string[]>(taggedIds(kinloom.tagged_kin));
+  // Snapshot the original values once so we can send only what changed on
+  // save. This is deliberate: `kinloom.show` returns no raw `body` (only
+  // `body_paragraphs`), so `bodyToText` reconstructs it lossily. Sending
+  // that reconstruction on every save — even a title-only edit — would
+  // rewrite the stored body through the lossy path. Dirty-tracking means
+  // `body` is only sent when the user actually edited it. (Backend ask:
+  // add raw `body` to the show response to remove the lossiness entirely.)
+  const initial = useRef({
+    title: kinloom.title || '',
+    body: bodyToText(kinloom.body_paragraphs),
+    visibility: ((kinloom.visibility as Visibility) || 'family') as Visibility,
+    tagged: taggedIds(kinloom.tagged_kin),
+  }).current;
+
+  const [title, setTitle] = useState(initial.title);
+  const [body, setBody] = useState(initial.body);
+  const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
+  const [tagged, setTagged] = useState<string[]>(initial.tagged);
   const [taggableMembers, setTaggableMembers] = useState<TaggableMember[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -175,20 +211,28 @@ function EditKinloomModal({
       return;
     }
     setError(null);
+
+    // Build a partial payload from only the fields the user changed.
+    const payload: UpdateKinloomPayload = {};
+    const nextTitle = title.trim() || 'Untitled';
+    if (nextTitle !== (initial.title.trim() || 'Untitled')) payload.title = nextTitle;
+    const nextBody = body.trim();
+    if (nextBody !== initial.body.trim()) payload.body = nextBody;
+    if (visibility !== initial.visibility) payload.visibility = visibility;
+    if (!sameIdSet(tagged, initial.tagged)) payload.tagged_member_ids = tagged;
+
+    // Nothing changed — close without hitting the API.
+    if (Object.keys(payload).length === 0) {
+      await onSaved();
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await updateKinloom(familySpaceId, kinloom.ulid, {
-        title: title.trim() || 'Untitled',
-        body: body.trim(),
-        visibility,
-        tagged_member_ids: tagged,
-      });
+      await updateKinloom(familySpaceId, kinloom.ulid, payload);
       await onSaved();
     } catch (err) {
-      const msg = err instanceof ApiError
-        ? (err.firstFieldError() || err.message)
-        : 'Could not save changes.';
-      setError(msg);
+      setError(editErrorMessage(err));
     } finally {
       setSubmitting(false);
     }

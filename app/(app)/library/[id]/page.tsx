@@ -76,10 +76,20 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
             Library
           </Link>
+          {/*
+            Edit is shown to everyone and the API's 403 is the real guard.
+            `/me` doesn't return the caller's `member_id` per space, so
+            `isAuthor` can't be computed reliably client-side (see
+            backend ask: add member_id to /me). Until it does, gating Edit
+            on `isAuthor` would hide it for everyone. Delete stays gated on
+            `isAuthor` — it's destructive, so we don't expose it until we
+            can positively identify the author; it lights up automatically
+            once /me returns member_id.
+          */}
           <KinloomActions
             familySpaceId={familySpaceId}
             kinloom={k}
-            canEdit={isAuthor}
+            canEdit={true}
             canDelete={isAuthor}
           />
         </div>
