@@ -3,13 +3,22 @@
 /**
  * BiographerBatchCard — rendered when the Biographer calls split_into_multiple.
  *
- * Checkpoint 3: shows the proposed kinloom list with a "Keep refining" escape.
- * Checkpoint 4: adds accept / drop / edit per-kinloom and the full handoff.
+ * Shows the proposed kinlooms with a "Keep refining" escape and a primary
+ * "Publish" action. Publish loops the single-create endpoint server-side
+ * (POST /api/agent/biographer/publish) once per draft and reports a per-item
+ * result. Because that loop is NOT transactional, a mid-batch failure leaves
+ * some kinlooms created: the card marks each item done/failed and lets the
+ * user retry ONLY the failures, so a success is never re-created (no dupes).
+ * On full success it locks and hands off to the Library via onAllPublished.
  */
+
+import { useState } from 'react';
 
 export type ProposedKinloom = {
   working_title: string;
   one_line_summary: string;
+  /** Full content extracted from the source — what actually gets saved. */
+  body: string;
   suggested_type_slug: string;
 };
 
@@ -18,14 +27,102 @@ export type BatchInput = {
   reasoning?: string;
 };
 
+type ItemStatus = 'idle' | 'publishing' | 'done' | 'error';
+
+type PublishResult = { ok: boolean; ulid?: string; title: string; error?: string };
+
 type Props = {
   toolUseId: string;
   input: BatchInput;
   onKeepRefining: (toolUseId: string) => void;
+  /** Called once every proposed kinloom has been created. */
+  onAllPublished: () => void;
 };
 
-export function BiographerBatchCard({ input, toolUseId, onKeepRefining }: Props) {
-  const { proposed_kinlooms: kinlooms } = input;
+export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPublished }: Props) {
+  const kinlooms = input.proposed_kinlooms;
+
+  const [statuses, setStatuses] = useState<ItemStatus[]>(() => kinlooms.map(() => 'idle'));
+  const [errors, setErrors] = useState<Array<string | null>>(() => kinlooms.map(() => null));
+  const [publishing, setPublishing] = useState(false);
+  const [banner, setBanner] = useState<string | null>(null);
+
+  const allPublished = statuses.length > 0 && statuses.every(s => s === 'done');
+  const failedCount = statuses.filter(s => s === 'error').length;
+  const hasAttempted = statuses.some(s => s !== 'idle');
+
+  const handlePublish = async () => {
+    if (publishing || allPublished) return;
+
+    // Only publish items not already created — a done item is never resent.
+    const targets = kinlooms.map((_, i) => i).filter(i => statuses[i] !== 'done');
+    if (targets.length === 0) return;
+
+    setPublishing(true);
+    setBanner(null);
+    setStatuses(prev => prev.map((s, i) => (targets.includes(i) ? 'publishing' : s)));
+    setErrors(prev => prev.map((e, i) => (targets.includes(i) ? null : e)));
+
+    try {
+      const res = await fetch('/api/agent/biographer/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          drafts: targets.map(i => ({
+            title: kinlooms[i].working_title,
+            type_slug: kinlooms[i].suggested_type_slug,
+            body: kinlooms[i].body,
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? `Publish failed (${res.status})`);
+      }
+      const data = (await res.json()) as { results: PublishResult[] };
+
+      // Zip results back onto their original indices (results are in the same
+      // order as `targets`).
+      const nextStatuses = [...statuses];
+      const nextErrors = [...errors];
+      targets.forEach((idx, j) => {
+        const r = data.results[j];
+        if (r?.ok) {
+          nextStatuses[idx] = 'done';
+          nextErrors[idx] = null;
+        } else {
+          nextStatuses[idx] = 'error';
+          nextErrors[idx] = r?.error ?? 'Could not save this kinloom.';
+        }
+      });
+      setStatuses(nextStatuses);
+      setErrors(nextErrors);
+
+      if (nextStatuses.every(s => s === 'done')) {
+        onAllPublished();
+      } else {
+        const failed = nextStatuses.filter(s => s === 'error').length;
+        setBanner(`${failed} kinloom${failed === 1 ? '' : 's'} couldn’t be saved. The rest were published — you can retry just the failures.`);
+      }
+    } catch (err) {
+      // Route-level / network failure: none of this batch landed. Reset the
+      // in-flight items to error so the retry path re-sends exactly them.
+      setStatuses(prev => prev.map((s, i) => (targets.includes(i) ? 'error' : s)));
+      setBanner(err instanceof Error ? err.message : 'Something went wrong publishing.');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const publishLabel = publishing
+    ? `Publishing ${statuses.filter(s => s === 'publishing').length} kinloom${statuses.filter(s => s === 'publishing').length === 1 ? '' : 's'}…`
+    : allPublished
+      ? 'Published'
+      : failedCount > 0
+        ? `Retry ${failedCount} failed`
+        : `Publish ${kinlooms.length} to your library`;
+
+  const publishDisabled = publishing || allPublished;
 
   return (
     <div
@@ -35,6 +132,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining }: Props)
         background: 'var(--card)',
         padding: '32px 36px',
         marginBottom: 48,
+        opacity: allPublished ? 0.85 : 1,
       }}
     >
       <p
@@ -57,74 +155,143 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining }: Props)
           margin: '0 0 24px',
         }}
       >
-        The Biographer found these in the document. Review and save them in the next step.
+        {allPublished
+          ? 'All saved to your library.'
+          : 'The Biographer found these in the document. Publish them to your library, or keep refining.'}
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
-        {kinlooms.map((k, i) => (
-          <div
-            key={i}
-            style={{
-              background: 'var(--background)',
-              border: '1px solid var(--border)',
-              borderRadius: 10,
-              padding: '16px 20px',
-            }}
-          >
-            <p
+        {kinlooms.map((k, i) => {
+          const status = statuses[i];
+          return (
+            <div
+              key={i}
               style={{
-                fontFamily: 'var(--font-serif)',
-                fontSize: 17,
-                fontWeight: 400,
-                color: 'var(--fg-1)',
-                lineHeight: 1.3,
-                margin: '0 0 4px',
+                background: 'var(--background)',
+                border: `1px solid ${status === 'error' ? 'var(--destructive)' : 'var(--border)'}`,
+                borderRadius: 10,
+                padding: '16px 20px',
+                opacity: status === 'done' ? 0.7 : 1,
               }}
             >
-              {k.working_title}
-            </p>
-            <p
-              style={{
-                fontSize: 13,
-                lineHeight: 1.55,
-                color: 'var(--fg-3)',
-                margin: '0 0 6px',
-              }}
-            >
-              {k.one_line_summary}
-            </p>
-            <p
-              style={{
-                fontSize: 11,
-                color: 'var(--fg-4)',
-                margin: 0,
-                textTransform: 'capitalize',
-              }}
-            >
-              {k.suggested_type_slug.replace('-', '‑')}
-            </p>
-          </div>
-        ))}
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                <p
+                  style={{
+                    fontFamily: 'var(--font-serif)',
+                    fontSize: 17,
+                    fontWeight: 400,
+                    color: 'var(--fg-1)',
+                    lineHeight: 1.3,
+                    margin: '0 0 4px',
+                  }}
+                >
+                  {k.working_title}
+                </p>
+                <StatusPill status={status} />
+              </div>
+              <p
+                style={{
+                  fontSize: 13,
+                  lineHeight: 1.55,
+                  color: 'var(--fg-3)',
+                  margin: '0 0 6px',
+                }}
+              >
+                {k.one_line_summary}
+              </p>
+              <p
+                style={{
+                  fontSize: 11,
+                  color: 'var(--fg-4)',
+                  margin: 0,
+                  textTransform: 'capitalize',
+                }}
+              >
+                {k.suggested_type_slug.replace('-', '‑')}
+              </p>
+              {status === 'error' && errors[i] && (
+                <p style={{ fontSize: 12, color: 'var(--destructive)', margin: '8px 0 0', lineHeight: 1.5 }}>
+                  {errors[i]}
+                </p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      {banner && (
+        <p style={{ fontSize: 13, color: 'var(--destructive)', margin: '0 0 16px', lineHeight: 1.55 }}>
+          {banner}
+        </p>
+      )}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <button
-          onClick={() => onKeepRefining(toolUseId)}
+          onClick={handlePublish}
+          disabled={publishDisabled}
           style={{
-            background: 'none',
-            border: '1px solid var(--border)',
+            background: 'var(--primary)',
+            color: 'var(--primary-foreground)',
+            border: 'none',
             borderRadius: 8,
             padding: '10px 20px',
             fontSize: 14,
             fontWeight: 500,
-            color: 'var(--fg-2)',
-            cursor: 'pointer',
             fontFamily: 'inherit',
+            cursor: publishDisabled ? 'not-allowed' : 'pointer',
+            opacity: publishDisabled ? 0.6 : 1,
           }}
         >
-          Keep refining
+          {publishLabel}
         </button>
+        {!allPublished && (
+          <button
+            onClick={() => onKeepRefining(toolUseId)}
+            disabled={publishing}
+            style={{
+              background: 'none',
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              padding: '10px 20px',
+              fontSize: 14,
+              fontWeight: 500,
+              color: 'var(--fg-2)',
+              cursor: publishing ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit',
+              opacity: publishing ? 0.6 : 1,
+            }}
+          >
+            Keep refining
+          </button>
+        )}
+        {hasAttempted && !allPublished && (
+          <span style={{ fontSize: 12, color: 'var(--fg-4)' }}>
+            {statuses.filter(s => s === 'done').length}/{kinlooms.length} published
+          </span>
+        )}
       </div>
     </div>
   );
+}
+
+function StatusPill({ status }: { status: ItemStatus }) {
+  if (status === 'done') {
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--primary)', flexShrink: 0 }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+        Saved
+      </span>
+    );
+  }
+  if (status === 'publishing') {
+    return (
+      <span style={{ fontSize: 11, color: 'var(--fg-4)', flexShrink: 0 }}>Saving…</span>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <span style={{ fontSize: 11, color: 'var(--destructive)', flexShrink: 0 }}>Failed</span>
+    );
+  }
+  return null;
 }
