@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
 import type { ContentBlock, MessageParam, ConverseResponse } from '../../../../lib/agent/types';
 import {
   loadImportDocument,
@@ -26,6 +27,7 @@ import {
 } from '../../../../lib/biographer/client-storage';
 import { ShapingCard, type ProposeDraftInput } from '../talk/ShapingCard';
 import { BiographerBatchCard, type BatchInput } from './BiographerBatchCard';
+import { BiographerChoiceCard, type ChoicesInput } from './BiographerChoiceCard';
 
 // ─── Turn types ───────────────────────────────────────────────────────────────
 
@@ -74,17 +76,14 @@ function messagesToTurns(messages: MessageParam[]): Turn[] {
   });
 }
 
-function getTextParagraphs(content: ContentBlock[]): string[] {
-  const paragraphs: string[] = [];
+function getText(content: ContentBlock[]): string {
+  const parts: string[] = [];
   for (const block of content) {
     if (block.type !== 'text') continue;
     const text = typeof block.text === 'string' ? block.text : '';
-    for (const raw of text.split(/\n\n+/)) {
-      const para = raw.trim();
-      if (para) paragraphs.push(para);
-    }
+    if (text.trim()) parts.push(text);
   }
-  return paragraphs;
+  return parts.join('\n\n').trim();
 }
 
 type ToolUseBlock = {
@@ -101,27 +100,53 @@ function getToolUse(content: ContentBlock[]): ToolUseBlock | null {
   return null;
 }
 
+// Find the answer submitted for a given tool_use_id, if any. Used to render
+// ask_choices cards in their answered (locked) state further up the transcript.
+function findToolResultContent(turns: Turn[], toolUseId: string): string | null {
+  for (const turn of turns) {
+    if (turn.role !== 'user' || !('_tool_result' in turn)) continue;
+    for (const block of turn.content) {
+      if (block.tool_use_id === toolUseId) return block.content;
+    }
+  }
+  return null;
+}
+
 // ─── Sub-renders ──────────────────────────────────────────────────────────────
 
+// Serif-styled markdown so **bold**, lists, etc. render as formatting
+// rather than as literal characters.
+const proseText: React.CSSProperties = {
+  fontFamily: 'var(--font-serif)',
+  fontSize: 19,
+  lineHeight: 1.82,
+  color: 'var(--fg-1)',
+};
+
 function AgentProse({ content }: { content: ContentBlock[] }) {
-  const paragraphs = getTextParagraphs(content);
-  if (paragraphs.length === 0) return null;
+  const text = getText(content);
+  if (!text) return null;
   return (
-    <div>
-      {paragraphs.map((para, i) => (
-        <p
-          key={i}
-          style={{
-            fontFamily: 'var(--font-serif)',
-            fontSize: 19,
-            lineHeight: 1.82,
-            color: 'var(--fg-1)',
-            margin: i < paragraphs.length - 1 ? '0 0 20px' : 0,
-          }}
-        >
-          {para}
-        </p>
-      ))}
+    <div style={proseText}>
+      <ReactMarkdown
+        components={{
+          p: ({ children }) => <p style={{ margin: '0 0 20px' }}>{children}</p>,
+          strong: ({ children }) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
+          em: ({ children }) => <em>{children}</em>,
+          ul: ({ children }) => (
+            <ul style={{ margin: '0 0 20px', paddingLeft: 24 }}>{children}</ul>
+          ),
+          ol: ({ children }) => (
+            <ol style={{ margin: '0 0 20px', paddingLeft: 24 }}>{children}</ol>
+          ),
+          li: ({ children }) => <li style={{ margin: '0 0 6px' }}>{children}</li>,
+          a: ({ children, href }) => (
+            <a href={href} style={{ color: 'var(--primary)' }}>{children}</a>
+          ),
+        }}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 }
@@ -161,10 +186,16 @@ export default function BiographerView({ onStartOver }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const documentRef = useRef<string | null>(null);
+  const bootedRef = useRef(false);
 
   // ── Boot: load document + restore or start session ─────────────────
 
   useEffect(() => {
+    // Guard against React StrictMode's double-invoke (and any remount) so the
+    // first turn fires exactly once instead of generating twice.
+    if (bootedRef.current) return;
+    bootedRef.current = true;
+
     const doc = loadImportDocument();
     if (!doc) {
       // Document was lost (e.g. storage cleared) — go back to pick phase.
@@ -241,15 +272,51 @@ export default function BiographerView({ onStartOver }: Props) {
 
   // ── User interactions ───────────────────────────────────────────────
 
+  // Close a pending tool_use by appending its tool_result, then resume the
+  // conversation. Both button taps and typed replies route through here so a
+  // dangling tool_use never reaches the API (which would 400).
+  const submitToolResult = async (toolUseId: string, content: string) => {
+    const toolResultTurn: ToolResultUserTurn = {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: toolUseId, content }],
+      _tool_result: true,
+    };
+    const nextTurns: Turn[] = [...turns, toolResultTurn];
+    setTurns(nextTurns);
+    await fireApiCall(nextTurns);
+  };
+
   const handleSend = async () => {
     const text = draft.trim();
     if (!text || sending) return;
+    setDraft('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
+    // Edge case: if an ask_choices card is pending and the user types instead
+    // of tapping, the reply must still close that tool_use with a tool_result.
+    if (pendingToolUse?.name === 'ask_choices') {
+      await submitToolResult(pendingToolUse.id, text);
+      return;
+    }
+
     const userTurn: TextUserTurn = { role: 'user', content: text };
     const nextTurns: Turn[] = [...turns, userTurn];
     setTurns(nextTurns);
-    setDraft('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     await fireApiCall(nextTurns);
+  };
+
+  // Button-tap path for ask_choices. Assemble one "Q → A" line per question
+  // (or just the single answer) into the tool_result content.
+  const handleChoices = async (toolUseId: string, answers: string[]) => {
+    const questions =
+      (pendingToolUse?.input as ChoicesInput | undefined)?.questions ?? [];
+    const content =
+      answers.length === 1
+        ? answers[0]
+        : questions
+            .map((q, i) => `${q.question} → ${answers[i] ?? ''}`)
+            .join('\n');
+    await submitToolResult(toolUseId, content);
   };
 
   const handleRetry = () => {
@@ -262,35 +329,17 @@ export default function BiographerView({ onStartOver }: Props) {
     setError(null);
   };
 
-  const handleKeepGoing = async (toolUseId: string) => {
-    const toolResultTurn: ToolResultUserTurn = {
-      role: 'user',
-      content: [{
-        type: 'tool_result',
-        tool_use_id: toolUseId,
-        content: 'The user chose to keep talking — continue the conversation before proposing a draft.',
-      }],
-      _tool_result: true,
-    };
-    const nextTurns: Turn[] = [...turns, toolResultTurn];
-    setTurns(nextTurns);
-    await fireApiCall(nextTurns);
-  };
+  const handleKeepGoing = (toolUseId: string) =>
+    submitToolResult(
+      toolUseId,
+      'The user chose to keep talking — continue the conversation before proposing a draft.',
+    );
 
-  const handleKeepRefining = async (toolUseId: string) => {
-    const toolResultTurn: ToolResultUserTurn = {
-      role: 'user',
-      content: [{
-        type: 'tool_result',
-        tool_use_id: toolUseId,
-        content: 'The user wants to refine the proposed kinlooms — continue the conversation.',
-      }],
-      _tool_result: true,
-    };
-    const nextTurns: Turn[] = [...turns, toolResultTurn];
-    setTurns(nextTurns);
-    await fireApiCall(nextTurns);
-  };
+  const handleKeepRefining = (toolUseId: string) =>
+    submitToolResult(
+      toolUseId,
+      'The user wants to refine the proposed kinlooms — continue the conversation.',
+    );
 
   const handlePublish = (input: ProposeDraftInput) => {
     const { title, type_slug, body } = input;
@@ -302,6 +351,12 @@ export default function BiographerView({ onStartOver }: Props) {
     }
     clearImportSession();
     router.push(`/create/${type_slug}`);
+  };
+
+  const handleBatchPublished = () => {
+    clearImportSession();
+    router.push('/library');
+    router.refresh();
   };
 
   const handleStartOverInternal = () => {
@@ -325,8 +380,11 @@ export default function BiographerView({ onStartOver }: Props) {
     lastTurn?.role === 'assistant' && lastTurn.stop_reason === 'tool_use'
       ? getToolUse(lastTurn.content)
       : null;
-  const isAwaitingCard = pendingToolUse !== null;
-  const canSend = draft.trim().length > 0 && !sending && !isAwaitingCard;
+  // ask_choices is a mid-conversation elicitation — the reply box stays open so
+  // the user can type a free-text answer instead of tapping. The terminal cards
+  // (propose_draft, split_into_multiple) block the input until acted on.
+  const isBlockingCard = pendingToolUse !== null && pendingToolUse.name !== 'ask_choices';
+  const canSend = draft.trim().length > 0 && !sending && !isBlockingCard;
 
   // ── Render ─────────────────────────────────────────────────────────
 
@@ -413,28 +471,47 @@ export default function BiographerView({ onStartOver }: Props) {
             if (turn.role === 'assistant') {
               const isLast = i === turns.length - 1;
               const toolUse =
-                isLast && turn.stop_reason === 'tool_use' ? getToolUse(turn.content) : null;
+                turn.stop_reason === 'tool_use' ? getToolUse(turn.content) : null;
+              // Terminal cards only render on the last turn (they hand off).
+              // ask_choices renders in every turn so answered cards persist.
+              const terminalCard =
+                isLast && (toolUse?.name === 'propose_draft' || toolUse?.name === 'split_into_multiple')
+                  ? toolUse
+                  : null;
+              const choiceCard = toolUse?.name === 'ask_choices' ? toolUse : null;
+              const showCard = terminalCard || choiceCard;
 
               return (
-                <div key={i} style={{ marginBottom: toolUse ? 0 : 48 }}>
+                <div key={i} style={{ marginBottom: showCard ? 0 : 48 }}>
                   <AgentProse content={turn.content} />
-                  {toolUse?.name === 'propose_draft' && (
+                  {terminalCard?.name === 'propose_draft' && (
                     <div style={{ marginTop: 32 }}>
                       <ShapingCard
-                        toolUseId={toolUse.id}
-                        input={toolUse.input as ProposeDraftInput}
+                        toolUseId={terminalCard.id}
+                        input={terminalCard.input as ProposeDraftInput}
                         onPublish={handlePublish}
                         onKeepGoing={handleKeepGoing}
                         onStartOver={handleStartOverInternal}
                       />
                     </div>
                   )}
-                  {toolUse?.name === 'split_into_multiple' && (
+                  {terminalCard?.name === 'split_into_multiple' && (
                     <div style={{ marginTop: 32 }}>
                       <BiographerBatchCard
-                        toolUseId={toolUse.id}
-                        input={toolUse.input as BatchInput}
+                        toolUseId={terminalCard.id}
+                        input={terminalCard.input as BatchInput}
                         onKeepRefining={handleKeepRefining}
+                        onAllPublished={handleBatchPublished}
+                      />
+                    </div>
+                  )}
+                  {choiceCard && (
+                    <div style={{ marginTop: 32 }}>
+                      <BiographerChoiceCard
+                        toolUseId={choiceCard.id}
+                        input={choiceCard.input as ChoicesInput}
+                        onSubmit={handleChoices}
+                        answerText={findToolResultContent(turns, choiceCard.id) ?? undefined}
                       />
                     </div>
                   )}
@@ -502,8 +579,8 @@ export default function BiographerView({ onStartOver }: Props) {
           borderTop: '1px solid var(--border)',
           padding: '18px 56px 24px',
           background: 'var(--background)',
-          opacity: isAwaitingCard ? 0.4 : 1,
-          pointerEvents: isAwaitingCard ? 'none' : 'auto',
+          opacity: isBlockingCard ? 0.4 : 1,
+          pointerEvents: isBlockingCard ? 'none' : 'auto',
           transition: 'opacity 200ms ease',
         }}
       >
@@ -512,7 +589,7 @@ export default function BiographerView({ onStartOver }: Props) {
             ref={textareaRef}
             value={draft}
             rows={1}
-            disabled={sending || isAwaitingCard}
+            disabled={sending || isBlockingCard}
             placeholder="Reply…"
             onChange={e => { setDraft(e.target.value); adjustHeight(); }}
             onKeyDown={handleKeyDown}

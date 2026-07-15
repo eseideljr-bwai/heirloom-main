@@ -25,7 +25,7 @@ import { NextResponse } from 'next/server';
 import type Anthropic from '@anthropic-ai/sdk';
 import { getActiveSpaceId } from '../../../../lib/server/auth';
 import { getAnthropicClient } from '../../../../lib/agent/client';
-import { CONVERSE_TOOLS } from '../../../../lib/agent/tools';
+import { BIOGRAPHER_TOOLS } from '../../../../lib/agent/tools';
 import { BIOGRAPHER_SYSTEM_PROMPT } from '../../../../lib/biographer/system-prompt';
 import { MAX_TURNS, type MessageParam, type ConverseResponse } from '../../../../lib/agent/types';
 
@@ -128,7 +128,7 @@ export async function POST(request: Request): Promise<NextResponse> {
           cache_control: { type: 'ephemeral' },
         },
       ],
-      tools: CONVERSE_TOOLS,
+      tools: BIOGRAPHER_TOOLS,
       messages: fullMessages,
     });
 

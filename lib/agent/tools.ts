@@ -1,11 +1,15 @@
 /**
  * Tool definitions for the kinloom creation agent.
  *
- * Both tools are terminal — when the model calls either one, the route
- * handler should return the tool_use block to the client and stop the
- * conversation loop. The client dispatches on the tool name to render
- * the right UI (Shaping card for propose_draft, split picker for
- * split_into_multiple).
+ * propose_draft and split_into_multiple are terminal — when the model
+ * calls either one, the route handler returns the tool_use block to the
+ * client and the client hands off to the publish wizard. The client
+ * dispatches on the tool name to render the right UI (Shaping card for
+ * propose_draft, split picker for split_into_multiple).
+ *
+ * ask_choices (Biographer-only, see BIOGRAPHER_TOOLS) is NOT terminal:
+ * it presents tappable buttons mid-conversation and the conversation
+ * resumes once the user answers via a tool_result.
  */
 
 import type Anthropic from '@anthropic-ai/sdk';
@@ -74,7 +78,12 @@ export const CONVERSE_TOOLS: Anthropic.Messages.Tool[] = [
               },
               one_line_summary: {
                 type: 'string',
-                description: 'A single sentence describing what this kinloom would capture.',
+                description: 'A single sentence describing what this kinloom would capture. Used for the review list only — this is NOT the kinloom body.',
+              },
+              body: {
+                type: 'string',
+                description:
+                  "The full kinloom content for this item, drawn from the source document in the person's own words. Stay as close as possible to the original language — extract and lightly tidy the relevant passage, never summarize, condense, or invent. This is what gets saved as the kinloom, so it must be the complete text, not a summary.",
               },
               suggested_type_slug: {
                 type: 'string',
@@ -82,7 +91,7 @@ export const CONVERSE_TOOLS: Anthropic.Messages.Tool[] = [
                 description: 'The kinloom type this one would likely be.',
               },
             },
-            required: ['working_title', 'one_line_summary', 'suggested_type_slug'],
+            required: ['working_title', 'one_line_summary', 'body', 'suggested_type_slug'],
           },
         },
         reasoning: {
@@ -95,3 +104,48 @@ export const CONVERSE_TOOLS: Anthropic.Messages.Tool[] = [
     },
   },
 ];
+
+/**
+ * ask_choices — a mid-conversation elicitation tool. Presents one or more
+ * questions, each with a short set of options rendered as buttons. Unlike
+ * the terminal tools above, calling this does not hand off to the publish
+ * wizard; the conversation pauses for the user's selection and resumes.
+ */
+export const ASK_CHOICES_TOOL: Anthropic.Messages.Tool = {
+  name: 'ask_choices',
+  description:
+    'Present the user with one or more questions, each offering a short set of selectable options rendered as buttons. Use this whenever you want the user to choose between distinct paths or answer a structured question, instead of asking in prose.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      questions: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          type: 'object',
+          properties: {
+            question: {
+              type: 'string',
+              description: 'The question shown above the buttons.',
+            },
+            options: {
+              type: 'array',
+              minItems: 2,
+              maxItems: 4,
+              items: { type: 'string' },
+              description: '2–4 short labels, each rendered as a button.',
+            },
+          },
+          required: ['question', 'options'],
+        },
+      },
+    },
+    required: ['questions'],
+  },
+};
+
+/**
+ * Tools available to the Biographer (Import) agent. Adds the mid-conversation
+ * ask_choices elicitation tool on top of the shared terminal tools.
+ */
+export const BIOGRAPHER_TOOLS: Anthropic.Messages.Tool[] = [...CONVERSE_TOOLS, ASK_CHOICES_TOOL];
