@@ -30,6 +30,10 @@ const PROTECTED_PREFIXES = [
   '/settings',
   '/help',
   '/onboarding',
+  // Needs a session but NOT a verified email (that's the whole point of
+  // this screen). The verified-email gate lives in the (app)/onboarding
+  // server layouts, which deliberately don't cover this route.
+  '/verify-email',
 ];
 
 const AUTH_ENTRY_PATHS = new Set(['/', '/login', '/signup']);

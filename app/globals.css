@@ -2704,3 +2704,77 @@ body.has-texture::before {
   font-style: italic;
 }
 .vis-row--center { justify-content: center; }
+
+/* ─── Auth pages (login helpers, forgot/reset password, verify email) ─── */
+.auth-page {
+  min-height: 100vh;
+  background: var(--background);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+.auth-page__inner { width: 100%; max-width: 440px; }
+.auth-page__head { text-align: center; margin-bottom: 32px; }
+.auth-page__logo { height: 72px; width: auto; margin: 0 auto 24px; }
+.auth-page__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 30px;
+  line-height: 1.2;
+  margin: 0 0 8px;
+  color: var(--fg-1);
+}
+.auth-page__sub { font-size: 15px; color: var(--fg-3); margin: 0; line-height: 1.55; }
+.auth-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 32px;
+  box-shadow: var(--shadow-lg);
+}
+.auth-form { display: flex; flex-direction: column; gap: 16px; }
+.auth-foot { text-align: center; font-size: 14px; color: var(--fg-3); margin: 24px 0 0; }
+.auth-link { color: var(--primary); text-decoration: none; font-weight: 500; }
+.auth-link:hover { text-decoration: underline; }
+.auth-linkbutton {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.auth-forgot {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--primary);
+  text-decoration: none;
+}
+.auth-forgot:hover { text-decoration: underline; }
+.auth-field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.btn-block { width: 100%; justify-content: center; }
+.auth-status {
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+.auth-status--ok {
+  background: rgba(85,107,91,0.08);
+  border: 1px solid rgba(85,107,91,0.20);
+  color: var(--primary);
+}
+.auth-status--error {
+  background: rgba(212,24,61,0.06);
+  border: 1px solid rgba(212,24,61,0.20);
+  color: var(--destructive);
+}
+.auth-note { font-size: 13px; color: var(--fg-4); margin: 0; line-height: 1.55; }

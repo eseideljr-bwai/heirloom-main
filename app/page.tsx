@@ -103,6 +103,7 @@ export default function Login() {
                 placeholder="••••••••"
                 style={{ width: '100%', padding: '12px 14px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
               />
+              <Link href="/forgot-password" className="auth-forgot">Forgot password?</Link>
             </div>
 
             {error && <p style={{ fontSize: 14, color: '#d4183d', margin: 0 }}>{error}</p>}

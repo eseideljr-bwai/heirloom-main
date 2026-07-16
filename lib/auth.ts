@@ -15,14 +15,16 @@
 
 import {
   EmailAuthProvider,
+  applyActionCode,
+  confirmPasswordReset,
   createUserWithEmailAndPassword,
   deleteUser,
   reauthenticateWithCredential,
-  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
   updateProfile as fbUpdateProfile,
+  verifyPasswordResetCode,
 } from 'firebase/auth';
 import { firebaseAuth } from './firebase-client';
 import { apiFetch, ApiError } from './api';
@@ -258,9 +260,108 @@ export async function register(payload: RegisterPayload): Promise<AuthUser> {
   return getMe();
 }
 
-export async function forgotPassword(email: string): Promise<void> {
+// ─── Email flows (backend Resend send + Firebase action-link apply) ──
+//
+// The Laravel API owns the *sending* of transactional email via Resend:
+//   • POST /auth/password-reset      — public, generic response.
+//   • POST /auth/email-verification  — authenticated (current user).
+// The emails carry Firebase action links (oobCode). The *completion*
+// step (confirming the new password / applying the verification) runs
+// client-side against the Firebase Web SDK on our /auth/action page.
+
+/**
+ * Ask the backend to send a password-reset email (Resend). Always
+ * resolves for a valid-looking request — the API returns a generic
+ * "if an account exists…" message so callers can't enumerate emails.
+ * No Bearer is attached (public endpoint).
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await apiFetch<{ message: string }>('/auth/password-reset', {
+    method: 'POST',
+    body: { email },
+    anonymous: true,
+  });
+}
+
+/**
+ * Ask the backend to (re)send a verification email (Resend) for the
+ * currently-signed-in user. Requires a valid session Bearer, attached
+ * by the BFF proxy. Throws ApiError (e.g. 429 when rate-limited).
+ */
+export async function requestEmailVerification(): Promise<void> {
+  await apiFetch<{ message: string }>('/auth/email-verification', {
+    method: 'POST',
+  });
+}
+
+/**
+ * Validate a password-reset oobCode without consuming it. Resolves to
+ * the target email (so the reset page can show who it's for) or throws
+ * ApiError when the code is invalid/expired.
+ */
+export async function verifyResetCode(oobCode: string): Promise<string> {
   try {
-    await sendPasswordResetEmail(firebaseAuth(), email);
+    return await verifyPasswordResetCode(firebaseAuth(), oobCode);
+  } catch (err) {
+    throw toApiError(err);
+  }
+}
+
+/**
+ * Complete a password reset from a Firebase action link. Validates the
+ * oobCode (also yields the target email) then sets the new password.
+ * Returns the email the reset was applied to.
+ */
+export async function completePasswordReset(
+  oobCode: string,
+  newPassword: string,
+): Promise<string> {
+  try {
+    const email = await verifyPasswordResetCode(firebaseAuth(), oobCode);
+    await confirmPasswordReset(firebaseAuth(), oobCode, newPassword);
+    return email;
+  } catch (err) {
+    throw toApiError(err);
+  }
+}
+
+/**
+ * Apply an email-verification action link (oobCode) from a Firebase
+ * email. After marking the address verified we force-refresh the ID
+ * token and re-mint the session cookie so the `email_verified` claim
+ * (baked in at mint time) flips true and the app gate opens.
+ *
+ * Returns true when a signed-in session was re-established; false when
+ * the code was applied but there's no local Firebase user (e.g. the
+ * link was opened in a browser where the user isn't signed in) — the
+ * caller should send them to sign in.
+ */
+export async function applyEmailVerification(oobCode: string): Promise<boolean> {
+  try {
+    await applyActionCode(firebaseAuth(), oobCode);
+  } catch (err) {
+    throw toApiError(err);
+  }
+  return syncEmailVerified();
+}
+
+/**
+ * Reload the current Firebase user and, if their email is verified,
+ * re-mint the server session cookie so the `email_verified` claim is
+ * refreshed. Returns true when the (verified) session was synced,
+ * false when there's no signed-in user or the email is still
+ * unverified. Used by both the action page and the "I've verified"
+ * button on the pending screen.
+ */
+export async function syncEmailVerified(): Promise<boolean> {
+  const user = firebaseAuth().currentUser;
+  if (!user) return false;
+  try {
+    await user.reload();
+    if (!user.emailVerified) return false;
+    const idToken = await user.getIdToken(/* forceRefresh */ true);
+    await syncSession(idToken, 'establish');
+    return true;
   } catch (err) {
     throw toApiError(err);
   }

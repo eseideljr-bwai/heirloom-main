@@ -30,12 +30,20 @@ import { adminAuth } from './firebase-admin';
 export const verifySession = cache(async (): Promise<{
   uid: string;
   email: string | null;
+  emailVerified: boolean;
 } | null> => {
   const cookie = cookies().get(COOKIES.session)?.value;
   if (!cookie) return null;
   try {
     const decoded = await adminAuth().verifySessionCookie(cookie, true);
-    return { uid: decoded.uid, email: decoded.email ?? null };
+    return {
+      uid: decoded.uid,
+      email: decoded.email ?? null,
+      // Baked into the session cookie at mint time. Flips true only
+      // after the user verifies and the cookie is re-minted (see
+      // syncEmailVerified in lib/auth.ts).
+      emailVerified: decoded.email_verified === true,
+    };
   } catch {
     return null;
   }

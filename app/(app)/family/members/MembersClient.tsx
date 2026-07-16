@@ -274,6 +274,7 @@ function InviteModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
@@ -311,6 +312,7 @@ function InviteModal({
       const url = typeof window !== 'undefined'
         ? `${window.location.origin}/invite/${encodeURIComponent(res.invite_token)}`
         : `/invite/${encodeURIComponent(res.invite_token)}`;
+      setSentTo(trimmed);
       setLink(url);
       // Refresh the Pending invitations list so the new invite appears.
       await onDone();
@@ -339,7 +341,7 @@ function InviteModal({
     >
       <form className="modal" onSubmit={onSubmit}>
         <h3 className="modal-title">Invite a family member</h3>
-        <p className="modal-text">They&apos;ll get an invite link to join this family space.</p>
+        <p className="modal-text">We&apos;ll email them a link to join this family space.</p>
 
         {!link ? (
           <div className="settings-fields">
@@ -375,8 +377,12 @@ function InviteModal({
           </div>
         ) : (
           <div className="settings-fields">
-            <p className="form-status form-status--ok">Invitation sent.</p>
-            <p className="modal-text">Share this link directly if needed:</p>
+            <p className="form-status form-status--ok">
+              Invitation email sent{sentTo ? ` to ${sentTo}` : ''}.
+            </p>
+            <p className="modal-text">
+              They&apos;ll get an email with a link to join. You can also share this link directly:
+            </p>
             <div className="invite-link">{link}</div>
             <div className="invite-link__row">
               <button type="button" className="btn-outline" onClick={copyLink}>

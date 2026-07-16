@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../../lib/auth-context';
+import { requestEmailVerification } from '../../lib/auth';
 import { ApiError } from '../../lib/api';
 
 function safeNext(value: string | null | undefined): string | null {
@@ -35,7 +36,14 @@ export default function Signup() {
   const { user, loading: authLoading, register } = useAuth();
 
   useEffect(() => {
-    if (!authLoading && user) router.replace(next ?? '/onboarding');
+    if (!authLoading && user) {
+      // New accounts must verify their email before entering the app.
+      // Carry any `next` (e.g. an invite link) through the pending screen.
+      const dest = next
+        ? `/verify-email?next=${encodeURIComponent(next)}`
+        : '/verify-email';
+      router.replace(dest);
+    }
   }, [authLoading, user, router, next]);
 
   const handleSignup = async (e: React.FormEvent) => {
@@ -59,7 +67,10 @@ export default function Signup() {
         password,
         password_confirmation: passwordConfirm,
       });
-      // Effect above redirects once `user` populates.
+      // Kick off the verification email (Resend, via the backend). Best-
+      // effort — the pending screen has a resend button if this fails.
+      void requestEmailVerification().catch(() => {});
+      // Effect above redirects to /verify-email once `user` populates.
     } catch (err: unknown) {
       if (err instanceof ApiError) {
         if (err.status === 409) {
