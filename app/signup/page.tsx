@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../../lib/auth-context';
-import { requestEmailVerification } from '../../lib/auth';
 import { ApiError } from '../../lib/api';
 
 function safeNext(value: string | null | undefined): string | null {
@@ -67,9 +66,9 @@ export default function Signup() {
         password,
         password_confirmation: passwordConfirm,
       });
-      // Kick off the verification email (Resend, via the backend). Best-
-      // effort — the pending screen has a resend button if this fails.
-      void requestEmailVerification().catch(() => {});
+      // The /verify-email screen owns sending the verification email on
+      // mount (see its auto-send effect). Doing it here raced the
+      // redirect below and the fetch could be torn down before it fired.
       // Effect above redirects to /verify-email once `user` populates.
     } catch (err: unknown) {
       if (err instanceof ApiError) {

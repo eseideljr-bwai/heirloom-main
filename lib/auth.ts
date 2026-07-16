@@ -20,6 +20,8 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   reauthenticateWithCredential,
+  sendEmailVerification,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
@@ -260,38 +262,45 @@ export async function register(payload: RegisterPayload): Promise<AuthUser> {
   return getMe();
 }
 
-// ─── Email flows (backend Resend send + Firebase action-link apply) ──
+// ─── Email flows (Firebase-native send + Firebase action-link apply) ─
 //
-// The Laravel API owns the *sending* of transactional email via Resend:
-//   • POST /auth/password-reset      — public, generic response.
-//   • POST /auth/email-verification  — authenticated (current user).
-// The emails carry Firebase action links (oobCode). The *completion*
-// step (confirming the new password / applying the verification) runs
-// client-side against the Firebase Web SDK on our /auth/action page.
+// Transactional auth emails are sent by Firebase itself (the Web SDK
+// hands off to Firebase's mailer). We tried routing these through the
+// Laravel API's Resend integration, but that path returned success
+// while silently dropping mail (unverified sending domain), so email
+// reset/verification never arrived. Firebase-native delivery works, so
+// we send directly. The emails carry Firebase action links (oobCode);
+// the *completion* step still runs client-side via the Web SDK.
 
 /**
- * Ask the backend to send a password-reset email (Resend). Always
- * resolves for a valid-looking request — the API returns a generic
- * "if an account exists…" message so callers can't enumerate emails.
- * No Bearer is attached (public endpoint).
+ * Send a password-reset email via Firebase. With Firebase's email-
+ * enumeration protection enabled this resolves even for unknown
+ * addresses, so callers can safely show a generic "if an account
+ * exists…" message without leaking which emails are registered.
  */
 export async function requestPasswordReset(email: string): Promise<void> {
-  await apiFetch<{ message: string }>('/auth/password-reset', {
-    method: 'POST',
-    body: { email },
-    anonymous: true,
-  });
+  try {
+    await sendPasswordResetEmail(firebaseAuth(), email);
+  } catch (err) {
+    throw toApiError(err);
+  }
 }
 
 /**
- * Ask the backend to (re)send a verification email (Resend) for the
- * currently-signed-in user. Requires a valid session Bearer, attached
- * by the BFF proxy. Throws ApiError (e.g. 429 when rate-limited).
+ * (Re)send a verification email via Firebase for the currently-signed-
+ * in user. Throws ApiError — 401 when there's no local Firebase user,
+ * or 429 when Firebase rate-limits repeated sends.
  */
 export async function requestEmailVerification(): Promise<void> {
-  await apiFetch<{ message: string }>('/auth/email-verification', {
-    method: 'POST',
-  });
+  const user = firebaseAuth().currentUser;
+  if (!user) {
+    throw new ApiError(401, 'Please sign in again to verify your email.', null);
+  }
+  try {
+    await sendEmailVerification(user);
+  } catch (err) {
+    throw toApiError(err);
+  }
 }
 
 /**

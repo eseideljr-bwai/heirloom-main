@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { requestEmailVerification, syncEmailVerified } from '../../lib/auth';
@@ -35,6 +35,7 @@ export default function VerifyEmail() {
   const [checking, setChecking] = useState(false);
   const [notYet, setNotYet] = useState(false);
   const timerRef = useRef<number | null>(null);
+  const autoSentRef = useRef(false);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -46,9 +47,8 @@ export default function VerifyEmail() {
     };
   }, [cooldown]);
 
-  const resend = async () => {
-    if (cooldown > 0 || resendState === 'sending') return;
-    setResendState('sending');
+  const resend = useCallback(async () => {
+    setResendState(s => (s === 'sending' ? s : 'sending'));
     setMessage('');
     try {
       await requestEmailVerification();
@@ -63,7 +63,29 @@ export default function VerifyEmail() {
         setMessage('Could not send the email right now. Please try again shortly.');
       }
     }
+  }, []);
+
+  const onResendClick = () => {
+    if (cooldown > 0 || resendState === 'sending') return;
+    void resend();
   };
+
+  // Auto-send the first verification email when the pending screen loads.
+  // This is the single source of truth for the initial send (signup no
+  // longer fires it, to avoid the redirect racing the fetch). Guarded by
+  // a per-email sessionStorage flag so a refresh doesn't re-send.
+  useEffect(() => {
+    if (autoSentRef.current) return;
+    const email = user?.email;
+    if (!email) return;
+    autoSentRef.current = true;
+    const key = `kinloom.verif_sent.${email}`;
+    if (typeof window !== 'undefined') {
+      if (window.sessionStorage.getItem(key)) return;
+      window.sessionStorage.setItem(key, String(Date.now()));
+    }
+    void resend();
+  }, [user?.email, resend]);
 
   const recheck = async () => {
     setChecking(true);
@@ -123,7 +145,7 @@ export default function VerifyEmail() {
 
             <button
               type="button"
-              onClick={resend}
+              onClick={onResendClick}
               disabled={cooldown > 0 || resendState === 'sending'}
               className="btn-outline btn-block"
             >
