@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../lib/server/auth';
-import { getLibraryServer } from '../../../lib/server/queries';
+import { getActiveSpace, getActiveSpaceId } from '../../../lib/server/auth';
+import { getHome, getLibraryServer } from '../../../lib/server/queries';
 import {
   bodyParagraphs,
   formatKinloomDate,
@@ -81,7 +81,22 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
   const familySpaceId = await getActiveSpaceId();
   if (!familySpaceId) redirect('/onboarding/profile');
 
-  const { total, kinlooms } = await getLibraryServer(familySpaceId);
+  const [{ kinlooms: allKinlooms }, home, activeSpace] = await Promise.all([
+    getLibraryServer(familySpaceId),
+    getHome(familySpaceId),
+    getActiveSpace(),
+  ]);
+
+  // Library is the signed-in user's own kinlooms. Other members' pieces live
+  // in /family/feed. The /library endpoint returns the whole space and has no
+  // author filter, so scope to the current member here.
+  // /home's user_summary.member_id is authoritative for the current member;
+  // family_spaces[].member_id is optional and often absent on /me.
+  const myMemberId = home.userSummary?.member_id || activeSpace?.member_id || null;
+  const kinlooms = myMemberId
+    ? allKinlooms.filter(r => r.author?.member_id === myMemberId)
+    : allKinlooms;
+  const total = kinlooms.length;
 
   const type = searchParams?.type || '';
   const q = (searchParams?.q || '').trim().toLowerCase();
@@ -93,7 +108,6 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
     return matchType && matchQ;
   });
 
-  const contributors = new Set(kinlooms.map(r => r.author?.member_id).filter(Boolean)).size;
   const typeLabels = KINLOOM_TYPES.map(t => t.label);
 
   return (
@@ -108,7 +122,7 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
           </Link>
         </div>
         <p className="library-page__sub">
-          {total || kinlooms.length} piece{total === 1 ? '' : 's'} \u2014 {contributors} contributor{contributors === 1 ? '' : 's'}.
+          {total} piece{total === 1 ? '' : 's'} in your library.
         </p>
       </div>
 
