@@ -265,7 +265,31 @@ export async function login(email: string, password: string): Promise<AuthUser> 
   }
   const idToken = await cred.user.getIdToken();
   await syncSession(idToken, 'establish');
-  return getMe();
+  try {
+    return await getMe();
+  } catch (err) {
+    // Firebase accepted the password but the backend rejects /me with
+    // 401/403. The backend only provisions the Laravel row during
+    // onboarding, so a legitimate not-yet-onboarded user (and a not-yet-
+    // verified one) 401s here — indistinguishable from a deleted account
+    // client-side. Don't dead-end: hand back a minimal user built from
+    // the Firebase credential and let the app route them (→ /verify-email
+    // if unverified, → /onboarding/profile when they have no space).
+    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+      return {
+        ulid: cred.user.uid,
+        email: cred.user.email ?? email,
+        name: cred.user.displayName ?? '',
+        display_name: cred.user.displayName ?? null,
+        avatar_url: null,
+        phone: null,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        family_spaces: [],
+        onboarding_state: 'pending',
+      };
+    }
+    throw err;
+  }
 }
 
 export type RegisterPayload = {
@@ -303,7 +327,29 @@ export async function register(payload: RegisterPayload): Promise<AuthUser> {
   }
   const idToken = await cred.user.getIdToken(/* forceRefresh */ true);
   await syncSession(idToken, 'establish');
-  return getMe();
+  try {
+    return await getMe();
+  } catch (err) {
+    // Laravel returns 401 on /me until the email is verified (and the
+    // user row is provisioned via onboarding). That's the expected state
+    // right after signup — synthesize a minimal user from the Firebase
+    // credential so the UI can route to /verify-email instead of showing
+    // a spurious "Request failed (401)".
+    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+      return {
+        ulid: cred.user.uid,
+        email: cred.user.email ?? payload.email,
+        name: payload.name,
+        display_name: payload.name || null,
+        avatar_url: null,
+        phone: null,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        family_spaces: [],
+        onboarding_state: 'pending',
+      };
+    }
+    throw err;
+  }
 }
 
 // ─── Email flows (Firebase-native send + Firebase action-link apply) ─

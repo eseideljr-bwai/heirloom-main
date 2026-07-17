@@ -167,13 +167,26 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
         const me = await getMe();
         setUser(me);
       } catch (err) {
-        // 401/403 from establish or /me = the server doesn't recognize
-        // this account anymore (stale token, deleted user). Sign out of
-        // Firebase too, otherwise the login page sees a "user" and
-        // ping-pongs against middleware forever.
-        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          await apiLogout();
-          setUser(null);
+        const authErr =
+          err instanceof ApiError && (err.status === 401 || err.status === 403);
+        if (authErr) {
+          // /me 401s until the Laravel row is provisioned (onboarding) and
+          // the email is verified. A not-yet-onboarded user is
+          // indistinguishable from a deleted one client-side, so don't
+          // sign them out — synthesize a minimal user from the Firebase
+          // record and let the app route them (→ /verify-email if
+          // unverified, → /onboarding/profile when they have no space).
+          setUser(prev => prev ?? {
+            ulid: fbUser.uid,
+            email: fbUser.email ?? '',
+            name: fbUser.displayName ?? '',
+            display_name: fbUser.displayName ?? null,
+            avatar_url: null,
+            phone: null,
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+            family_spaces: [],
+            onboarding_state: 'pending',
+          });
         }
         // Anything else (network blip): keep initialUser as-is.
       } finally {

@@ -53,7 +53,12 @@ export default function Login() {
       if (err instanceof ApiError) {
         // Use the same message for "wrong password", "no such user", and
         // most 4xx errors so attackers can't enumerate registered emails.
-        if (err.status >= 400 && err.status < 500 && err.status !== 422) {
+        // 410 = credentials were right but the backend account is gone
+        // (deleted account with a surviving Firebase user) — surface the
+        // real message instead of a misleading "invalid password".
+        if (err.status === 410) {
+          setError(err.message);
+        } else if (err.status >= 400 && err.status < 500 && err.status !== 422) {
           setError('Invalid email or password.');
         } else if (err.status === 422) {
           setError(err.firstFieldError() ?? 'Please check your credentials.');
