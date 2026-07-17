@@ -66,10 +66,19 @@ async function handle(
   });
 
   const respHeaders = new Headers();
-  const passthrough = ['content-type', 'content-disposition', 'content-length', 'cache-control'];
+  // 204/205/304 must not carry a body (Undici throws if NextResponse gets one).
+  const nullBody = upstream.status === 204 || upstream.status === 205 || upstream.status === 304;
+  const passthrough = nullBody
+    ? ['cache-control']
+    : ['content-type', 'content-disposition', 'content-length', 'cache-control'];
   for (const h of passthrough) {
     const v = upstream.headers.get(h);
     if (v) respHeaders.set(h, v);
+  }
+  if (nullBody) {
+    // Drain upstream so the connection can be reused, then return no body.
+    await upstream.arrayBuffer();
+    return new NextResponse(null, { status: upstream.status, headers: respHeaders });
   }
   const buf = await upstream.arrayBuffer();
   return new NextResponse(buf, { status: upstream.status, headers: respHeaders });
