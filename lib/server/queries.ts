@@ -43,9 +43,38 @@ export type HomeWhisper = {
   line: string;
   sub?: string | null;
   when?: string | null;
-  /** Optional kinloom ulid to deep-link the row to. */
+  /**
+   * Optional kinloom ulid to deep-link the row to.
+   * API sometimes returns a string, sometimes a kinloom/member object
+   * (or `{}` for join events) — always normalize via resolveWhisperTarget.
+   */
   target?: string | null;
 };
+
+/** Coerce whisper.target → kinloom ulid string, or null when not linkable. */
+export function resolveWhisperTarget(target: unknown): string | null {
+  if (target == null || target === '') return null;
+  if (typeof target === 'string') return target;
+  if (typeof target === 'object' && !Array.isArray(target)) {
+    const t = target as Record<string, unknown>;
+    for (const key of ['ulid', 'id', 'kinloom_ulid', 'kinloom_id'] as const) {
+      const v = t[key];
+      if (typeof v === 'string' && v.length > 0) return v;
+    }
+  }
+  return null;
+}
+
+function normalizeWhisper<T extends { id?: unknown; target?: unknown }>(
+  w: T,
+  index: number,
+): T & { id: string; target: string | null } {
+  const id =
+    typeof w.id === 'string' && w.id.length > 0
+      ? w.id
+      : `whisper-${index}`;
+  return { ...w, id, target: resolveWhisperTarget(w.target) };
+}
 
 export type HomeLegacyBankProgress = {
   total_kinlooms: number;
@@ -74,7 +103,7 @@ export const getHome = cache(async (familySpaceId: string): Promise<HomeData> =>
   return {
     userSummary: res.user_summary,
     recentKinlooms: normalizeList<HomeRecentKinloom>(res.recent_kinlooms),
-    recentWhispers: normalizeList<HomeWhisper>(res.recent_whispers),
+    recentWhispers: normalizeList<HomeWhisper>(res.recent_whispers).map(normalizeWhisper),
     legacyBankProgress: res.legacy_bank_progress,
   };
 });
@@ -159,6 +188,7 @@ export type Whisper = {
   line: string;
   sub?: string | null;
   when?: string | null;
+  /** Kinloom ulid after normalizeWhisper; raw API may send an object. */
   target?: string | null;
 };
 
@@ -177,7 +207,7 @@ export const getFamilyFeed = cache(async (familySpaceId: string): Promise<{
     `/family-spaces/${encodeURIComponent(familySpaceId)}/family-feed`,
   );
   return {
-    whispers: normalizeList<Whisper>(res.recent_whispers),
+    whispers: normalizeList<Whisper>(res.recent_whispers).map(normalizeWhisper),
     kinlooms: normalizeList<LibraryRow>(res.family_kinlooms),
     totals: res.totals,
   };

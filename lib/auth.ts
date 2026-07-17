@@ -72,19 +72,41 @@ export type AuthUser = {
  *   - a single ulid string
  *   - a CSV of ulids
  */
+function normalizeSpaceRef(raw: unknown): FamilySpaceRef | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  // API usually sends `ulid`; some payloads use `id`.
+  const ulid =
+    (typeof o.ulid === 'string' && o.ulid) ||
+    (typeof o.id === 'string' && o.id) ||
+    '';
+  if (!ulid) return null;
+  return {
+    ulid,
+    name: typeof o.name === 'string' ? o.name : '',
+    member_id: typeof o.member_id === 'string' ? o.member_id : undefined,
+    role: o.role === 'owner' || o.role === 'member' ? o.role : undefined,
+  };
+}
+
 export function parseFamilySpaces(
   raw: AuthUser['family_spaces'],
 ): FamilySpaceRef[] {
   if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw)) {
+    return raw.map(normalizeSpaceRef).filter((s): s is FamilySpaceRef => s != null);
+  }
   if (typeof raw !== 'string') return [];
   const trimmed = raw.trim();
   if (!trimmed) return [];
   if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
     try {
       const v = JSON.parse(trimmed);
-      if (Array.isArray(v)) return v;
-      if (v && typeof v === 'object' && 'ulid' in v) return [v as FamilySpaceRef];
+      if (Array.isArray(v)) {
+        return v.map(normalizeSpaceRef).filter((s): s is FamilySpaceRef => s != null);
+      }
+      const one = normalizeSpaceRef(v);
+      if (one) return [one];
     } catch {
       // fall through
     }
@@ -149,6 +171,17 @@ export async function syncSessionRefresh(idToken: string): Promise<void> {
   await syncSession(idToken, 'refresh');
 }
 
+/**
+ * Re-mint the long-lived `kinloom_session` cookie. Used when Firebase
+ * still has the user signed in but the server session cookie is gone
+ * (logout in another tab, deleted account, 14d expiry) — a plain
+ * refresh never re-mints it, so middleware would bounce protected
+ * routes back to `/` forever.
+ */
+export async function syncSessionEstablish(idToken: string): Promise<void> {
+  await syncSession(idToken, 'establish');
+}
+
 async function destroySession(): Promise<void> {
   try {
     await fetch('/api/auth/session', {
@@ -158,6 +191,17 @@ async function destroySession(): Promise<void> {
   } catch {
     // best-effort
   }
+}
+
+/**
+ * Clear the server-side session cookies without touching Firebase.
+ * Used when the Firebase client is already signed out but stale server
+ * cookies survive (crashed logout, cleared IndexedDB, deleted account).
+ * If we don't clear them, middleware keeps redirecting `/` → `/home`
+ * while AppShell redirects `/home` → `/` — an infinite blank-page loop.
+ */
+export async function clearServerSession(): Promise<void> {
+  await destroySession();
 }
 
 // ─── Identity (Firebase-backed) ─────────────────────────────────────

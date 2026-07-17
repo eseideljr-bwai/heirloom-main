@@ -60,7 +60,9 @@ function KinloomFeedCard({ k }: { k: LibraryRow }) {
 }
 
 function WhisperRow({ w, idKey }: { w: Whisper; idKey: string }) {
-  const href = w.target ? `/library/${w.target}` : '/family';
+  const href = typeof w.target === 'string' && w.target
+    ? `/library/${w.target}`
+    : '/family';
   return (
     <Link href={href} className="whisper-row whisper-row--compact">
       {w.actor ? (

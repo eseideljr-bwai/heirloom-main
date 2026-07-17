@@ -4,13 +4,15 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../lib/auth-context';
+import { useActiveFamilySpace } from '../../../lib/active-family-space';
 import { acceptInvitation } from '../../../lib/family';
 import { ApiError } from '../../../lib/api';
 import { revalidateAllData } from '../../actions';
 
 export default function InviteAcceptClient({ token }: { token: string }) {
   const router = useRouter();
-  const { user, loading, refresh } = useAuth();
+  const { user, loading, refresh, upsertFamilySpace } = useAuth();
+  const { setActiveSpaceId } = useActiveFamilySpace();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accepted, setAccepted] = useState<{ ulid: string; name: string } | null>(null);
@@ -21,6 +23,14 @@ export default function InviteAcceptClient({ token }: { token: string }) {
     try {
       const res = await acceptInvitation(token);
       setAccepted(res.family_space);
+      // Optimistic membership so AppShell has a space immediately, then
+      // pin the active-space cookie + refresh /me for the real payload.
+      upsertFamilySpace({
+        ulid: res.family_space.ulid,
+        name: res.family_space.name,
+        role: 'member',
+      });
+      await setActiveSpaceId(res.family_space.ulid);
       await refresh();
       void revalidateAllData();
     } catch (err) {

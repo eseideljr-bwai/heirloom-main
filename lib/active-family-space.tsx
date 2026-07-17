@@ -39,6 +39,16 @@ export type ActiveFamilySpaceProviderProps = {
   initialActiveSpaceId?: string | null;
 };
 
+function resolveActiveSpaceId(
+  spaces: FamilySpaceRef[],
+  preferred: string | null,
+): string | null {
+  if (spaces.length === 0) return null;
+  const ids = new Set(spaces.map(s => s.ulid));
+  if (preferred && ids.has(preferred)) return preferred;
+  return spaces[0]?.ulid ?? null;
+}
+
 export function ActiveFamilySpaceProvider({
   children,
   initialActiveSpaceId = null,
@@ -47,19 +57,27 @@ export function ActiveFamilySpaceProvider({
   const router = useRouter();
   const spaces = useMemo(() => parseFamilySpaces(user?.family_spaces), [user]);
 
-  const [activeSpaceId, setActiveSpaceIdState] = useState<string | null>(initialActiveSpaceId);
+  const [preferredSpaceId, setPreferredSpaceId] = useState<string | null>(initialActiveSpaceId);
 
-  // Reconcile against the latest spaces list.
+  // Resolve during render so AppShell never sees a one-frame null
+  // activeSpaceId while spaces are already available (that used to
+  // paint a permanent blank page for invitees).
+  const activeSpaceId = useMemo(
+    () => (user ? resolveActiveSpaceId(spaces, preferredSpaceId) : null),
+    [user, spaces, preferredSpaceId],
+  );
+
+  // Keep preferred state in sync when the resolved value changes
+  // (e.g. cookie pointed at a space the user left).
   useEffect(() => {
     if (!user) {
-      setActiveSpaceIdState(null);
+      if (preferredSpaceId != null) setPreferredSpaceId(null);
       return;
     }
-    const ids = new Set(spaces.map(s => s.ulid));
-    if (activeSpaceId && ids.has(activeSpaceId)) return;
-    const fallback = spaces[0]?.ulid ?? null;
-    setActiveSpaceIdState(fallback);
-  }, [user, spaces, activeSpaceId]);
+    if (activeSpaceId && activeSpaceId !== preferredSpaceId) {
+      setPreferredSpaceId(activeSpaceId);
+    }
+  }, [user, activeSpaceId, preferredSpaceId]);
 
   // Cross-tab sync.
   useEffect(() => {
@@ -67,7 +85,7 @@ export function ActiveFamilySpaceProvider({
     const bc = new BroadcastChannel('kinloom_active_space');
     bc.onmessage = (e) => {
       if (typeof e.data === 'string') {
-        setActiveSpaceIdState(e.data || null);
+        setPreferredSpaceId(e.data || null);
         router.refresh();
       }
     };
@@ -75,7 +93,7 @@ export function ActiveFamilySpaceProvider({
   }, [router]);
 
   const setActiveSpaceId = useCallback(async (ulid: string) => {
-    setActiveSpaceIdState(ulid);
+    setPreferredSpaceId(ulid);
     const res = await fetch('/api/active-space', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -85,7 +103,7 @@ export function ActiveFamilySpaceProvider({
     if (!res.ok) {
       // Revert if server rejected. Most common cause is "not a member".
       const fallback = spaces[0]?.ulid ?? null;
-      setActiveSpaceIdState(fallback);
+      setPreferredSpaceId(fallback);
       return;
     }
     if (typeof BroadcastChannel !== 'undefined') {

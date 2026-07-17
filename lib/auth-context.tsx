@@ -32,16 +32,21 @@ import {
 import { onIdTokenChanged } from 'firebase/auth';
 import {
   AuthUser,
+  FamilySpaceRef,
   RegisterPayload,
+  clearServerSession,
   getMe,
   login as apiLogin,
   logout as apiLogout,
+  parseFamilySpaces,
   register as apiRegister,
+  syncSessionEstablish,
   syncSessionRefresh,
 } from './auth';
 import { firebaseAuth } from './firebase-client';
 import {
   ABSOLUTE_TIMEOUT_MS,
+  ApiError,
   checkSessionStatus,
   getSessionStartedAt,
   IDLE_TIMEOUT_MS,
@@ -56,7 +61,9 @@ type AuthContextValue = {
   register: (payload: RegisterPayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
-};
+  /** Optimistically add a family space (e.g. right after accepting an invite). */
+  upsertFamilySpace: (space: FamilySpaceRef) => void;
+}
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -80,8 +87,21 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
       const me = await getMe();
       setUser(me);
     } catch {
-      setUser(null);
+      // Keep the current user (SSR hydrate / prior success). A transient
+      // /me 401 after invite-accept used to wipe state and leave AppShell
+      // permanently blank on /home.
     }
+  }, []);
+
+  const upsertFamilySpace = useCallback((space: FamilySpaceRef) => {
+    setUser(prev => {
+      if (!prev) return prev;
+      const existing = parseFamilySpaces(prev.family_spaces);
+      if (existing.some(s => s.ulid === space.ulid)) {
+        return { ...prev, family_spaces: existing };
+      }
+      return { ...prev, family_spaces: [...existing, space] };
+    });
   }, []);
 
   const broadcast = useCallback((msg: 'login' | 'logout') => {
@@ -122,17 +142,40 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   useEffect(() => {
     const unsub = onIdTokenChanged(firebaseAuth(), async (fbUser) => {
       if (!fbUser) {
+        // Firebase is signed out, but stale server cookies may survive
+        // (crashed logout, deleted account). Middleware presence-checks
+        // `kinloom_session`, so leftovers cause a `/home` ⟷ `/` redirect
+        // loop. Clear them before AppShell redirects.
+        if (getSessionStartedAt()) {
+          await clearServerSession();
+        }
         setUser(null);
         setAuthReady(true);
         return;
       }
       try {
         const idToken = await fbUser.getIdToken();
-        await syncSessionRefresh(idToken);
+        // If the server session cookie is gone (logout elsewhere,
+        // deleted account, expiry) but Firebase still has us signed in,
+        // a plain 'refresh' never re-mints `kinloom_session` → middleware
+        // bounces /home → /?next=/home forever. Re-establish in that case.
+        if (getSessionStartedAt()) {
+          await syncSessionRefresh(idToken);
+        } else {
+          await syncSessionEstablish(idToken);
+        }
         const me = await getMe();
         setUser(me);
-      } catch {
-        // Keep initialUser as-is; AppShell will redirect if needed.
+      } catch (err) {
+        // 401/403 from establish or /me = the server doesn't recognize
+        // this account anymore (stale token, deleted user). Sign out of
+        // Firebase too, otherwise the login page sees a "user" and
+        // ping-pongs against middleware forever.
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          await apiLogout();
+          setUser(null);
+        }
+        // Anything else (network blip): keep initialUser as-is.
       } finally {
         setAuthReady(true);
       }
@@ -200,7 +243,7 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   }, [refresh]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, authReady, login, register, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, authReady, login, register, logout, refresh, upsertFamilySpace }}>
       {children}
     </AuthContext.Provider>
   );

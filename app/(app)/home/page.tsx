@@ -59,7 +59,10 @@ function KinloomCard({ k }: { k: HomeRecentKinloom }) {
 }
 
 function WhisperRow({ w, isLast }: { w: HomeWhisper; isLast: boolean }) {
-  const href = w.target ? `/library/${w.target}` : '/family/feed';
+  // target is normalized to a string ulid (or null) in getHome — never interpolate objects.
+  const href = typeof w.target === 'string' && w.target
+    ? `/library/${w.target}`
+    : '/family/feed';
   return (
     <Link href={href} className={`whisper-row${isLast ? ' is-last' : ''}`}>
       {w.actor ? (
