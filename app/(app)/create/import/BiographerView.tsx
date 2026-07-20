@@ -29,6 +29,10 @@ import {
   loadBatch,
   saveBatch,
   buildBatchFromEmission,
+  reconcileBatch,
+  applyEdit,
+  applyDrop,
+  applyRestore,
   type DurableBatch,
   type EditablePatch,
 } from '../../../../lib/biographer/batch-store';
@@ -110,55 +114,12 @@ function getToolUse(content: ContentBlock[]): ToolUseBlock | null {
 // ─── Durable batch reconciliation (Phase A ↔ Phase B) ───────────────────────
 
 // Pull the split_into_multiple emission (tool_use id + proposed items) out of an
-// assistant turn's content, if this turn is one.
+// assistant turn's content, if this turn is one. The pure reconcile/edit/drop
+// logic lives in lib/biographer/batch-store.
 function splitEmissionFrom(content: ContentBlock[]): { id: string; proposed: unknown } | null {
   const tool = getToolUse(content);
   if (!tool || tool.name !== 'split_into_multiple') return null;
   return { id: tool.id, proposed: (tool.input as { proposed_kinlooms?: unknown }).proposed_kinlooms };
-}
-
-// Reconcile the durable batch against a (possibly new) assistant emission.
-//   • not a batch emission → unchanged.
-//   • no batch yet → build one (Phase A).
-//   • Phase B (frozen) → unchanged. This is the in-flight race rule: a late
-//     full-batch re-emission that lands after the user has started editing is
-//     DISCARDED, never applied to the durable array.
-//   • Phase A, same emission id → unchanged (no-op on re-render).
-//   • Phase A, new emission id → replace with the latest emission (mirroring).
-function reconcileBatch(prev: DurableBatch | null, content: ContentBlock[]): DurableBatch | null {
-  const emission = splitEmissionFrom(content);
-  if (!emission) return prev;
-  if (!prev) return buildBatchFromEmission(emission.id, emission.proposed);
-  if (prev.phase === 'B') return prev;
-  if (prev.sourceToolUseId === emission.id) return prev;
-  return buildBatchFromEmission(emission.id, emission.proposed);
-}
-
-// First committed edit/drop freezes the batch into Phase B. Edits set the
-// item's lifecycle to `edited`; siblings are byte-identical and never touched.
-function applyEdit(batch: DurableBatch, id: string, patch: EditablePatch): DurableBatch {
-  return {
-    ...batch,
-    phase: 'B',
-    items: batch.items.map(it => (it.id === id ? { ...it, ...patch, lifecycle: 'edited' } : it)),
-  };
-}
-
-function applyDrop(batch: DurableBatch, id: string): DurableBatch {
-  return {
-    ...batch,
-    phase: 'B',
-    items: batch.items.map(it => (it.id === id ? { ...it, lifecycle: 'dropped' } : it)),
-  };
-}
-
-// Restore a dropped item. Content is preserved (drop never revert content); the
-// lifecycle badge returns to `proposed`. Phase is already B and stays there.
-function applyRestore(batch: DurableBatch, id: string): DurableBatch {
-  return {
-    ...batch,
-    items: batch.items.map(it => (it.id === id ? { ...it, lifecycle: 'proposed' } : it)),
-  };
 }
 
 // Find the answer submitted for a given tool_use_id, if any. Used to render
@@ -278,7 +239,7 @@ export default function BiographerView({ onStartOver }: Props) {
       const lastAssistant = [...restored].reverse().find(t => t.role === 'assistant') as
         | AssistantTurn
         | undefined;
-      setBatch(lastAssistant ? reconcileBatch(loaded, lastAssistant.content) : loaded);
+      setBatch(lastAssistant ? reconcileBatch(loaded, splitEmissionFrom(lastAssistant.content)) : loaded);
       setHydrated(true);
     } else {
       // First time: fire the initial API call. The document IS the first
@@ -344,7 +305,7 @@ export default function BiographerView({ onStartOver }: Props) {
       ]);
       // Reconcile the durable batch with this emission. In Phase A a fresh
       // split_into_multiple replaces the array; in Phase B it's discarded.
-      setBatch(prev => reconcileBatch(prev, data.message));
+      setBatch(prev => reconcileBatch(prev, splitEmissionFrom(data.message)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     } finally {

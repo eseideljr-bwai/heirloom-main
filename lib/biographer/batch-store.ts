@@ -125,3 +125,67 @@ export function clearBatch(): void {
     // ignore
   }
 }
+
+// ─── Pure batch domain logic (Phase A ↔ Phase B) ────────────────────────────
+
+/** A split_into_multiple emission, decoupled from the model content block type. */
+export type SplitEmission = { id: string; proposed: unknown };
+
+/**
+ * Reconcile the durable batch against a (possibly new) emission:
+ *   • no emission this turn → unchanged.
+ *   • no batch yet → build one (Phase A).
+ *   • Phase B (frozen) → unchanged. This is the in-flight race rule AND the
+ *     reload guarantee: a frozen batch wins over the stale tool input, and a
+ *     late full-batch re-emission after editing began is DISCARDED.
+ *   • Phase A, same emission id → unchanged (no-op on re-render/reload).
+ *   • Phase A, new emission id → replace with the latest emission (mirroring).
+ */
+export function reconcileBatch(
+  prev: DurableBatch | null,
+  emission: SplitEmission | null,
+): DurableBatch | null {
+  if (!emission) return prev;
+  if (!prev) return buildBatchFromEmission(emission.id, emission.proposed);
+  if (prev.phase === 'B') return prev;
+  if (prev.sourceToolUseId === emission.id) return prev;
+  return buildBatchFromEmission(emission.id, emission.proposed);
+}
+
+/**
+ * First committed edit freezes the batch into Phase B. The edited item's
+ * lifecycle becomes `edited`; every sibling is byte-identical and untouched.
+ */
+export function applyEdit(batch: DurableBatch, id: string, patch: EditablePatch): DurableBatch {
+  return {
+    ...batch,
+    phase: 'B',
+    items: batch.items.map(it => (it.id === id ? { ...it, ...patch, lifecycle: 'edited' } : it)),
+  };
+}
+
+/** Drop an item (implicit accept: anything not dropped publishes). Freezes to Phase B. */
+export function applyDrop(batch: DurableBatch, id: string): DurableBatch {
+  return {
+    ...batch,
+    phase: 'B',
+    items: batch.items.map(it => (it.id === id ? { ...it, lifecycle: 'dropped' } : it)),
+  };
+}
+
+/** Restore a dropped item. Content is preserved; the badge returns to `proposed`. */
+export function applyRestore(batch: DurableBatch, id: string): DurableBatch {
+  return {
+    ...batch,
+    items: batch.items.map(it => (it.id === id ? { ...it, lifecycle: 'proposed' } : it)),
+  };
+}
+
+/**
+ * Items that a Publish should send: non-dropped and not already created. A
+ * dropped item is never sent (implicit accept); a `done` item is never resent
+ * (retry-only-failures, no duplicates). Order is preserved for result zipping.
+ */
+export function publishTargets(items: DurableKinloom[]): DurableKinloom[] {
+  return items.filter(it => it.lifecycle !== 'dropped' && it.publish !== 'done');
+}

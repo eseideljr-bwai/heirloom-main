@@ -27,6 +27,7 @@
 
 import { useState } from 'react';
 import { KINLOOM_TYPES } from '../../../lib/kinloom-types';
+import { publishTargets } from '../../../../lib/biographer/batch-store';
 import type { DurableBatch, DurableKinloom, EditablePatch } from '../../../../lib/biographer/batch-store';
 
 /** Legacy shape kept for the split_into_multiple tool input cast in the view. */
@@ -78,7 +79,7 @@ export function BiographerBatchCard({
   const [editingId, setEditingId] = useState<string | null>(null);
 
   const active = items.filter(i => i.lifecycle !== 'dropped');
-  const targets = active.filter(i => i.publish !== 'done');
+  const targets = publishTargets(items);
   const allPublished = active.length > 0 && active.every(i => i.publish === 'done');
   const failedCount = active.filter(i => i.publish === 'error').length;
   const hasAttempted = items.some(i => i.publish !== 'idle');
@@ -89,7 +90,7 @@ export function BiographerBatchCard({
 
     // Only non-dropped items that aren't already created. A done item is never
     // resent; a dropped item is never sent at all (implicit accept).
-    const toSend = items.filter(it => it.lifecycle !== 'dropped' && it.publish !== 'done');
+    const toSend = publishTargets(items);
     if (toSend.length === 0) return;
     const sendIds = new Set(toSend.map(t => t.id));
 
