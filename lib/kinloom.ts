@@ -8,6 +8,7 @@
  */
 
 import { apiFetch } from './api';
+import { rememberMediaAttachmentFromGcsPath } from './media-attachments';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -63,12 +64,23 @@ export type KinloomAuthor = {
 };
 
 export type KinloomMedia = {
+  /**
+   * Media attachment id. Needed for DELETE /media/{id}. OpenAPI currently
+   * omits this on kinloom.show — when absent we resolve via the
+   * upload-time localStorage map or republish the kinloom.
+   */
+  id?: string | null;
   url: string | null;
   duration_seconds?: number | string | null;
   transcript_text?: string | null;
   width?: number | string | null;
   height?: number | string | null;
 };
+
+/** Max photos per kinloom — matches API `photos.maxItems` on store. */
+export const MAX_KINLOOM_PHOTOS = 10;
+/** Soft per-photo cap used by the client picker (API allows up to 500 MB). */
+export const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
 export type Kinloom = {
   ulid: string;
@@ -642,6 +654,8 @@ export async function uploadKinloomPhoto(
   console.log(
     `[CP2-diag] confirm ok — media.id=${confirmed.id} media.entry_id=${confirmed.entry_id} matchesRequestedEntryId=${confirmed.entry_id === kinloomId}`,
   );
+  // show responses omit attachment ids; cache folder→id for later deletes
+  rememberMediaAttachmentFromGcsPath(gcs_path, confirmed.id);
   return confirmed;
 }
 
@@ -679,7 +693,7 @@ export async function uploadKinloomAudio(
     duration = await readAudioDuration(file);
   }
 
-  return confirmMediaUpload(familySpaceId, {
+  const confirmed = await confirmMediaUpload(familySpaceId, {
     entry_id: kinloomId,
     purpose: 'audio',
     gcs_path,
@@ -690,4 +704,87 @@ export async function uploadKinloomAudio(
     type: 'audio',
     duration_seconds: duration,
   });
+  rememberMediaAttachmentFromGcsPath(gcs_path, confirmed.id);
+  return confirmed;
+}
+
+/**
+ * Re-create a kinloom with a new media set. Used when edit needs to drop
+ * media whose MediaAttachment ids aren't available from `kinloom.show`.
+ * Returns the new kinloom ulid. Caller should delete the old row after.
+ */
+export async function cloneKinloomWithMedia(
+  familySpaceId: string,
+  source: Pick<Kinloom, 'type_slug' | 'title'>,
+  options: {
+    title: string;
+    body: string;
+    visibility: Visibility;
+    tagged_member_ids: string[];
+    keptPhotoUrls: string[];
+    newPhotos: { file: File; width?: number | null; height?: number | null }[];
+    /** Existing audio URL to copy, or null to omit. */
+    keepAudioUrl: string | null;
+    /** Replacement / new voice file. Wins over keepAudioUrl when set. */
+    newAudio?: { file: File; durationSeconds?: number | null } | null;
+  },
+): Promise<Kinloom> {
+  const created = await createKinloom(familySpaceId, {
+    type_slug: source.type_slug,
+    title: options.title,
+    body: options.body,
+    visibility: options.visibility,
+    status: 'draft',
+    tagged_member_ids: options.tagged_member_ids,
+  });
+
+  try {
+    for (const url of options.keptPhotoUrls) {
+      const file = await fileFromRemoteUrl(url, 'photo');
+      await uploadKinloomPhoto(familySpaceId, created.ulid, file);
+    }
+    for (const item of options.newPhotos) {
+      await uploadKinloomPhoto(familySpaceId, created.ulid, item.file, {
+        width: item.width,
+        height: item.height,
+      });
+    }
+
+    if (options.newAudio?.file) {
+      await uploadKinloomAudio(familySpaceId, created.ulid, options.newAudio.file, {
+        durationSeconds: options.newAudio.durationSeconds,
+      });
+    } else if (options.keepAudioUrl) {
+      const file = await fileFromRemoteUrl(options.keepAudioUrl, 'audio');
+      await uploadKinloomAudio(familySpaceId, created.ulid, file);
+    }
+
+    return updateKinloom(familySpaceId, created.ulid, { status: 'published' });
+  } catch (err) {
+    // Best-effort cleanup of the draft we just created.
+    try {
+      await deleteKinloom(familySpaceId, created.ulid);
+    } catch {
+      // ignore
+    }
+    throw err;
+  }
+}
+
+async function fileFromRemoteUrl(url: string, kind: 'photo' | 'audio'): Promise<File> {
+  // Route through our BFF — browser→GCS GET is CORS-blocked.
+  const res = await fetch('/api/media-fetch-proxy', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url }),
+  });
+  if (!res.ok) {
+    throw new Error(`Could not copy existing ${kind} (${res.status}).`);
+  }
+  const blob = await res.blob();
+  const ref = url.split('?')[0] ?? url;
+  const name = decodeURIComponent(ref.split('/').pop() || (kind === 'photo' ? 'photo.jpg' : 'audio.bin'));
+  const type = blob.type
+    || (kind === 'photo' ? 'image/jpeg' : 'audio/mpeg');
+  return new File([blob], name, { type });
 }

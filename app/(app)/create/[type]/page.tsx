@@ -11,6 +11,8 @@ import {
   createKinloom,
   deleteKinloom,
   getCreateContext,
+  MAX_KINLOOM_PHOTOS,
+  MAX_PHOTO_BYTES,
   PHOTO_MIME_TYPES,
   readImageDimensions,
   updateKinloom,
@@ -38,9 +40,6 @@ type PhotoItem = {
   error?: string;
   mediaId?: string;
 };
-
-const MAX_PHOTO_BYTES = 10 * 1024 * 1024; // 10 MB per photo
-const MAX_PHOTOS = 10;
 
 function StepIndicator({ current, total = 3 }: { current: Step; total?: number }) {
   return (
@@ -301,10 +300,10 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       accepted.push(file);
     }
 
-    const remainingSlots = Math.max(MAX_PHOTOS - photoItems.length, 0);
+    const remainingSlots = Math.max(MAX_KINLOOM_PHOTOS - photoItems.length, 0);
     const toAdd = accepted.slice(0, remainingSlots);
     if (accepted.length > toAdd.length) {
-      errors.push(`You can add up to ${MAX_PHOTOS} photos. ${accepted.length - toAdd.length} photo${accepted.length - toAdd.length === 1 ? '' : 's'} were not added.`);
+      errors.push(`You can add up to ${MAX_KINLOOM_PHOTOS} photos. ${accepted.length - toAdd.length} photo${accepted.length - toAdd.length === 1 ? '' : 's'} were not added.`);
     }
 
     const newItems: PhotoItem[] = await Promise.all(toAdd.map(async (file) => {

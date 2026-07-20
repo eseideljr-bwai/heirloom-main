@@ -1,17 +1,29 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  cloneKinloomWithMedia,
   deleteKinloom,
+  deleteMediaAttachment,
   getCreateContext,
+  MAX_KINLOOM_PHOTOS,
+  MAX_PHOTO_BYTES,
+  normalizeList,
+  PHOTO_MIME_TYPES,
+  readImageDimensions,
   updateKinloom,
+  uploadKinloomAudio,
+  uploadKinloomPhoto,
   type Kinloom,
+  type KinloomMedia,
   type UpdateKinloomPayload,
   type Visibility,
   type TaggableMember,
 } from '../../../../lib/kinloom';
+import { resolveMediaAttachmentId } from '../../../../lib/media-attachments';
 import { ApiError } from '../../../../lib/api';
+import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
 import { revalidateKinloomData } from '../../../actions';
 
 type Props = {
@@ -85,9 +97,15 @@ export default function KinloomActions({
           familySpaceId={familySpaceId}
           kinloom={kinloom}
           onCancel={() => setEditOpen(false)}
-          onSaved={async () => {
+          onSaved={async (nextId) => {
             setEditOpen(false);
+            const id = nextId || kinloom.ulid;
             await revalidateKinloomData(kinloom.ulid);
+            if (nextId && nextId !== kinloom.ulid) {
+              await revalidateKinloomData(nextId);
+              router.replace(`/library/${nextId}`);
+              return;
+            }
             router.refresh();
           }}
         />
@@ -109,6 +127,23 @@ export default function KinloomActions({
 }
 
 // ─── Edit modal ─────────────────────────────────────────────────────
+
+type ExistingPhoto = {
+  key: string;
+  url: string;
+  mediaId: string | null;
+  removed: boolean;
+};
+
+type NewPhoto = {
+  key: string;
+  file: File;
+  previewUrl: string;
+  width: number | null;
+  height: number | null;
+  status: 'pending' | 'uploading' | 'done' | 'error';
+  error?: string;
+};
 
 function bodyToText(body_paragraphs: Kinloom['body_paragraphs']): string {
   if (Array.isArray(body_paragraphs)) {
@@ -134,6 +169,22 @@ function taggedIds(value: Kinloom['tagged_kin']): string[] {
   return [];
 }
 
+function initialExistingPhotos(kinloom: Kinloom): ExistingPhoto[] {
+  const listed = normalizeList<KinloomMedia>(kinloom.photos).filter(p => !!p?.url);
+  const source = listed.length > 0
+    ? listed
+    : (kinloom.photo?.url ? [kinloom.photo] : []);
+  return source.map((p, i) => {
+    const mediaId = resolveMediaAttachmentId(p);
+    return {
+      key: mediaId ?? `existing-${i}-${p.url}`,
+      url: p.url as string,
+      mediaId,
+      removed: false,
+    };
+  });
+}
+
 /** Order-independent equality for two lists of member ids. */
 function sameIdSet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false;
@@ -152,6 +203,7 @@ function editErrorMessage(err: unknown): string {
       default: return err.message || 'Could not save changes.';
     }
   }
+  if (err instanceof Error && err.message) return err.message;
   return 'Could not save changes.';
 }
 
@@ -164,7 +216,8 @@ function EditKinloomModal({
   familySpaceId: string;
   kinloom: Kinloom;
   onCancel: () => void;
-  onSaved: () => void | Promise<void>;
+  /** Optional new ulid when media edits required a republish. */
+  onSaved: (nextId?: string) => void | Promise<void>;
 }) {
   // Snapshot the original values once so we can send only what changed on
   // save. This is deliberate: `kinloom.show` returns no raw `body` (only
@@ -178,6 +231,9 @@ function EditKinloomModal({
     body: bodyToText(kinloom.body_paragraphs),
     visibility: ((kinloom.visibility as Visibility) || 'family') as Visibility,
     tagged: taggedIds(kinloom.tagged_kin),
+    hasAudio: !!kinloom.audio?.url,
+    audioUrl: kinloom.audio?.url ?? null,
+    audioId: resolveMediaAttachmentId(kinloom.audio),
   }).current;
 
   const [title, setTitle] = useState(initial.title);
@@ -185,8 +241,26 @@ function EditKinloomModal({
   const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
   const [tagged, setTagged] = useState<string[]>(initial.tagged);
   const [taggableMembers, setTaggableMembers] = useState<TaggableMember[]>([]);
+  const [existingPhotos, setExistingPhotos] = useState<ExistingPhoto[]>(() => initialExistingPhotos(kinloom));
+  const [newPhotos, setNewPhotos] = useState<NewPhoto[]>([]);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [removeAudio, setRemoveAudio] = useState(false);
+  const [voiceValue, setVoiceValue] = useState<VoiceRecorderValue | null>(null);
+  const [showVoicePicker, setShowVoicePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const newPhotosRef = useRef<NewPhoto[]>([]);
+
+  useEffect(() => {
+    newPhotosRef.current = newPhotos;
+  }, [newPhotos]);
+
+  useEffect(() => {
+    return () => {
+      newPhotosRef.current.forEach(p => URL.revokeObjectURL(p.previewUrl));
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -201,8 +275,84 @@ function EditKinloomModal({
     return () => { cancelled = true; };
   }, [familySpaceId, kinloom.type_slug]);
 
+  const keptExisting = useMemo(
+    () => existingPhotos.filter(p => !p.removed),
+    [existingPhotos],
+  );
+  const photoCount = keptExisting.length + newPhotos.length;
+  const canAddPhotos = photoCount < MAX_KINLOOM_PHOTOS;
+  const mediaDirty =
+    existingPhotos.some(p => p.removed) ||
+    newPhotos.length > 0 ||
+    removeAudio ||
+    voiceValue !== null;
+  // show omits MediaAttachment ids; when a removal has no resolvable id we
+  // republish into a new kinloom row (same content + kept/new media).
+  const needsRepublish =
+    existingPhotos.some(p => p.removed && !p.mediaId) ||
+    (removeAudio && !!initial.hasAudio && !initial.audioId);
+
   const toggleKin = (id: string) =>
     setTagged(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+
+    const errors: string[] = [];
+    const accepted: File[] = [];
+    for (const file of files) {
+      if (!(PHOTO_MIME_TYPES as readonly string[]).includes(file.type)) {
+        errors.push(`\u201c${file.name}\u201d isn\u2019t a supported file type. Use JPG, PNG, GIF, or WebP.`);
+        continue;
+      }
+      if (file.size > MAX_PHOTO_BYTES) {
+        errors.push(`\u201c${file.name}\u201d is too large. Max 10 MB per photo.`);
+        continue;
+      }
+      accepted.push(file);
+    }
+
+    const remainingSlots = Math.max(MAX_KINLOOM_PHOTOS - photoCount, 0);
+    const toAdd = accepted.slice(0, remainingSlots);
+    if (accepted.length > toAdd.length) {
+      errors.push(
+        `You can add up to ${MAX_KINLOOM_PHOTOS} photos. ${accepted.length - toAdd.length} photo${accepted.length - toAdd.length === 1 ? '' : 's'} were not added.`,
+      );
+    }
+
+    const items: NewPhoto[] = await Promise.all(toAdd.map(async (file) => {
+      const { width, height } = await readImageDimensions(file);
+      return {
+        key: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        width,
+        height,
+        status: 'pending' as const,
+      };
+    }));
+
+    if (items.length > 0) setNewPhotos(prev => [...prev, ...items]);
+    setPhotoError(errors.length > 0 ? errors.join(' ') : null);
+  };
+
+  const removeNewPhoto = (key: string) => {
+    setNewPhotos(prev => {
+      const item = prev.find(p => p.key === key);
+      if (item) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter(p => p.key !== key);
+    });
+    setPhotoError(null);
+  };
+
+  const toggleExistingPhoto = (key: string) => {
+    setExistingPhotos(prev => prev.map(p => (
+      p.key === key ? { ...p, removed: !p.removed } : p
+    )));
+    setPhotoError(null);
+  };
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -211,25 +361,110 @@ function EditKinloomModal({
       return;
     }
     setError(null);
+    setPhotoError(null);
+
+    const nextTitle = title.trim() || 'Untitled';
+    const nextBody = body.trim();
 
     // Build a partial payload from only the fields the user changed.
     const payload: UpdateKinloomPayload = {};
-    const nextTitle = title.trim() || 'Untitled';
     if (nextTitle !== (initial.title.trim() || 'Untitled')) payload.title = nextTitle;
-    const nextBody = body.trim();
     if (nextBody !== initial.body.trim()) payload.body = nextBody;
     if (visibility !== initial.visibility) payload.visibility = visibility;
     if (!sameIdSet(tagged, initial.tagged)) payload.tagged_member_ids = tagged;
 
     // Nothing changed — close without hitting the API.
-    if (Object.keys(payload).length === 0) {
+    if (Object.keys(payload).length === 0 && !mediaDirty) {
       await onSaved();
       return;
     }
 
     setSubmitting(true);
     try {
-      await updateKinloom(familySpaceId, kinloom.ulid, payload);
+      // Treat 404 as success so retries after a partial save stay idempotent.
+      const deleteOrGone = async (mediaId: string) => {
+        try {
+          await deleteMediaAttachment(familySpaceId, mediaId);
+        } catch (err) {
+          if (!(err instanceof ApiError) || err.status !== 404) throw err;
+        }
+      };
+
+      if (needsRepublish) {
+        // API show omits attachment ids, so remove/replace of pre-existing
+        // media requires cloning into a new row with the desired media set.
+        const published = await cloneKinloomWithMedia(familySpaceId, kinloom, {
+          title: nextTitle,
+          body: nextBody,
+          visibility,
+          tagged_member_ids: tagged,
+          keptPhotoUrls: keptExisting.map(p => p.url),
+          newPhotos: newPhotos.map(p => ({
+            file: p.file,
+            width: p.width,
+            height: p.height,
+          })),
+          keepAudioUrl: (!removeAudio && !voiceValue && initial.audioUrl) ? initial.audioUrl : null,
+          newAudio: voiceValue
+            ? { file: voiceValue.file, durationSeconds: voiceValue.durationSeconds }
+            : null,
+        });
+        try {
+          await deleteKinloom(familySpaceId, kinloom.ulid);
+        } catch (err) {
+          // New kinloom is live; surface cleanup failure but still navigate.
+          console.error('Failed to delete replaced kinloom', err);
+        }
+        await onSaved(published.ulid);
+        return;
+      }
+
+      // Fast path: text patch + delete-by-id + additive uploads.
+      if (Object.keys(payload).length > 0) {
+        await updateKinloom(familySpaceId, kinloom.ulid, payload);
+      }
+
+      for (const photo of existingPhotos) {
+        if (!photo.removed || !photo.mediaId) continue;
+        await deleteOrGone(photo.mediaId);
+      }
+
+      if (removeAudio && initial.audioId) {
+        await deleteOrGone(initial.audioId);
+      }
+
+      for (const item of newPhotos) {
+        if (item.status === 'done') continue;
+        setNewPhotos(prev => prev.map(p =>
+          p.key === item.key ? { ...p, status: 'uploading', error: undefined } : p,
+        ));
+        try {
+          await uploadKinloomPhoto(familySpaceId, kinloom.ulid, item.file, {
+            width: item.width,
+            height: item.height,
+          });
+          setNewPhotos(prev => prev.map(p =>
+            p.key === item.key ? { ...p, status: 'done' } : p,
+          ));
+        } catch (err) {
+          const msg = editErrorMessage(err);
+          setNewPhotos(prev => prev.map(p =>
+            p.key === item.key ? { ...p, status: 'error', error: msg } : p,
+          ));
+          throw err;
+        }
+      }
+
+      if (voiceValue) {
+        // Replace: drop prior audio first when we have its attachment id.
+        if (initial.audioId && !removeAudio) {
+          await deleteOrGone(initial.audioId);
+        }
+        await uploadKinloomAudio(familySpaceId, kinloom.ulid, voiceValue.file, {
+          durationSeconds: voiceValue.durationSeconds,
+        });
+      }
+
       await onSaved();
     } catch (err) {
       setError(editErrorMessage(err));
@@ -238,6 +473,10 @@ function EditKinloomModal({
     }
   }
 
+  const showRecorder = showVoicePicker || voiceValue !== null;
+  const showExistingAudio = initial.hasAudio && !removeAudio && !showRecorder;
+  const showAudioRemoved = initial.hasAudio && removeAudio && !showRecorder;
+
   return (
     <div
       className="modal-backdrop"
@@ -245,7 +484,9 @@ function EditKinloomModal({
     >
       <form className="modal modal--wide" onSubmit={onSubmit}>
         <h3 className="modal-title">Edit kinloom</h3>
-        <p className="modal-text">Adjust the title, words, who it&apos;s for, and who can see it.</p>
+        <p className="modal-text">
+          Update the title, words, photos, who it&apos;s for, and who can see it. Existing media stays unless you remove it.
+        </p>
 
         <div className="settings-fields">
           <div>
@@ -267,9 +508,169 @@ function EditKinloomModal({
               value={body}
               onChange={e => setBody(e.target.value)}
               maxLength={65000}
-              rows={10}
+              rows={5}
               disabled={submitting}
             />
+          </div>
+
+          <div className="edit-photos">
+            <p className="field-label">Photos</p>
+            <div className="edit-photos__toolbar">
+              <button
+                type="button"
+                className="btn-outline btn-outline--sm"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={submitting || !canAddPhotos}
+              >
+                {photoCount > 0 ? 'Add more photos' : 'Add photos'}
+              </button>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept={PHOTO_MIME_TYPES.join(',')}
+                multiple
+                className="visually-hidden"
+                onChange={handlePhotoChange}
+                disabled={submitting || !canAddPhotos}
+              />
+              <span className="edit-photos__hint">
+                {photoCount}/{MAX_KINLOOM_PHOTOS}
+              </span>
+            </div>
+
+            {(existingPhotos.length > 0 || newPhotos.length > 0) && (
+              <div className="photo-grid">
+                {existingPhotos.map(photo => (
+                  <div
+                    key={photo.key}
+                    className={`photo-grid__item${photo.removed ? ' photo-grid__item--removed' : ''}`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={photo.url} alt="" className="photo-grid__img" />
+                    <button
+                      type="button"
+                      onClick={() => toggleExistingPhoto(photo.key)}
+                      className="photo-grid__remove"
+                      aria-label={photo.removed ? 'Keep photo' : 'Remove photo'}
+                      disabled={submitting}
+                    >
+                      {photo.removed ? (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                      ) : (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                      )}
+                    </button>
+                    <p className="photo-grid__name">
+                      {photo.removed ? 'Will remove' : 'Current'}
+                    </p>
+                  </div>
+                ))}
+                {newPhotos.map(item => (
+                  <div key={item.key} className="photo-grid__item">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={item.previewUrl} alt="" className="photo-grid__img" />
+                    {item.status === 'uploading' && (
+                      <div className="photo-grid__overlay" aria-hidden="true">
+                        <span className="photo-grid__spinner" />
+                      </div>
+                    )}
+                    {item.status === 'done' && (
+                      <span className="photo-grid__badge photo-grid__badge--done" title="Uploaded">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                      </span>
+                    )}
+                    {item.status === 'error' && (
+                      <span className="photo-grid__badge photo-grid__badge--error" title={item.error || 'Upload failed'}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="8" x2="12" y2="13" /><circle cx="12" cy="16.5" r="0.5" fill="currentColor" /></svg>
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeNewPhoto(item.key)}
+                      className="photo-grid__remove"
+                      aria-label={`Remove ${item.file.name}`}
+                      disabled={submitting}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                    <p className="photo-grid__name">{item.file.name}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {photoError && <p className="form-status form-status--error">{photoError}</p>}
+          </div>
+
+          <div className="edit-voice">
+            <p className="field-label">Voice</p>
+            {showExistingAudio && (
+              <div className="edit-voice__existing">
+                <span>Voice recording attached</span>
+                <div className="edit-voice__actions">
+                  <button
+                    type="button"
+                    className="btn-outline btn-outline--sm"
+                    onClick={() => { setRemoveAudio(true); setShowVoicePicker(true); }}
+                    disabled={submitting}
+                  >
+                    Replace
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-outline btn-outline--sm"
+                    onClick={() => { setRemoveAudio(true); setVoiceValue(null); setShowVoicePicker(false); }}
+                    disabled={submitting}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            )}
+            {showAudioRemoved && (
+              <div className="edit-voice__existing">
+                <span>Voice will be removed</span>
+                <div className="edit-voice__actions">
+                  <button
+                    type="button"
+                    className="btn-outline btn-outline--sm"
+                    onClick={() => setShowVoicePicker(true)}
+                    disabled={submitting}
+                  >
+                    Add new
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-outline btn-outline--sm"
+                    onClick={() => { setRemoveAudio(false); setShowVoicePicker(false); }}
+                    disabled={submitting}
+                  >
+                    Undo
+                  </button>
+                </div>
+              </div>
+            )}
+            {showRecorder && (
+              <VoiceRecorder
+                value={voiceValue}
+                onChange={(next) => {
+                  setVoiceValue(next);
+                  if (next) setRemoveAudio(true);
+                  if (!next && removeAudio && initial.hasAudio) setShowVoicePicker(false);
+                }}
+                disabled={submitting}
+              />
+            )}
+            {!initial.hasAudio && !showRecorder && (
+              <button
+                type="button"
+                className="btn-outline btn-outline--sm"
+                onClick={() => setShowVoicePicker(true)}
+                disabled={submitting}
+              >
+                Add voice
+              </button>
+            )}
           </div>
 
           <div>
