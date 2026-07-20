@@ -10,6 +10,7 @@
 
 import type { MessageParam } from '../agent/types';
 import type { ExtractionResult } from './extract-document';
+import { clearBatch } from './batch-store';
 
 const DOCUMENT_KEY = 'kinloom:import:document';
 const MESSAGES_KEY = 'kinloom:import:messages';
@@ -76,4 +77,9 @@ export function clearImportSession(): void {
   } catch {
     // ignore
   }
+  // The durable batch is a third import key; clear it on every teardown/
+  // new-session path. All such paths funnel through here (page.tsx
+  // handleContinue/handleStartOver and every BiographerView clear site), so
+  // this single call prevents a stale batch leaking into the next session.
+  clearBatch();
 }
