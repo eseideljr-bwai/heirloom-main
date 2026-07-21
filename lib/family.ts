@@ -121,13 +121,48 @@ export async function updateMember(
   );
 }
 
-/** DELETE /family-spaces/{familySpace}/members/{member} */
+export type DeleteMemberOptions = {
+  /**
+   * Keep the person in the family tree as a non-user placeholder instead of
+   * removing them entirely. Sends `{ convert_to_non_user: true }` and the
+   * backend responds 200 with the converted member object.
+   */
+  convertToNonUser?: boolean;
+};
+
+/**
+ * DELETE /family-spaces/{familySpace}/members/{member}
+ *
+ * Two modes, per the removal contract:
+ *   - Default (no body)            → 204, full removal. Returns void.
+ *   - { convertToNonUser: true }   → 200 + member, converts to placeholder.
+ *
+ * Owner removal is rejected upstream with 422; the message surfaces via
+ * `ApiError.message` for the caller to display.
+ */
 export async function deleteMember(
   familySpaceId: string,
   memberId: string,
-): Promise<void> {
-  await apiFetch<void>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/members/${encodeURIComponent(memberId)}`,
-    { method: 'DELETE' },
-  );
+  options?: { convertToNonUser?: false },
+): Promise<void>;
+export async function deleteMember(
+  familySpaceId: string,
+  memberId: string,
+  options: { convertToNonUser: true },
+): Promise<MemberMutationResponse>;
+export async function deleteMember(
+  familySpaceId: string,
+  memberId: string,
+  options: DeleteMemberOptions = {},
+): Promise<void | MemberMutationResponse> {
+  const path = `/family-spaces/${encodeURIComponent(familySpaceId)}/members/${encodeURIComponent(memberId)}`;
+  if (options.convertToNonUser) {
+    // JSON body → apiFetch sets Content-Type and returns the parsed 200 body.
+    return apiFetch<MemberMutationResponse>(path, {
+      method: 'DELETE',
+      body: { convert_to_non_user: true },
+    });
+  }
+  // No body → no Content-Type; apiFetch returns undefined on 204.
+  await apiFetch<void>(path, { method: 'DELETE' });
 }

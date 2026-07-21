@@ -54,8 +54,16 @@ async function handle(
     if (bearer) headers.set('Authorization', `Bearer ${bearer}`);
   }
 
-  const body: ArrayBuffer | null =
-    method === 'GET' || method === 'DELETE' ? null : await req.arrayBuffer();
+  // GET never carries a body. Everything else — including DELETE, which may
+  // send a JSON body like { convert_to_non_user: true } — forwards the request
+  // body when one is present. An empty body forwards as null so plain removals
+  // (DELETE with no body) stay clean. Content-Type is passed through above, so
+  // the JSON case reaches Laravel with the right header.
+  let body: ArrayBuffer | null = null;
+  if (method !== 'GET') {
+    const buf = await req.arrayBuffer();
+    body = buf.byteLength > 0 ? buf : null;
+  }
 
   const upstream = await fetch(target, {
     method,
