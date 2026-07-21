@@ -25,6 +25,17 @@ import {
   saveImportMessages,
   clearImportSession,
 } from '../../../../lib/biographer/client-storage';
+import {
+  loadBatch,
+  saveBatch,
+  buildBatchFromEmission,
+  reconcileBatch,
+  applyEdit,
+  applyDrop,
+  applyRestore,
+  type DurableBatch,
+  type EditablePatch,
+} from '../../../../lib/biographer/batch-store';
 import { ShapingCard, type ProposeDraftInput } from '../talk/ShapingCard';
 import { BiographerBatchCard, type BatchInput } from './BiographerBatchCard';
 import { BiographerChoiceCard, type ChoicesInput } from './BiographerChoiceCard';
@@ -98,6 +109,17 @@ function getToolUse(content: ContentBlock[]): ToolUseBlock | null {
     if (block.type === 'tool_use') return block as unknown as ToolUseBlock;
   }
   return null;
+}
+
+// ─── Durable batch reconciliation (Phase A ↔ Phase B) ───────────────────────
+
+// Pull the split_into_multiple emission (tool_use id + proposed items) out of an
+// assistant turn's content, if this turn is one. The pure reconcile/edit/drop
+// logic lives in lib/biographer/batch-store.
+function splitEmissionFrom(content: ContentBlock[]): { id: string; proposed: unknown } | null {
+  const tool = getToolUse(content);
+  if (!tool || tool.name !== 'split_into_multiple') return null;
+  return { id: tool.id, proposed: (tool.input as { proposed_kinlooms?: unknown }).proposed_kinlooms };
 }
 
 // Find the answer submitted for a given tool_use_id, if any. Used to render
@@ -178,6 +200,7 @@ type Props = { onStartOver: () => void };
 export default function BiographerView({ onStartOver }: Props) {
   const router = useRouter();
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [batch, setBatch] = useState<DurableBatch | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -206,7 +229,17 @@ export default function BiographerView({ onStartOver }: Props) {
 
     const stored = loadImportMessages();
     if (stored.length > 0) {
-      setTurns(messagesToTurns(stored));
+      const restored = messagesToTurns(stored);
+      setTurns(restored);
+      // Restore the durable batch, then reconcile it against the last assistant
+      // turn. If the batch is frozen (Phase B) it wins over the stale tool input
+      // in message history — this is the edit-survives-reload guarantee. If it's
+      // Phase A (or absent), it re-syncs to the latest emission.
+      const loaded = loadBatch();
+      const lastAssistant = [...restored].reverse().find(t => t.role === 'assistant') as
+        | AssistantTurn
+        | undefined;
+      setBatch(lastAssistant ? reconcileBatch(loaded, splitEmissionFrom(lastAssistant.content)) : loaded);
       setHydrated(true);
     } else {
       // First time: fire the initial API call. The document IS the first
@@ -224,6 +257,13 @@ export default function BiographerView({ onStartOver }: Props) {
     if (messages.length === 0) return; // nothing to save yet
     saveImportMessages(messages);
   }, [turns, hydrated]);
+
+  // Persist the durable batch after every change (edits, drops, publish status).
+  // Teardown/clear is handled by clearImportSession, so we only ever write here.
+  useEffect(() => {
+    if (!hydrated || !batch) return;
+    saveBatch(batch);
+  }, [batch, hydrated]);
 
   // Scroll to bottom after new content.
   useEffect(() => {
@@ -263,6 +303,9 @@ export default function BiographerView({ onStartOver }: Props) {
         ...prev,
         { role: 'assistant', content: data.message, stop_reason: data.stop_reason },
       ]);
+      // Reconcile the durable batch with this emission. In Phase A a fresh
+      // split_into_multiple replaces the array; in Phase B it's discarded.
+      setBatch(prev => reconcileBatch(prev, splitEmissionFrom(data.message)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
     } finally {
@@ -335,11 +378,26 @@ export default function BiographerView({ onStartOver }: Props) {
       'The user chose to keep talking — continue the conversation before proposing a draft.',
     );
 
-  const handleKeepRefining = (toolUseId: string) =>
-    submitToolResult(
+  // E4 cut: once the batch is frozen (Phase B), the model is out — full-batch
+  // conversational refine is gone. The card hides the button in Phase B; this
+  // guard is the belt-and-suspenders so a stray call can't re-enter the model.
+  const handleKeepRefining = (toolUseId: string) => {
+    if (batch?.phase === 'B') return;
+    return submitToolResult(
       toolUseId,
       'The user wants to refine the proposed kinlooms — continue the conversation.',
     );
+  };
+
+  // ── Durable batch mutations (per-item editing) ──────────────────────
+  const handleEditItem = (id: string, patch: EditablePatch) =>
+    setBatch(prev => (prev ? applyEdit(prev, id, patch) : prev));
+  const handleDropItem = (id: string) =>
+    setBatch(prev => (prev ? applyDrop(prev, id) : prev));
+  const handleRestoreItem = (id: string) =>
+    setBatch(prev => (prev ? applyRestore(prev, id) : prev));
+  const handlePublishItems = (updater: (items: DurableBatch['items']) => DurableBatch['items']) =>
+    setBatch(prev => (prev ? { ...prev, items: updater(prev.items) } : prev));
 
   const handlePublish = (input: ProposeDraftInput) => {
     const { title, type_slug, body } = input;
@@ -499,7 +557,20 @@ export default function BiographerView({ onStartOver }: Props) {
                     <div style={{ marginTop: 32 }}>
                       <BiographerBatchCard
                         toolUseId={terminalCard.id}
-                        input={terminalCard.input as BatchInput}
+                        // Source of truth is the durable array. The `batch ??`
+                        // fallback only guards the first render frame before
+                        // reconcile sets state; it never persists an edit.
+                        batch={
+                          batch ??
+                          buildBatchFromEmission(
+                            terminalCard.id,
+                            (terminalCard.input as BatchInput).proposed_kinlooms,
+                          )
+                        }
+                        onEditItem={handleEditItem}
+                        onDropItem={handleDropItem}
+                        onRestoreItem={handleRestoreItem}
+                        onPublishItems={handlePublishItems}
                         onKeepRefining={handleKeepRefining}
                         onAllPublished={handleBatchPublished}
                       />
