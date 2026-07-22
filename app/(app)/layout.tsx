@@ -11,6 +11,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // if (session && !session.emailVerified) {
   //   redirect('/verify-email');
   // }
-
+  //
   return <AppShell>{children}</AppShell>;
 }
