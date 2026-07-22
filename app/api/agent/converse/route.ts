@@ -11,11 +11,13 @@
  * name to decide whether to render the Shaping card.
  */
 
+import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
 import { getActiveSpaceId } from '../../../../lib/server/auth';
 import { getAnthropicClient, AGENT_MODEL, AGENT_MAX_TOKENS } from '../../../../lib/agent/client';
 import { SYSTEM_PROMPT } from '../../../../lib/agent/system-prompt';
 import { CONVERSE_TOOLS } from '../../../../lib/agent/tools';
+import { isEmptyContent } from '../../../../lib/agent/content';
 import { MAX_TURNS, type ConverseRequest, type ConverseResponse } from '../../../../lib/agent/types';
 
 export const dynamic = 'force-dynamic';
@@ -43,9 +45,9 @@ function validateRequest(body: unknown): { messages: ConverseRequest['messages']
     if (!isValidRole(role)) {
       return { messages: null, error: `messages[${i}].role must be "user" or "assistant".` };
     }
-    const contentIsString = typeof content === 'string' && content.trim().length > 0;
-    const contentIsArray = Array.isArray(content) && content.length > 0;
-    if (!contentIsString && !contentIsArray) {
+    // Rejects empty strings/arrays AND arrays whose only blocks are empty text
+    // blocks — the latter passes a bare length check but Anthropic rejects it.
+    if (isEmptyContent(content)) {
       return { messages: null, error: `messages[${i}].content must be a non-empty string or content block array.` };
     }
   }
@@ -64,8 +66,6 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
-
-  console.log('[converse] incoming messages:', JSON.stringify((raw as Record<string, unknown>)?.messages, null, 2));
 
   const validated = validateRequest(raw);
   if (validated.error) {
@@ -98,7 +98,20 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json(result);
   } catch (err) {
-    console.error('[agent/converse] Claude API error:', err);
+    // Surface the real upstream detail (status + Anthropic error body) before
+    // collapsing to a generic client-facing message. Anthropic SDK errors carry
+    // `status` and a structured `error`; log them so 502s are diagnosable.
+    if (err instanceof Anthropic.APIError) {
+      console.error('[agent/converse] Anthropic API error:', {
+        status: err.status,
+        name: err.name,
+        message: err.message,
+        error: err.error,
+        requestId: err.requestID,
+      });
+    } else {
+      console.error('[agent/converse] Claude API error:', err);
+    }
     return NextResponse.json(
       { error: 'The agent is unavailable. Please try again in a moment.' },
       { status: 502 },

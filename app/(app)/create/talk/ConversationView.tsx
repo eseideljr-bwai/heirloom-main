@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ContentBlock, MessageParam, ConverseResponse } from '../../../../lib/agent/types';
 import { loadTalkSession, saveTalkSession, clearTalkSession } from '../../../../lib/agent/client-storage';
+import { isEmptyContent, sanitizeStoredMessages } from '../../../../lib/agent/content';
 import { ShapingCard, type ProposeDraftInput } from './ShapingCard';
 import { SplitCard, type SplitIntoMultipleInput } from './SplitCard';
 
@@ -128,7 +129,10 @@ export default function ConversationView() {
 
   // Hydrate from sessionStorage on mount.
   useEffect(() => {
-    const stored = loadTalkSession();
+    // Heal any already-poisoned session: drop empty-content turns (and trim
+    // back to a clean resume point) so a corrupted transcript recovers instead
+    // of 400ing on every send. No-op for healthy sessions.
+    const stored = sanitizeStoredMessages(loadTalkSession());
     if (stored.length > 0) {
       const restored: Turn[] = stored.map(m => {
         if (m.role === 'user') {
@@ -177,28 +181,54 @@ export default function ConversationView() {
     el.style.height = `${Math.min(el.scrollHeight, 156)}px`;
   }, []);
 
-  // Fire the API and append the assistant's reply.
-  const fireApiCall = async (nextTurns: Turn[]) => {
+  // Fire the API and append the assistant's reply. Returns true if an
+  // assistant turn was appended.
+  //
+  // Two guards keep the transcript from poisoning itself: the model
+  // occasionally returns an empty turn (content []), which renders as nothing,
+  // persists, and then 400s on every subsequent send. So we (1) retry the
+  // identical request once on an empty response, and (2) never append empty
+  // content — if both attempts come back empty we surface a clean error and
+  // leave the transcript untouched.
+  const fireApiCall = async (nextTurns: Turn[]): Promise<boolean> => {
     setSending(true);
     setError(null);
+    const outgoing = turnsToMessages(nextTurns);
     try {
-      const res = await fetch('/api/agent/converse', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: turnsToMessages(nextTurns) }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({})) as { error?: string };
-        throw new Error(data.error ?? `Request failed (${res.status})`);
+      let message: ContentBlock[] | null = null;
+      let stopReason = 'end_turn';
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const res = await fetch('/api/agent/converse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: outgoing }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({})) as { error?: string };
+          throw new Error(data.error ?? `Request failed (${res.status})`);
+        }
+        const data = await res.json() as ConverseResponse;
+        if (!isEmptyContent(data.message)) {
+          message = data.message;
+          stopReason = data.stop_reason;
+          break;
+        }
+        // Empty response — loop to retry the identical request exactly once.
       }
-      const data: ConverseResponse = await res.json() as ConverseResponse;
+      if (message === null) {
+        setError('The agent didn’t respond. Please try again.');
+        return false;
+      }
+      const finalMessage = message;
       setTurns(prev => [...prev, {
         role: 'assistant',
-        content: data.message,
-        stop_reason: data.stop_reason,
+        content: finalMessage,
+        stop_reason: stopReason,
       }]);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong.');
+      return false;
     } finally {
       setSending(false);
     }
@@ -231,13 +261,17 @@ export default function ConversationView() {
       content: [{
         type: 'tool_result',
         tool_use_id: toolUseId,
-        content: 'The user chose to keep talking — continue the interview to draw out more material before proposing another draft.',
+        content: 'The user declined that draft and wants to keep going. The interview is active again. Do not propose another draft yet. Ask exactly one more concrete question that draws out more of their story — pick up from what they last shared and go deeper on the moment, its weight, or a specific detail. Respond now with that single question; do not end your turn empty and do not hand off.',
       }],
       _tool_result: true,
     };
+    const prevTurns = turns;
     const nextTurns: Turn[] = [...turns, toolResultTurn];
     setTurns(nextTurns);
-    await fireApiCall(nextTurns);
+    const ok = await fireApiCall(nextTurns);
+    // If the agent never answered, drop the pending tool_result so the card
+    // reappears and the transcript stays clean (no unpaired tool_result).
+    if (!ok) setTurns(prevTurns);
   };
 
   const handleKeepTalking = async (toolUseId: string) => {
@@ -246,13 +280,17 @@ export default function ConversationView() {
       content: [{
         type: 'tool_result',
         tool_use_id: toolUseId,
-        content: 'The user wants to keep talking rather than split into multiple kinlooms — continue the conversation.',
+        content: 'The user does not want to split this into multiple kinlooms and wants to keep talking. The interview is active again. Do not call a tool yet. Ask exactly one more concrete question that continues the thread from what they last shared. Respond now with that single question; do not end your turn empty and do not hand off.',
       }],
       _tool_result: true,
     };
+    const prevTurns = turns;
     const nextTurns: Turn[] = [...turns, toolResultTurn];
     setTurns(nextTurns);
-    await fireApiCall(nextTurns);
+    const ok = await fireApiCall(nextTurns);
+    // If the agent never answered, drop the pending tool_result so the card
+    // reappears and the transcript stays clean (no unpaired tool_result).
+    if (!ok) setTurns(prevTurns);
   };
 
   const handlePublish = (input: ProposeDraftInput) => {

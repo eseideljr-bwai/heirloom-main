@@ -1,15 +1,17 @@
 /**
  * Tool definitions for the kinloom creation agent.
  *
- * propose_draft and split_into_multiple are terminal — when the model
- * calls either one, the route handler returns the tool_use block to the
- * client and the client hands off to the publish wizard. The client
- * dispatches on the tool name to render the right UI (Shaping card for
- * propose_draft, split picker for split_into_multiple).
+ * propose_draft and split_into_multiple present a proposal — when the
+ * model calls either one, the route handler returns the tool_use block to
+ * the client, which renders the right UI (Shaping card for propose_draft,
+ * split picker for split_into_multiple). If the user accepts, the client
+ * hands off to the publish wizard. If the user declines ("Keep going" /
+ * "Keep talking instead"), the client sends a tool_result and the
+ * conversation resumes — so these tools are NOT terminal. The system
+ * prompt's "When a proposal is declined" section governs that branch.
  *
- * ask_choices (Biographer-only, see BIOGRAPHER_TOOLS) is NOT terminal:
- * it presents tappable buttons mid-conversation and the conversation
- * resumes once the user answers via a tool_result.
+ * ask_choices (Biographer-only, see BIOGRAPHER_TOOLS) likewise resumes the
+ * conversation once the user answers via a tool_result.
  */
 
 import type Anthropic from '@anthropic-ai/sdk';
@@ -30,7 +32,7 @@ export const CONVERSE_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: 'propose_draft',
     description:
-      "Call this when the conversation contains enough material for a single, atomic kinloom. The user will see a draft they can edit, refine, or save. Do not call this prematurely — err on the side of one more good question. Do not call this if the material spans multiple distinct kinlooms; use split_into_multiple instead. The body should be in the user's voice using their actual words; do not embellish or invent details they didn't share.",
+      "Call this when the conversation contains enough material for a single, atomic kinloom. The user will see a draft they can edit, refine, or save — or decline, choosing to keep talking. This is not a terminal action: if the user declines, you will receive a tool_result asking you to resume the interview, and you must continue with another question rather than ending your turn. Do not call this prematurely — err on the side of one more good question. Do not call this if the material spans multiple distinct kinlooms; use split_into_multiple instead. The body should be in the user's voice using their actual words; do not embellish or invent details they didn't share.",
     input_schema: {
       type: 'object',
       properties: {
@@ -61,7 +63,7 @@ export const CONVERSE_TOOLS: Anthropic.Messages.Tool[] = [
   {
     name: 'split_into_multiple',
     description:
-      "Call this when the material contains multiple distinct kinlooms — propose them as a reviewable batch with a working title, one-line summary, and type for each. The Talk agent uses this for exactly 2 items; the Biographer uses it for larger batches. Do not use this to avoid landing a single kinloom — only when the material genuinely contains separate atomic units.",
+      "Call this when the material contains multiple distinct kinlooms — propose them as a reviewable batch with a working title, one-line summary, and type for each. The Talk agent uses this for exactly 2 items; the Biographer uses it for larger batches. This is not a terminal action: the user may decline the split and choose to keep talking, in which case you will receive a tool_result asking you to resume the interview and must continue with another question. Do not use this to avoid landing a single kinloom — only when the material genuinely contains separate atomic units.",
     input_schema: {
       type: 'object',
       properties: {
