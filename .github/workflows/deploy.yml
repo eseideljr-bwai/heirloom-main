@@ -53,6 +53,7 @@ jobs:
           # service-account JSON). Consumed by lib/server/firebase-admin.ts.
           env_vars: |
             FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
+            ANTHROPIC_API_KEY=${{ secrets.DEV_ANTHROPIC_API_KEY }}
 
   deploy-prod:
       name: Deploy to Prod
