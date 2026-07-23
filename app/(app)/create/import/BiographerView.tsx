@@ -63,7 +63,16 @@ function messagesToTurns(messages: MessageParam[]): Turn[] {
           ? m.content
           : [{ type: 'text', text: String(m.content) }]
       ) as ContentBlock[];
-      return { role: 'assistant', content, stop_reason: 'end_turn' } as AssistantTurn;
+      // stop_reason is not persisted, so reconstruct it from the content:
+      // a turn carrying a tool_use block was a 'tool_use' stop. Hard-coding
+      // 'end_turn' here (the old behavior) made pending cards vanish after a
+      // reload and let a typed reply slip past the tool_result guard → the
+      // API then 400'd on a dangling tool_use.
+      return {
+        role: 'assistant',
+        content,
+        stop_reason: getToolUse(content) ? 'tool_use' : 'end_turn',
+      } as AssistantTurn;
     }
     if (Array.isArray(m.content)) {
       return {
@@ -98,6 +107,44 @@ function getToolUse(content: ContentBlock[]): ToolUseBlock | null {
     if (block.type === 'tool_use') return block as unknown as ToolUseBlock;
   }
   return null;
+}
+
+// Defensive backstop applied right before the array leaves the client. The
+// API rejects any assistant `tool_use` not immediately followed by a matching
+// `tool_result` (400). If UI gating ever lets a plain reply follow one — an
+// old session serialized before this fix, or some path we didn't foresee — we
+// rewrite that reply into the tool_result it should have been rather than
+// shipping a dangling tool_use.
+function sanitizeForApi(messages: MessageParam[]): MessageParam[] {
+  const out = messages.slice();
+  for (let i = 0; i < out.length - 1; i++) {
+    const cur = out[i];
+    if (cur.role !== 'assistant' || !Array.isArray(cur.content)) continue;
+    const toolUse = getToolUse(cur.content as ContentBlock[]);
+    if (!toolUse) continue;
+
+    const next = out[i + 1];
+    const answered =
+      next.role === 'user' &&
+      Array.isArray(next.content) &&
+      next.content.some(b => {
+        const block = b as { type?: string; tool_use_id?: string };
+        return block.type === 'tool_result' && block.tool_use_id === toolUse.id;
+      });
+    if (answered || next.role !== 'user') continue;
+
+    const text =
+      typeof next.content === 'string'
+        ? next.content
+        : Array.isArray(next.content)
+          ? next.content.map(b => (b as { text?: string }).text ?? '').join(' ').trim()
+          : '';
+    out[i + 1] = {
+      role: 'user',
+      content: [{ type: 'tool_result', tool_use_id: toolUse.id, content: text || 'Continue.' }],
+    } as MessageParam;
+  }
+  return out;
 }
 
 // Find the answer submitted for a given tool_use_id, if any. Used to render
@@ -251,7 +298,7 @@ export default function BiographerView({ onStartOver }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           documentText: docText,
-          messages: turnsToMessages(currentTurns),
+          messages: sanitizeForApi(turnsToMessages(currentTurns)),
         }),
       });
       if (!res.ok) {
@@ -376,10 +423,13 @@ export default function BiographerView({ onStartOver }: Props) {
   if (!hydrated) return null;
 
   const lastTurn = turns[turns.length - 1];
+  // Detect a pending tool_use structurally — by the presence of a tool_use
+  // block on the last assistant turn — rather than via stop_reason, which is
+  // ephemeral and lost across reloads. A tool_use that had already been
+  // answered would be followed by a tool_result turn, so if the last turn is
+  // an assistant carrying one, it is by definition still open.
   const pendingToolUse =
-    lastTurn?.role === 'assistant' && lastTurn.stop_reason === 'tool_use'
-      ? getToolUse(lastTurn.content)
-      : null;
+    lastTurn?.role === 'assistant' ? getToolUse(lastTurn.content) : null;
   // ask_choices is a mid-conversation elicitation — the reply box stays open so
   // the user can type a free-text answer instead of tapping. The terminal cards
   // (propose_draft, split_into_multiple) block the input until acted on.
