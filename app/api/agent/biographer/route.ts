@@ -139,6 +139,18 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json(result);
   } catch (err) {
+    // A 400 means we sent Claude a malformed conversation (e.g. a dangling
+    // tool_use). That is our bug, not an upstream outage — retrying the same
+    // payload fails identically — so surface it distinctly instead of masking
+    // it as "unavailable / try again".
+    const status = (err as { status?: number } | null)?.status;
+    if (status === 400) {
+      console.error('[agent/biographer] Malformed request to Claude API (400):', err);
+      return NextResponse.json(
+        { error: 'This conversation hit a snag and can’t continue. Please start over.' },
+        { status: 422 },
+      );
+    }
     console.error('[agent/biographer] Claude API error:', err);
     return NextResponse.json(
       { error: 'The Biographer is unavailable. Please try again in a moment.' },
