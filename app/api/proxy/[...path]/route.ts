@@ -51,7 +51,16 @@ async function handle(
   headers.set('Accept', accept || 'application/json');
   if (!anonymous) {
     const bearer = await resolveBearerForProxy();
-    if (bearer) headers.set('Authorization', `Bearer ${bearer}`);
+    // Forwarding without a Bearer earns a 401 from Laravel, which the client
+    // auth context treats as "no Laravel row yet, send them to onboarding".
+    // 503 says what actually happened: we couldn't mint a credential.
+    if (!bearer) {
+      return NextResponse.json(
+        { message: 'Could not resolve credentials for this request. Please try again.' },
+        { status: 503 },
+      );
+    }
+    headers.set('Authorization', `Bearer ${bearer}`);
   }
 
   // GET never carries a body. Everything else — including DELETE, which may

@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { requireActiveSpaceId } from '../../../../lib/server/auth';
 import { getFamilyFeed, type Whisper } from '../../../../lib/server/queries';
 import { formatKinloomDate, type KinloomAuthor, type LibraryRow } from '../../../../lib/kinloom';
 
@@ -82,8 +81,7 @@ function WhisperRow({ w, idKey }: { w: Whisper; idKey: string }) {
 }
 
 export default async function FamilyFeedPage() {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   const { whispers, kinlooms, totals } = await getFamilyFeed(familySpaceId);
 

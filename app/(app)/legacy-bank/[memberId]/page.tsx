@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { requireActiveSpaceId } from '../../../../lib/server/auth';
 import { getMemberProfile } from '../../../../lib/server/queries';
 import { ApiError } from '../../../../lib/api';
 import type { FamilyMember } from '../../../../lib/server/queries';
@@ -22,8 +22,7 @@ function suggestedQuestions(member: FamilyMember, kinlooms: LibraryRow[]): strin
 }
 
 export default async function LegacyBankChatPage({ params }: { params: { memberId: string } }) {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   let data;
   try {

@@ -61,6 +61,13 @@ export type AuthUser = {
    */
   family_spaces?: FamilySpaceRef[] | string | null;
   onboarding_state?: 'complete' | 'profile_set' | 'pending';
+  /**
+   * Set only by the client-side fallbacks that synthesize a user from the
+   * Firebase credential when /me can't be read. Never sent by the API.
+   * `family_spaces` on such a record is an empty placeholder rather than a
+   * fact, so it must not be used to decide that a user needs onboarding.
+   */
+  provisional?: true;
 };
 
 /**
@@ -75,11 +82,16 @@ export type AuthUser = {
 function normalizeSpaceRef(raw: unknown): FamilySpaceRef | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
-  // API usually sends `ulid`; some payloads use `id`.
+  // API usually sends `ulid`; some payloads use `id`. Numbers count too —
+  // dropping a numeric id left the user with zero spaces from an otherwise
+  // healthy 200, which reads downstream as "hasn't onboarded".
+  const candidate = o.ulid ?? o.id ?? o.family_space_id;
   const ulid =
-    (typeof o.ulid === 'string' && o.ulid) ||
-    (typeof o.id === 'string' && o.id) ||
-    '';
+    typeof candidate === 'string'
+      ? candidate
+      : typeof candidate === 'number'
+        ? String(candidate)
+        : '';
   if (!ulid) return null;
   return {
     ulid,
@@ -112,6 +124,20 @@ export function parseFamilySpaces(
     }
   }
   return trimmed.split(',').map(s => s.trim()).filter(Boolean).map(ulid => ({ ulid, name: '' }));
+}
+
+/**
+ * True when `family_spaces` carried something the user is supposed to be a
+ * member of, regardless of whether we managed to parse it. Lets callers tell
+ * "this account has no spaces" apart from "we failed to read the spaces it
+ * has" — the two need opposite handling and used to be indistinguishable.
+ */
+export function hasFamilySpacePayload(raw: AuthUser['family_spaces']): boolean {
+  if (!raw) return false;
+  if (Array.isArray(raw)) return raw.length > 0;
+  if (typeof raw !== 'string') return false;
+  const trimmed = raw.trim();
+  return trimmed !== '' && trimmed !== '[]' && trimmed !== '{}' && trimmed !== 'null';
 }
 
 /** Returns the currently-active family space ulid (first one), or null. */
@@ -286,6 +312,7 @@ export async function login(email: string, password: string): Promise<AuthUser> 
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
         family_spaces: [],
         onboarding_state: 'pending',
+        provisional: true,
       };
     }
     throw err;
@@ -346,6 +373,7 @@ export async function register(payload: RegisterPayload): Promise<AuthUser> {
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
         family_spaces: [],
         onboarding_state: 'pending',
+        provisional: true,
       };
     }
     throw err;

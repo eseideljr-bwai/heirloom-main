@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../lib/server/auth';
+import { requireActiveSpaceId } from '../../../lib/server/auth';
 import { getLegacyBank } from '../../../lib/server/queries';
 import ConversationRow from './ConversationRow';
 
@@ -52,8 +51,7 @@ const DEPOSIT_PROMPTS = [
 ];
 
 export default async function LegacyBankPage() {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   const { progress, conversations, subjects } = await getLegacyBank(familySpaceId);
   const recentConversations = conversations.filter(c => c.last_message_at);

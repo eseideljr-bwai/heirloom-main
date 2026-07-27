@@ -3,7 +3,7 @@ import { Inter, Crimson_Pro } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '../lib/auth-context';
 import { ActiveFamilySpaceProvider } from '../lib/active-family-space';
-import { getCurrentUser, getActiveSpaceId } from '../lib/server/auth';
+import { getInitialAuthState } from '../lib/server/auth';
 
 // We read cookies during render to hydrate auth state — the root
 // layout must be dynamic.
@@ -34,10 +34,7 @@ export const metadata: Metadata = {
  * client-side /me round-trip needed on first paint (Epic 3).
  */
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const [user, activeSpaceId] = await Promise.all([
-    getCurrentUser(),
-    getActiveSpaceId(),
-  ]);
+  const { user, activeSpaceId } = await getInitialAuthState();
 
   return (
     <html lang="en" className={`${inter.variable} ${crimsonPro.variable}`}>

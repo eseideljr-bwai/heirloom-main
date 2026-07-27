@@ -19,11 +19,12 @@ import { useActiveFamilySpace } from '../../lib/active-family-space';
 import AppNav from './AppNav';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, authReady } = useAuth();
+  const { user, authReady, provisional } = useAuth();
   const { activeSpaceId, spaces } = useActiveFamilySpace();
   const router = useRouter();
   const routerRef = useRef(router);
   useEffect(() => { routerRef.current = router; });
+  const refreshedRef = useRef(false);
 
   useEffect(() => {
     if (!authReady) return;
@@ -31,10 +32,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       routerRef.current.replace('/?reason=session_expired');
       return;
     }
-    if (spaces.length === 0) {
-      routerRef.current.replace('/onboarding/profile');
+    if (spaces.length > 0) return;
+
+    // Reaching here means the server let this page render, which it only
+    // does once `requireActiveSpaceId` found a space — so empty `spaces` is
+    // client state disagreeing with the server. On a provisional user it's
+    // a placeholder from an unread /me, and redirecting to onboarding on the
+    // strength of it is what put finished users back on step 2. Ask the
+    // server once instead; it owns this decision.
+    if (provisional) {
+      if (refreshedRef.current) return;
+      refreshedRef.current = true;
+      routerRef.current.refresh();
+      return;
     }
-  }, [authReady, user, spaces]);
+    routerRef.current.replace('/onboarding/profile');
+  }, [authReady, user, spaces, provisional]);
 
   if (!authReady) return null;
   if (!user) return null;

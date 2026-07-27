@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { requireActiveSpaceId } from '../../../../lib/server/auth';
 import { getMemberProfile } from '../../../../lib/server/queries';
 import { ApiError } from '../../../../lib/api';
 import { formatKinloomDate } from '../../../../lib/kinloom';
@@ -8,8 +8,7 @@ import { formatKinloomDate } from '../../../../lib/kinloom';
 export const dynamic = 'force-dynamic';
 
 export default async function MemberProfilePage({ params }: { params: { memberId: string } }) {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   let data;
   try {

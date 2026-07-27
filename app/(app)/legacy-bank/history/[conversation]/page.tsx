@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../../../lib/server/auth';
+import { requireActiveSpaceId } from '../../../../../lib/server/auth';
 import { getLegacyBank, getLegacyBankConversation, getMemberProfile } from '../../../../../lib/server/queries';
 import { ApiError } from '../../../../../lib/api';
 import LegacyChatThread from '../../LegacyChatThread';
@@ -8,8 +8,7 @@ import LegacyChatThread from '../../LegacyChatThread';
 export const dynamic = 'force-dynamic';
 
 export default async function LegacyBankHistoryThreadPage({ params }: { params: { conversation: string } }) {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   let detail;
   try {

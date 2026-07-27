@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { requireActiveSpaceId } from '../../../../lib/server/auth';
 import { getLegacyBank } from '../../../../lib/server/queries';
 
 export const dynamic = 'force-dynamic';
@@ -12,8 +11,7 @@ export const dynamic = 'force-dynamic';
  * (it was a mock-only prototype).
  */
 export default async function LegacyBankTryPage() {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   const { subjects, conversations } = await getLegacyBank(familySpaceId);
 

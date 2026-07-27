@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../lib/server/auth';
+import { requireActiveSpaceId } from '../../../lib/server/auth';
 import { getFamilyOverview, type FamilyMember } from '../../../lib/server/queries';
 
 export const dynamic = 'force-dynamic';
@@ -37,8 +36,7 @@ function memberSecondaryLine(m: FamilyMember): string {
 }
 
 export default async function FamilyPage() {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   const { space, generations } = await getFamilyOverview(familySpaceId);
 

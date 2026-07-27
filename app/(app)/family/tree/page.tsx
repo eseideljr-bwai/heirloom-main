@@ -1,14 +1,12 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { getActiveSpaceId, getActiveSpace } from '../../../../lib/server/auth';
+import { requireActiveSpaceId, getActiveSpace } from '../../../../lib/server/auth';
 import { getFamilyTree } from '../../../../lib/server/queries';
 import FamilyTreeClient from './FamilyTreeClient';
 
 export const dynamic = 'force-dynamic';
 
 export default async function FamilyTreePage() {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   const [tree, space] = await Promise.all([
     getFamilyTree(familySpaceId),

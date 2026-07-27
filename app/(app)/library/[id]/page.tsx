@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { getActiveSpaceId, getCurrentUser } from '../../../../lib/server/auth';
+import { requireActiveSpaceId, getCurrentUser } from '../../../../lib/server/auth';
 import { getKinloomServer } from '../../../../lib/server/queries';
 import { ApiError } from '../../../../lib/api';
 import { parseFamilySpaces } from '../../../../lib/auth';
@@ -45,8 +45,7 @@ function Silhouette({ member, size = 40, idKey }: { member: AnyMember; size?: nu
 }
 
 export default async function KinloomDetailPage({ params }: { params: { id: string } }) {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   let k;
   try {

@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../lib/server/auth';
+import { requireActiveSpaceId } from '../../../lib/server/auth';
 import { getHome, type HomeRecentKinloom, type HomeWhisper } from '../../../lib/server/queries';
 import { KINLOOM_TYPE_MAP } from '../../lib/kinloom-types';
 import { formatKinloomDate } from '../../../lib/kinloom';
@@ -82,8 +81,7 @@ function WhisperRow({ w, isLast }: { w: HomeWhisper; isLast: boolean }) {
 }
 
 export default async function HomePage() {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   const data = await getHome(familySpaceId);
   const { recentKinlooms, recentWhispers, legacyBankProgress } = data;

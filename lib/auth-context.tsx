@@ -57,6 +57,13 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   authReady: boolean;
+  /**
+   * True when `user` was synthesized from the Firebase record because /me
+   * couldn't be read, rather than returned by the API. Its `family_spaces`
+   * is an empty placeholder, not a fact — don't make routing decisions
+   * from it.
+   */
+  provisional: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
   register: (payload: RegisterPayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
@@ -77,6 +84,7 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   const [user, setUser] = useState<AuthUser | null>(initialUser);
   const [loading] = useState(false);
   const [authReady, setAuthReady] = useState(false);
+  const provisional = user?.provisional === true;
 
   const refresh = useCallback(async () => {
     if (!getSessionStartedAt()) {
@@ -176,6 +184,10 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
           // sign them out — synthesize a minimal user from the Firebase
           // record and let the app route them (→ /verify-email if
           // unverified, → /onboarding/profile when they have no space).
+          //
+          // The empty `family_spaces` below is a placeholder, so flag the
+          // result provisional: consumers that would route on it must defer
+          // to the server instead of assuming the user has no space.
           setUser(prev => prev ?? {
             ulid: fbUser.uid,
             email: fbUser.email ?? '',
@@ -186,6 +198,7 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
             timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
             family_spaces: [],
             onboarding_state: 'pending',
+            provisional: true,
           });
         }
         // Anything else (network blip): keep initialUser as-is.
@@ -256,7 +269,7 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   }, [refresh]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, authReady, login, register, logout, refresh, upsertFamilySpace }}>
+    <AuthContext.Provider value={{ user, loading, authReady, provisional, login, register, logout, refresh, upsertFamilySpace }}>
       {children}
     </AuthContext.Provider>
   );

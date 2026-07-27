@@ -1,14 +1,12 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { requireActiveSpaceId } from '../../../../lib/server/auth';
 import { getLegacyBank, getLegacyBankConversations } from '../../../../lib/server/queries';
 import ConversationRow from '../ConversationRow';
 
 export const dynamic = 'force-dynamic';
 
 export default async function LegacyBankHistoryPage() {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   const [conversations, { subjects }] = await Promise.all([
     getLegacyBankConversations(familySpaceId),

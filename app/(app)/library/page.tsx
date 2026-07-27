@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import { redirect } from 'next/navigation';
-import { getActiveSpace, getActiveSpaceId } from '../../../lib/server/auth';
+import { getActiveSpace, requireActiveSpaceId } from '../../../lib/server/auth';
 import { getHome, getLibraryServer } from '../../../lib/server/queries';
 import {
   bodyParagraphs,
@@ -78,8 +77,7 @@ function KinloomCard({ row }: { row: LibraryRow }) {
 type Search = { type?: string; q?: string };
 
 export default async function LibraryPage({ searchParams }: { searchParams?: Search }) {
-  const familySpaceId = await getActiveSpaceId();
-  if (!familySpaceId) redirect('/onboarding/profile');
+  const familySpaceId = await requireActiveSpaceId();
 
   const [{ kinlooms: allKinlooms }, home, activeSpace] = await Promise.all([
     getLibraryServer(familySpaceId),

@@ -39,6 +39,21 @@ export type ServerFetchOptions = Omit<RequestInit, 'body'> & {
   noStore?: boolean;
 };
 
+/**
+ * Raised when we have a session but can't produce a Bearer for it (missing
+ * id-token cookie *and* a failed custom-token exchange). Deliberately not an
+ * `ApiError` so no caller can mistake it for an upstream 401.
+ */
+export class CredentialsUnavailableError extends Error {
+  constructor(path: string) {
+    super(
+      `Could not resolve Firebase credentials for ${path}. The id-token cookie is ` +
+        `missing or expired and the custom-token exchange produced no token.`,
+    );
+    this.name = 'CredentialsUnavailableError';
+  }
+}
+
 /** Decode the JWT `exp` claim without verifying (cheap, server-side only). */
 function isIdTokenLikelyExpired(token: string): boolean {
   try {
@@ -118,7 +133,12 @@ export async function serverApiFetch<T = unknown>(
   };
   if (!anonymous) {
     const token = await readIdToken();
-    if (token) h.Authorization = `Bearer ${token}`;
+    // Sending the request without a Bearer would come back 401, which
+    // callers reasonably read as "the backend rejected this user" — and for
+    // /me that meant "not onboarded yet". Failing loudly keeps a credential
+    // resolution problem from being reported as an onboarding state.
+    if (!token) throw new CredentialsUnavailableError(path);
+    h.Authorization = `Bearer ${token}`;
   }
 
   const url = path.startsWith('http') ? path : `${SERVER_API_BASE}${path}`;
