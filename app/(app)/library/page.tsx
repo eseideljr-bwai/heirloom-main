@@ -10,6 +10,8 @@ import {
   type LibraryRow,
 } from '../../../lib/kinloom';
 import { KINLOOM_TYPES } from '../../lib/kinloom-types';
+import { paginate, parsePageParam } from '../../../lib/pagination';
+import Pagination from '../../components/Pagination';
 import LibraryFilters from './LibraryFilters';
 
 export const dynamic = 'force-dynamic';
@@ -74,7 +76,7 @@ function KinloomCard({ row }: { row: LibraryRow }) {
   );
 }
 
-type Search = { type?: string; q?: string };
+type Search = { type?: string; q?: string; page?: string };
 
 export default async function LibraryPage({ searchParams }: { searchParams?: Search }) {
   const familySpaceId = await requireActiveSpaceId();
@@ -106,6 +108,8 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
     return matchType && matchQ;
   });
 
+  const { items: pageRows, page, totalPages } = paginate(filtered, parsePageParam(searchParams?.page));
+
   const typeLabels = KINLOOM_TYPES.map(t => t.label);
 
   return (
@@ -136,9 +140,19 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
           <p className="empty-card__text">Nothing matches that yet.</p>
         </div>
       ) : (
-        <div className="home-kinloom-grid">
-          {filtered.map(row => <KinloomCard key={row.ulid} row={row} />)}
-        </div>
+        <>
+          <div className="home-kinloom-grid">
+            {pageRows.map(row => <KinloomCard key={row.ulid} row={row} />)}
+          </div>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            basePath="/library"
+            params={{ type, q: searchParams?.q }}
+            totalItems={filtered.length}
+            label="Library pages"
+          />
+        </>
       )}
     </div>
   );

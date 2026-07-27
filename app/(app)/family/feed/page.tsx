@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { requireActiveSpaceId } from '../../../../lib/server/auth';
 import { getFamilyFeed, type Whisper } from '../../../../lib/server/queries';
 import { formatKinloomDate, type KinloomAuthor, type LibraryRow } from '../../../../lib/kinloom';
+import { paginate, parsePageParam } from '../../../../lib/pagination';
+import Pagination from '../../../components/Pagination';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,10 +82,14 @@ function WhisperRow({ w, idKey }: { w: Whisper; idKey: string }) {
   );
 }
 
-export default async function FamilyFeedPage() {
+type Search = { page?: string };
+
+export default async function FamilyFeedPage({ searchParams }: { searchParams?: Search }) {
   const familySpaceId = await requireActiveSpaceId();
 
   const { whispers, kinlooms, totals } = await getFamilyFeed(familySpaceId);
+
+  const { items: pageRows, page, totalPages } = paginate(kinlooms, parsePageParam(searchParams?.page));
 
   return (
     <div className="feed-page">
@@ -111,11 +117,21 @@ export default async function FamilyFeedPage() {
         )}
       </div>
 
-      <div className="feed-section">
+      <div className="feed-section" id="family-kinlooms">
         <h2 className="feed-section__title">Kinlooms from your family</h2>
         <p className="feed-section__sub">Stories, lessons, and wisdom shared by your family members.</p>
         {kinlooms.length > 0 ? (
-          kinlooms.map(k => <KinloomFeedCard key={k.ulid} k={k} />)
+          <>
+            {pageRows.map(k => <KinloomFeedCard key={k.ulid} k={k} />)}
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              basePath="/family/feed"
+              hash="family-kinlooms"
+              totalItems={kinlooms.length}
+              label="Family kinloom pages"
+            />
+          </>
         ) : (
           <div className="empty-card">
             <p className="empty-card__text">Nothing here yet.</p>

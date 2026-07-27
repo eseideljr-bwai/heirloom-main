@@ -18,6 +18,8 @@ export default function LibraryFilters({ types, type, q }: Props) {
       const next = new URLSearchParams(params.toString());
       if (query.trim()) next.set('q', query.trim());
       else next.delete('q');
+      // A new result set invalidates the current page offset.
+      next.delete('page');
       const search = next.toString();
       const url = `${pathname}${search ? `?${search}` : ''}`;
       startTransition(() => router.replace(url, { scroll: false }));
@@ -32,6 +34,7 @@ export default function LibraryFilters({ types, type, q }: Props) {
     const sp = new URLSearchParams(params.toString());
     if (next === 'All') sp.delete('type');
     else sp.set('type', next);
+    sp.delete('page');
     const search = sp.toString();
     startTransition(() =>
       router.replace(`${pathname}${search ? `?${search}` : ''}`, { scroll: false }),

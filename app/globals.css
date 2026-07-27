@@ -2004,6 +2004,65 @@ button {
   text-decoration: none;
 }
 
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 36px;
+}
+.pagination__pages {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pagination__page,
+.pagination__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 34px;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg-3);
+  text-decoration: none;
+}
+.pagination__page:hover,
+.pagination__step:hover { background: var(--secondary); }
+.pagination__page.is-current {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+.pagination__step.is-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.pagination__gap {
+  min-width: 20px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--fg-4);
+}
+.pagination__meta {
+  flex-basis: 100%;
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--fg-4);
+}
+
 /* Detail */
 .detail-back {
   border-bottom: 1px solid var(--border);
