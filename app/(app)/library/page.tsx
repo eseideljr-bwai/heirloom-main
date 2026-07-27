@@ -129,7 +129,7 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
       {kinlooms.length === 0 ? (
         <div className="empty-card">
           <p className="empty-card__text">Your library is empty.</p>
-          <Link href="/create" className="empty-card__cta">Write your first kinloom \u2192</Link>
+          <Link href="/create" className="empty-card__cta">Write your first kinloom →</Link>
         </div>
       ) : filtered.length === 0 ? (
         <div className="empty-card">
