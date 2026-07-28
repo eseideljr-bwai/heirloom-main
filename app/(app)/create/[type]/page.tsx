@@ -13,11 +13,15 @@ import {
   getCreateContext,
   MAX_KINLOOM_PHOTOS,
   MAX_PHOTO_BYTES,
+  MAX_VIDEO_BYTES,
   PHOTO_MIME_TYPES,
+  VIDEO_MIME_TYPES,
   readImageDimensions,
+  readVideoMetadata,
   updateKinloom,
   uploadKinloomAudio,
   uploadKinloomPhoto,
+  uploadKinloomVideo,
   type KinloomType,
   type TaggableMember,
   type Visibility,
@@ -28,7 +32,7 @@ import { revalidateKinloomData } from '../../../actions';
 
 type Step = 1 | 2 | 3;
 
-type PhotoUploadStatus = 'pending' | 'uploading' | 'done' | 'error';
+type MediaUploadStatus = 'pending' | 'uploading' | 'done' | 'error';
 
 type PhotoItem = {
   id: string;
@@ -36,7 +40,19 @@ type PhotoItem = {
   previewUrl: string;
   width: number | null;
   height: number | null;
-  status: PhotoUploadStatus;
+  status: MediaUploadStatus;
+  error?: string;
+  mediaId?: string;
+};
+
+type VideoItem = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+  status: MediaUploadStatus;
   error?: string;
   mediaId?: string;
 };
@@ -69,6 +85,28 @@ function StepIndicator({ current, total = 3 }: { current: Step; total?: number }
   );
 }
 
+function MediaStatusBadges({ status, error }: { status: MediaUploadStatus; error?: string }) {
+  return (
+    <>
+      {status === 'uploading' && (
+        <div className="photo-grid__overlay" aria-hidden="true">
+          <span className="photo-grid__spinner" />
+        </div>
+      )}
+      {status === 'done' && (
+        <span className="photo-grid__badge photo-grid__badge--done" title="Uploaded">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        </span>
+      )}
+      {status === 'error' && (
+        <span className="photo-grid__badge photo-grid__badge--error" title={error || 'Upload failed — click Save to retry'}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="8" x2="12" y2="13" /><circle cx="12" cy="16.5" r="0.5" fill="currentColor" /></svg>
+        </span>
+      )}
+    </>
+  );
+}
+
 function PhotoThumbnailGrid({
   items,
   onRemove,
@@ -84,21 +122,44 @@ function PhotoThumbnailGrid({
         <div key={item.id} className="photo-grid__item">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={item.previewUrl} alt="" className="photo-grid__img" />
-          {item.status === 'uploading' && (
-            <div className="photo-grid__overlay" aria-hidden="true">
-              <span className="photo-grid__spinner" />
-            </div>
-          )}
-          {item.status === 'done' && (
-            <span className="photo-grid__badge photo-grid__badge--done" title="Uploaded">
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-            </span>
-          )}
-          {item.status === 'error' && (
-            <span className="photo-grid__badge photo-grid__badge--error" title={item.error || 'Upload failed — click Save to retry'}>
-              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="8" x2="12" y2="13" /><circle cx="12" cy="16.5" r="0.5" fill="currentColor" /></svg>
-            </span>
-          )}
+          <MediaStatusBadges status={item.status} error={item.error} />
+          <button
+            type="button"
+            onClick={() => onRemove(item.id)}
+            className="photo-grid__remove"
+            aria-label={`Remove ${item.file.name}`}
+            disabled={disabled}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <p className="photo-grid__name">{item.file.name}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VideoThumbnailGrid({
+  items,
+  onRemove,
+  disabled,
+}: {
+  items: VideoItem[];
+  onRemove: (id: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="photo-grid">
+      {items.map(item => (
+        <div key={item.id} className="photo-grid__item">
+          <video
+            src={item.previewUrl}
+            className="photo-grid__img"
+            muted
+            playsInline
+            preload="metadata"
+          />
+          <MediaStatusBadges status={item.status} error={item.error} />
           <button
             type="button"
             onClick={() => onRemove(item.id)}
@@ -133,6 +194,11 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const [photoError, setPhotoError] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
   const hasPhoto = photoItems.length > 0;
+  const [videoItems, setVideoItems] = useState<VideoItem[]>([]);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const hasVideo = videoItems.length > 0;
+  const mediaSlotCount = photoItems.length + videoItems.length;
   const [taggedKin, setTaggedKin] = useState<string[]>([]);
   const [visibility, setVisibility] = useState<Visibility>('family');
 
@@ -144,6 +210,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
   const [voiceUploadError, setVoiceUploadError] = useState<string | null>(null);
   /**
    * The kinloom is created as a `draft` on first save attempt; we only
@@ -183,14 +250,20 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   }, [authLoading, familySpaceId, params.type]);
 
   // Object URLs are created on selection and revoked on removal (see
-  // handleRemovePhoto); this only catches URLs still outstanding on unmount.
+  // handleRemovePhoto / handleRemoveVideo); this only catches URLs still
+  // outstanding on unmount.
   const photoItemsRef = useRef<PhotoItem[]>([]);
+  const videoItemsRef = useRef<VideoItem[]>([]);
   useEffect(() => {
     photoItemsRef.current = photoItems;
   }, [photoItems]);
   useEffect(() => {
+    videoItemsRef.current = videoItems;
+  }, [videoItems]);
+  useEffect(() => {
     return () => {
       photoItemsRef.current.forEach(item => URL.revokeObjectURL(item.previewUrl));
+      videoItemsRef.current.forEach(item => URL.revokeObjectURL(item.previewUrl));
     };
   }, []);
 
@@ -280,6 +353,11 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     photoInputRef.current?.click();
   };
 
+  const handlePickVideo = () => {
+    setVideoError(null);
+    videoInputRef.current?.click();
+  };
+
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     e.target.value = '';
@@ -300,10 +378,10 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       accepted.push(file);
     }
 
-    const remainingSlots = Math.max(MAX_KINLOOM_PHOTOS - photoItems.length, 0);
+    const remainingSlots = Math.max(MAX_KINLOOM_PHOTOS - mediaSlotCount, 0);
     const toAdd = accepted.slice(0, remainingSlots);
     if (accepted.length > toAdd.length) {
-      errors.push(`You can add up to ${MAX_KINLOOM_PHOTOS} photos. ${accepted.length - toAdd.length} photo${accepted.length - toAdd.length === 1 ? '' : 's'} were not added.`);
+      errors.push(`You can add up to ${MAX_KINLOOM_PHOTOS} photos and videos combined. ${accepted.length - toAdd.length} photo${accepted.length - toAdd.length === 1 ? '' : 's'} were not added.`);
     }
 
     const newItems: PhotoItem[] = await Promise.all(toAdd.map(async (file) => {
@@ -324,6 +402,51 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     setPhotoError(errors.length > 0 ? errors.join(' ') : null);
   };
 
+  const handleVideoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+
+    const errors: string[] = [];
+    const accepted: File[] = [];
+
+    for (const file of files) {
+      if (!(VIDEO_MIME_TYPES as readonly string[]).includes(file.type)) {
+        errors.push(`\u201c${file.name}\u201d isn\u2019t a supported video type. Use MP4, WebM, or MOV.`);
+        continue;
+      }
+      if (file.size > MAX_VIDEO_BYTES) {
+        errors.push(`\u201c${file.name}\u201d is too large. Max 100 MB per video.`);
+        continue;
+      }
+      accepted.push(file);
+    }
+
+    const remainingSlots = Math.max(MAX_KINLOOM_PHOTOS - mediaSlotCount, 0);
+    const toAdd = accepted.slice(0, remainingSlots);
+    if (accepted.length > toAdd.length) {
+      errors.push(`You can add up to ${MAX_KINLOOM_PHOTOS} photos and videos combined. ${accepted.length - toAdd.length} video${accepted.length - toAdd.length === 1 ? '' : 's'} were not added.`);
+    }
+
+    const newItems: VideoItem[] = await Promise.all(toAdd.map(async (file) => {
+      const meta = await readVideoMetadata(file);
+      return {
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        width: meta.width,
+        height: meta.height,
+        durationSeconds: meta.durationSeconds,
+        status: 'pending' as const,
+      };
+    }));
+
+    if (newItems.length > 0) {
+      setVideoItems(prev => [...prev, ...newItems]);
+    }
+    setVideoError(errors.length > 0 ? errors.join(' ') : null);
+  };
+
   const handleRemovePhoto = (id: string) => {
     setPhotoItems(prev => {
       const item = prev.find(p => p.id === id);
@@ -331,6 +454,15 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       return prev.filter(p => p.id !== id);
     });
     setPhotoError(null);
+  };
+
+  const handleRemoveVideo = (id: string) => {
+    setVideoItems(prev => {
+      const item = prev.find(v => v.id === id);
+      if (item) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter(v => v.id !== id);
+    });
+    setVideoError(null);
   };
 
   const handleSave = async () => {
@@ -347,6 +479,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     setSaving(true);
     setSaveError(null);
     setPhotoUploadError(null);
+    setVideoUploadError(null);
     setVoiceUploadError(null);
 
     let createdId = savedKinloomId;
@@ -428,6 +561,39 @@ export default function CreateTypePage({ params }: { params: { type: string } })
             p.id === item.id ? { ...p, status: 'error', error: msg } : p
           ));
           setPhotoUploadError(msg);
+          setSaving(false);
+          return;
+        }
+      }
+    }
+
+    if (createdId) {
+      for (const item of videoItems) {
+        if (item.status === 'done') continue;
+        const kinloomId = createdId;
+        setVideoItems(prev => prev.map(v =>
+          v.id === item.id ? { ...v, status: 'uploading', error: undefined } : v
+        ));
+        try {
+          const confirmed = await uploadKinloomVideo(familySpaceId, kinloomId, item.file, {
+            width: item.width,
+            height: item.height,
+            durationSeconds: item.durationSeconds,
+          });
+          setVideoItems(prev => prev.map(v =>
+            v.id === item.id ? { ...v, status: 'done', mediaId: confirmed.id } : v
+          ));
+        } catch (uploadErr) {
+          const msg = uploadErr instanceof ApiError
+            ? (uploadErr.firstFieldError() || uploadErr.message)
+            : uploadErr instanceof Error
+              ? uploadErr.message
+              : 'Could not upload this video.';
+          console.error('Video upload failed:', uploadErr);
+          setVideoItems(prev => prev.map(v =>
+            v.id === item.id ? { ...v, status: 'error', error: msg } : v
+          ));
+          setVideoUploadError(msg);
           setSaving(false);
           return;
         }
@@ -631,12 +797,27 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
                 {hasPhoto ? 'Add more photos' : 'Add photos'}
               </button>
+              <button
+                onClick={handlePickVideo}
+                className={`attach-btn ${hasVideo ? 'attach-btn--on' : ''}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 16 12 10 15 10 9" fill="currentColor" stroke="none"/></svg>
+                {hasVideo ? 'Add more videos' : 'Add video'}
+              </button>
               <input
                 ref={photoInputRef}
                 type="file"
                 accept={PHOTO_MIME_TYPES.join(',')}
                 multiple
                 onChange={handlePhotoChange}
+                className="visually-hidden"
+              />
+              <input
+                ref={videoInputRef}
+                type="file"
+                accept={VIDEO_MIME_TYPES.join(',')}
+                multiple
+                onChange={handleVideoChange}
                 className="visually-hidden"
               />
             </div>
@@ -651,8 +832,18 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               </p>
             )}
 
+            {videoError && (
+              <p className="create-banner create-banner--error create-banner--inline">
+                {videoError}
+              </p>
+            )}
+
             {photoItems.length > 0 && (
               <PhotoThumbnailGrid items={photoItems} onRemove={handleRemovePhoto} disabled={saving} />
+            )}
+
+            {videoItems.length > 0 && (
+              <VideoThumbnailGrid items={videoItems} onRemove={handleRemoveVideo} disabled={saving} />
             )}
 
             <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
@@ -777,6 +968,13 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               </div>
             )}
 
+            {videoUploadError && (
+              <div className="create-banner create-banner--error">
+                <p style={{ margin: '0 0 8px', fontWeight: 500 }}>Your kinloom was saved, but the video failed to upload.</p>
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>{videoUploadError}</p>
+              </div>
+            )}
+
             {voiceUploadError && (
               <div className="create-banner create-banner--error">
                 <p style={{ margin: '0 0 8px', fontWeight: 500 }}>Your kinloom was saved, but the voice recording failed to upload.</p>
@@ -790,6 +988,12 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               </div>
             )}
 
+            {videoItems.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <VideoThumbnailGrid items={videoItems} onRemove={handleRemoveVideo} disabled={saving} />
+              </div>
+            )}
+
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <button
                 onClick={handleSave}
@@ -798,8 +1002,8 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: (saving || noFamilySpace) ? 'not-allowed' : 'pointer' }}
               >
                 {saving
-                  ? (hasPhoto || voiceValue ? 'Saving & uploading…' : 'Saving…')
-                  : (photoUploadError || voiceUploadError)
+                  ? (hasPhoto || hasVideo || voiceValue ? 'Saving & uploading…' : 'Saving…')
+                  : (photoUploadError || videoUploadError || voiceUploadError)
                     ? 'Retry upload'
                     : savedKinloomId
                       ? 'Continue'
@@ -808,7 +1012,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 )}
               </button>
-              {(photoUploadError || voiceUploadError) && savedKinloomId && (
+              {(photoUploadError || videoUploadError || voiceUploadError) && savedKinloomId && (
                 <button
                   onClick={handleSkipMedia}
                   disabled={saving}
@@ -851,7 +1055,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               <p style={{ fontSize: 14, lineHeight: 1.65, color: 'rgba(26,26,26,0.65)', margin: '0 0 14px', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                 {body || <span style={{ color: 'rgba(26,26,26,0.3)' }}>Your writing will appear here…</span>}
               </p>
-              {(hasVoice || hasPhoto) && (
+              {(hasVoice || hasPhoto || hasVideo) && (
                 <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
                   {hasVoice && (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'rgba(26,26,26,0.45)' }}>
@@ -863,6 +1067,12 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'rgba(26,26,26,0.45)' }}>
                       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
                       Photo
+                    </span>
+                  )}
+                  {hasVideo && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'rgba(26,26,26,0.45)' }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 16 12 10 15 10 9" fill="currentColor" stroke="none"/></svg>
+                      Video
                     </span>
                   )}
                 </div>

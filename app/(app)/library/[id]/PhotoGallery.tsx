@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import type { KinloomMedia } from '../../../../lib/kinloom';
+import { isVideoMediaUrl, type KinloomMedia } from '../../../../lib/kinloom';
 
 export default function PhotoGallery({ photos }: { photos: KinloomMedia[] }) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
@@ -19,6 +19,9 @@ export default function PhotoGallery({ photos }: { photos: KinloomMedia[] }) {
 
   if (photos.length === 0) return null;
 
+  const open = openIndex !== null ? photos[openIndex] : null;
+  const openIsVideo = isVideoMediaUrl(open?.url);
+
   return (
     <>
       <div className={`detail-gallery${photos.length === 1 ? ' detail-gallery--single' : ''}`}>
@@ -29,16 +32,30 @@ export default function PhotoGallery({ photos }: { photos: KinloomMedia[] }) {
               type="button"
               className="detail-gallery__tile"
               onClick={() => setOpenIndex(i)}
-              aria-label={`View photo ${i + 1} of ${photos.length}`}
+              aria-label={
+                isVideoMediaUrl(photo.url)
+                  ? `Play video ${i + 1} of ${photos.length}`
+                  : `View photo ${i + 1} of ${photos.length}`
+              }
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photo.url} alt="" />
+              {isVideoMediaUrl(photo.url) ? (
+                <video
+                  src={photo.url}
+                  className="detail-gallery__media"
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={photo.url} alt="" className="detail-gallery__media" />
+              )}
             </button>
           )
         ))}
       </div>
 
-      {openIndex !== null && photos[openIndex]?.url && (
+      {open?.url && (
         <div
           className="detail-lightbox"
           role="dialog"
@@ -59,7 +76,7 @@ export default function PhotoGallery({ photos }: { photos: KinloomMedia[] }) {
                 type="button"
                 className="detail-lightbox__nav detail-lightbox__nav--prev"
                 onClick={(e) => { e.stopPropagation(); setOpenIndex(i => (i === null ? i : (i - 1 + photos.length) % photos.length)); }}
-                aria-label="Previous photo"
+                aria-label="Previous"
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
               </button>
@@ -67,19 +84,31 @@ export default function PhotoGallery({ photos }: { photos: KinloomMedia[] }) {
                 type="button"
                 className="detail-lightbox__nav detail-lightbox__nav--next"
                 onClick={(e) => { e.stopPropagation(); setOpenIndex(i => (i === null ? i : (i + 1) % photos.length)); }}
-                aria-label="Next photo"
+                aria-label="Next"
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
               </button>
             </>
           )}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={photos[openIndex].url ?? undefined}
-            alt=""
-            className="detail-lightbox__img"
-            onClick={(e) => e.stopPropagation()}
-          />
+          {openIsVideo ? (
+            <video
+              key={open.url}
+              src={open.url}
+              className="detail-lightbox__img"
+              controls
+              playsInline
+              autoPlay
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={open.url}
+              alt=""
+              className="detail-lightbox__img"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
         </div>
       )}
     </>

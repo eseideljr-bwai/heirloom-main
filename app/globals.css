@@ -2106,7 +2106,8 @@ button {
   overflow: hidden;
   background: var(--secondary);
 }
-.detail-photo img {
+.detail-photo img,
+.detail-photo video {
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -2135,14 +2136,18 @@ button {
 .detail-gallery--single .detail-gallery__tile {
   aspect-ratio: 4 / 3;
 }
-.detail-gallery__tile img {
+.detail-gallery__tile img,
+.detail-gallery__tile video,
+.detail-gallery__media {
   width: 100%;
   height: 100%;
   object-fit: cover;
   display: block;
   transition: transform 200ms ease;
 }
-.detail-gallery__tile:hover img {
+.detail-gallery__tile:hover img,
+.detail-gallery__tile:hover video,
+.detail-gallery__tile:hover .detail-gallery__media {
   transform: scale(1.03);
 }
 .detail-lightbox {

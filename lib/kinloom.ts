@@ -77,7 +77,7 @@ export type KinloomMedia = {
   height?: number | string | null;
 };
 
-/** Max photos per kinloom — matches API `photos.maxItems` on store. */
+/** Max photo/video attachments per kinloom — matches API `photos.maxItems`. */
 export const MAX_KINLOOM_PHOTOS = 10;
 /** Soft per-photo cap used by the client picker (API allows up to 500 MB). */
 export const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
@@ -378,6 +378,21 @@ export const PHOTO_MIME_TYPES = [
 
 export type PhotoMimeType = typeof PHOTO_MIME_TYPES[number];
 
+/** MIME types the API will accept for video uploads. */
+export const VIDEO_MIME_TYPES = [
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+] as const;
+
+export type VideoMimeType = typeof VIDEO_MIME_TYPES[number];
+
+/**
+ * Soft per-video cap used by the client picker (API allows up to 500 MB).
+ * Phone clips routinely exceed the photo soft-cap.
+ */
+export const MAX_VIDEO_BYTES = 100 * 1024 * 1024;
+
 /** MIME types the API will accept for audio uploads. */
 export const AUDIO_MIME_TYPES = [
   'audio/mpeg',
@@ -389,6 +404,16 @@ export const AUDIO_MIME_TYPES = [
 ] as const;
 
 export type AudioMimeType = typeof AUDIO_MIME_TYPES[number];
+
+/**
+ * Detect video media from a signed URL path. `kinloom.show` returns
+ * videos inside `photos` with no `type` field, so extension is the signal.
+ */
+export function isVideoMediaUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const path = (url.split('?')[0] ?? '').toLowerCase();
+  return /\.(mp4|webm|mov|qt)$/.test(path);
+}
 
 /**
  * MediaRecorder candidate mime types (with codec hints), in preference
@@ -607,6 +632,43 @@ export function readImageDimensions(
   });
 }
 
+/** Read duration + dimensions from a video File. Returns nulls on failure. */
+export function readVideoMetadata(
+  file: File,
+): Promise<{
+  durationSeconds: number | null;
+  width: number | null;
+  height: number | null;
+}> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined') {
+      resolve({ durationSeconds: null, width: null, height: null });
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    const done = (value: {
+      durationSeconds: number | null;
+      width: number | null;
+      height: number | null;
+    }) => {
+      URL.revokeObjectURL(url);
+      resolve(value);
+    };
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      const d = video.duration;
+      done({
+        durationSeconds: Number.isFinite(d) && d > 0 ? Math.round(d) : null,
+        width: video.videoWidth || null,
+        height: video.videoHeight || null,
+      });
+    };
+    video.onerror = () => done({ durationSeconds: null, width: null, height: null });
+    video.src = url;
+  });
+}
+
 /**
  * High-level helper: upload a photo File and attach it to an existing
  * kinloom. Runs the full 3-step flow: request URL → PUT to GCS → confirm.
@@ -655,6 +717,67 @@ export async function uploadKinloomPhoto(
     `[CP2-diag] confirm ok — media.id=${confirmed.id} media.entry_id=${confirmed.entry_id} matchesRequestedEntryId=${confirmed.entry_id === kinloomId}`,
   );
   // show responses omit attachment ids; cache folder→id for later deletes
+  rememberMediaAttachmentFromGcsPath(gcs_path, confirmed.id);
+  return confirmed;
+}
+
+/**
+ * High-level helper: upload a video File and attach it to an existing
+ * kinloom. Same 3-step flow as photos. Confirm uses `purpose: "photo"`
+ * (API enum has no `video` purpose) + `type: "video"`; the attachment
+ * lands in the kinloom's `photos` array.
+ */
+export async function uploadKinloomVideo(
+  familySpaceId: string,
+  kinloomId: string,
+  file: File,
+  options: {
+    durationSeconds?: number | null;
+    width?: number | null;
+    height?: number | null;
+  } = {},
+): Promise<ConfirmMediaUploadResponse> {
+  const mime = file.type;
+  if (!(VIDEO_MIME_TYPES as readonly string[]).includes(mime)) {
+    throw new Error(`Video mime "${mime}" is not accepted by the API.`);
+  }
+
+  const { upload_url, gcs_path, gcs_bucket } = await requestMediaUploadUrl(
+    familySpaceId,
+    {
+      entry_id: kinloomId,
+      filename: file.name,
+      mime_type: mime,
+      file_size: file.size,
+    },
+  );
+
+  await uploadFileToSignedUrl(upload_url, file);
+
+  let duration = options.durationSeconds ?? null;
+  let width = options.width ?? null;
+  let height = options.height ?? null;
+  if (duration == null || width == null || height == null) {
+    const meta = await readVideoMetadata(file);
+    duration = duration ?? meta.durationSeconds;
+    width = width ?? meta.width;
+    height = height ?? meta.height;
+  }
+
+  const confirmed = await confirmMediaUpload(familySpaceId, {
+    entry_id: kinloomId,
+    // Docs only allow audio|photo; video lives under photo purpose.
+    purpose: 'photo',
+    gcs_path,
+    gcs_bucket,
+    mime_type: mime,
+    file_size: file.size,
+    original_filename: file.name,
+    type: 'video',
+    duration_seconds: duration,
+    width,
+    height,
+  });
   rememberMediaAttachmentFromGcsPath(gcs_path, confirmed.id);
   return confirmed;
 }

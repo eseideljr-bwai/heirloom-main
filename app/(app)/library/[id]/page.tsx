@@ -7,6 +7,7 @@ import { parseFamilySpaces } from '../../../../lib/auth';
 import {
   bodyParagraphs,
   formatKinloomDate,
+  isVideoMediaUrl,
   normalizeComments,
   normalizeList,
   type KinloomAuthor,
@@ -118,8 +119,12 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
           <PhotoGallery photos={photos} />
         ) : k.photo?.url && (
           <figure className="detail-photo">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={k.photo.url} alt="" />
+            {isVideoMediaUrl(k.photo.url) ? (
+              <video src={k.photo.url} controls playsInline preload="metadata" />
+            ) : (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img src={k.photo.url} alt="" />
+            )}
           </figure>
         )}
 

@@ -7,6 +7,7 @@ import {
   deleteKinloom,
   deleteMediaAttachment,
   getCreateContext,
+  isVideoMediaUrl,
   MAX_KINLOOM_PHOTOS,
   MAX_PHOTO_BYTES,
   normalizeList,
@@ -545,13 +546,23 @@ function EditKinloomModal({
                     key={photo.key}
                     className={`photo-grid__item${photo.removed ? ' photo-grid__item--removed' : ''}`}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={photo.url} alt="" className="photo-grid__img" />
+                    {isVideoMediaUrl(photo.url) ? (
+                      <video
+                        src={photo.url}
+                        className="photo-grid__img"
+                        muted
+                        playsInline
+                        preload="metadata"
+                      />
+                    ) : (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={photo.url} alt="" className="photo-grid__img" />
+                    )}
                     <button
                       type="button"
                       onClick={() => toggleExistingPhoto(photo.key)}
                       className="photo-grid__remove"
-                      aria-label={photo.removed ? 'Keep photo' : 'Remove photo'}
+                      aria-label={photo.removed ? 'Keep media' : 'Remove media'}
                       disabled={submitting}
                     >
                       {photo.removed ? (
