@@ -17,7 +17,7 @@ const staticSecurityHeaders = [
       'geolocation=()',
       'gyroscope=()',
       'magnetometer=()',
-      'microphone=()',
+      'microphone=(self)',
       'payment=()',
       'usb=()',
     ].join(', '),
