@@ -10,10 +10,12 @@ on:
 permissions:
   contents: 'read'
   id-token: 'write'
+  pull-requests: 'write'
 
 jobs:
   deploy-dev:
     name: Deploy to Dev
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -27,14 +29,31 @@ jobs:
           workload_identity_provider: 'projects/174694943962/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
           service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
 
+      - name: Set up Dev Environment Variables
+        run: |
+          cat << 'EOF' > .env.production
+          NEXT_PUBLIC_API_URL=https://heirloom-api-dev-174694943962.us-east1.run.app
+          NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.DEV_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.DEV_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.DEV_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.DEV_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
+          EOF
+
       - name: 'Deploy to Cloud Run (Dev)'
         uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
-          service: 'heirloom-api-dev'
+          service: 'heirloom-main-dev'
           region: 'us-east1'
           # This will build and deploy the source code in the current directory
           source: './'
           project_id: 'bw-heirloom-dev'
+          # Server-side Firebase Admin credentials (single-line base64 of the
+          # service-account JSON). Consumed by lib/server/firebase-admin.ts.
+          env_vars: |
+            FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
+            ANTHROPIC_API_KEY=${{ secrets.DEV_ANTHROPIC_API_KEY }}
 
   deploy-prod:
       name: Deploy to Prod
@@ -50,10 +69,14 @@ jobs:
             workload_identity_provider: 'projects/279321445871/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
             service_account: 'github-deployer@bw-heirloom-prod.iam.gserviceaccount.com'
 
+        - name: Set up Prod Environment Variables
+          run: |
+            echo "NEXT_PUBLIC_API_URL=https://REPLACE_WITH_PROD_API_URL_LATER" > .env.production
+
         - name: 'Deploy to Cloud Run (Prod)'
           uses: 'google-github-actions/deploy-cloudrun@v2'
           with:
-            service: 'heirloom-api-prod'
+            service: 'heirloom-main-prod'
             region: 'us-east1'
             source: './'
             project_id: 'bw-heirloom-prod'
@@ -69,14 +92,31 @@ jobs:
         with:
           workload_identity_provider: 'projects/174694943962/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
           service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
+
+      - name: Set up Preview Environment Variables
+        run: |
+          cat << 'EOF' > .env.production
+          NEXT_PUBLIC_API_URL=https://heirloom-api-dev-174694943962.us-east1.run.app
+          NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.DEV_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.DEV_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.DEV_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.DEV_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
+          EOF
+
       - id: 'deploy'
         uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
-          service: 'heirloom-pr-${{ github.event.number }}'
+          service: 'heirloom-main-pr-${{ github.event.number }}'
           region: 'us-east1'
           source: './'
           project_id: 'bw-heirloom-dev'
           flags: '--allow-unauthenticated'
+          # Server-side Firebase Admin credentials (single-line base64 of the
+          # service-account JSON). Consumed by lib/server/firebase-admin.ts.
+          env_vars: |
+            FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
       - name: 'Comment PR'
         uses: 'actions/github-script@v7'
         with:
@@ -99,5 +139,5 @@ jobs:
           service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
       - name: 'Delete Preview Service'
         run: |
-          gcloud run services delete heirloom-pr-${{ github.event.number }} \
+          gcloud run services delete heirloom-main-pr-${{ github.event.number }} \
             --region us-east1 --quiet --project bw-heirloom-dev
