@@ -63,59 +63,64 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
     setStatuses(prev => prev.map((s, i) => (targets.includes(i) ? 'publishing' : s)));
     setErrors(prev => prev.map((e, i) => (targets.includes(i) ? null : e)));
 
-    try {
-      const res = await fetch('/api/agent/biographer/publish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          drafts: targets.map(i => ({
-            title: kinlooms[i].working_title,
-            type_slug: kinlooms[i].suggested_type_slug,
-            body: kinlooms[i].body,
-          })),
-        }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(data.error ?? `Publish failed (${res.status})`);
-      }
-      const data = (await res.json()) as { results: PublishResult[] };
+    // Publish one draft per request, sequentially, resolving each item as it
+    // lands. This keeps every request short (a big batch can't outrun a
+    // platform timeout), surfaces live per-item progress instead of one long
+    // silent wait, and records each success immediately — so a retry only
+    // re-sends the items that genuinely failed, never re-creating a saved one.
+    let failed = 0;
 
-      // Zip results back onto their original indices (results are in the same
-      // order as `targets`).
-      const nextStatuses = [...statuses];
-      const nextErrors = [...errors];
-      targets.forEach((idx, j) => {
-        const r = data.results[j];
-        if (r?.ok) {
-          nextStatuses[idx] = 'done';
-          nextErrors[idx] = null;
-        } else {
-          nextStatuses[idx] = 'error';
-          nextErrors[idx] = r?.error ?? 'Could not save this kinloom.';
+    for (const idx of targets) {
+      try {
+        const res = await fetch('/api/agent/biographer/publish', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            drafts: [{
+              title: kinlooms[idx].working_title,
+              type_slug: kinlooms[idx].suggested_type_slug,
+              body: kinlooms[idx].body,
+            }],
+          }),
+        });
+        if (!res.ok) {
+          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(data.error ?? `Publish failed (${res.status})`);
         }
-      });
-      setStatuses(nextStatuses);
-      setErrors(nextErrors);
+        const data = (await res.json()) as { results: PublishResult[] };
+        const r = data.results?.[0];
 
-      if (nextStatuses.every(s => s === 'done')) {
-        onAllPublished();
-      } else {
-        const failed = nextStatuses.filter(s => s === 'error').length;
-        setBanner(`${failed} kinloom${failed === 1 ? '' : 's'} couldn’t be saved. The rest were published — you can retry just the failures.`);
+        if (r?.ok) {
+          setStatuses(prev => prev.map((s, i) => (i === idx ? 'done' : s)));
+          setErrors(prev => prev.map((e, i) => (i === idx ? null : e)));
+        } else {
+          failed++;
+          const message = r?.error ?? 'Could not save this kinloom.';
+          setStatuses(prev => prev.map((s, i) => (i === idx ? 'error' : s)));
+          setErrors(prev => prev.map((e, i) => (i === idx ? message : e)));
+        }
+      } catch (err) {
+        failed++;
+        const message = err instanceof Error ? err.message : 'Could not save this kinloom.';
+        setStatuses(prev => prev.map((s, i) => (i === idx ? 'error' : s)));
+        setErrors(prev => prev.map((e, i) => (i === idx ? message : e)));
       }
-    } catch (err) {
-      // Route-level / network failure: none of this batch landed. Reset the
-      // in-flight items to error so the retry path re-sends exactly them.
-      setStatuses(prev => prev.map((s, i) => (targets.includes(i) ? 'error' : s)));
-      setBanner(err instanceof Error ? err.message : 'Something went wrong publishing.');
-    } finally {
-      setPublishing(false);
+    }
+
+    setPublishing(false);
+
+    // targets were every not-yet-done item, so zero failures this pass means
+    // everything is now saved.
+    if (failed === 0) {
+      onAllPublished();
+    } else {
+      setBanner(`${failed} kinloom${failed === 1 ? '' : 's'} couldn’t be saved. The rest were published — you can retry just the failures.`);
     }
   };
 
+  const doneCount = statuses.filter(s => s === 'done').length;
   const publishLabel = publishing
-    ? `Publishing ${statuses.filter(s => s === 'publishing').length} kinloom${statuses.filter(s => s === 'publishing').length === 1 ? '' : 's'}…`
+    ? `Saving… (${doneCount}/${kinlooms.length})`
     : allPublished
       ? 'Published'
       : failedCount > 0
@@ -266,7 +271,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
         )}
         {hasAttempted && !allPublished && (
           <span style={{ fontSize: 12, color: 'var(--fg-4)' }}>
-            {statuses.filter(s => s === 'done').length}/{kinlooms.length} published
+            {doneCount}/{kinlooms.length} saved
           </span>
         )}
       </div>

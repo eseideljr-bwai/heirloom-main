@@ -578,20 +578,30 @@ export default function BiographerView({ onStartOver }: Props) {
             );
           })}
 
-          {/* Thinking indicator (after first response) */}
+          {/* Thinking indicator — animated dots while the agent works on the
+              response to whatever the user just sent. Reuses the app-wide
+              `kinloom-bounce` loader keyframe (see globals.css). */}
           {sending && turns.length > 0 && (
             <div style={{ marginBottom: 40 }}>
-              <p
-                style={{
-                  fontFamily: 'var(--font-serif)',
-                  fontSize: 17,
-                  color: 'var(--fg-4)',
-                  margin: 0,
-                  fontStyle: 'italic',
-                }}
+              <div
+                role="status"
+                aria-label="The Biographer is thinking"
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
               >
-                …
-              </p>
+                {[0, 1, 2].map(i => (
+                  <span
+                    key={i}
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: 'rgba(85, 107, 91, 0.5)',
+                      animation: 'kinloom-bounce 1.2s ease-in-out infinite',
+                      animationDelay: `${i * 0.15}s`,
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           )}
 

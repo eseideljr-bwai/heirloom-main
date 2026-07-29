@@ -486,18 +486,30 @@ export default function ConversationView() {
             </div>
           )}
 
-          {/* Sending indicator */}
+          {/* Sending indicator — animated dots while the agent works on the
+              response. Reuses the app-wide `kinloom-bounce` loader keyframe
+              (see globals.css); mirrors the Biographer view. */}
           {sending && (
             <div style={{ marginBottom: 40 }}>
-              <p style={{
-                fontFamily: 'var(--font-serif)',
-                fontSize: 17,
-                color: 'var(--fg-4)',
-                margin: 0,
-                fontStyle: 'italic',
-              }}>
-                …
-              </p>
+              <div
+                role="status"
+                aria-label="The agent is thinking"
+                style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {[0, 1, 2].map(i => (
+                  <span
+                    key={i}
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      background: 'rgba(85, 107, 91, 0.5)',
+                      animation: 'kinloom-bounce 1.2s ease-in-out infinite',
+                      animationDelay: `${i * 0.15}s`,
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           )}
 
