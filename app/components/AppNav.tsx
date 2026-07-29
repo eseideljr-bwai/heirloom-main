@@ -153,7 +153,7 @@ function FamilySpaceSwitcher() {
 const PRIMARY_NAV = [
   { href: '/home',         label: 'Home',             icon: <HomeIcon /> },
   { href: '/create',       label: 'Create',            icon: <PenLineIcon /> },
-  { href: '/library',      label: 'Library',           icon: <BookOpenIcon /> },
+  { href: '/library',      label: 'My Library',        icon: <BookOpenIcon /> },
   { href: '/family',       label: 'Family',            icon: <UsersIcon /> },
   { href: '/family/feed',  label: 'Family kinlooms',   icon: <BellIcon /> },
   { href: '/legacy-bank',  label: 'AI Legacy Bank',    icon: <SparklesIcon /> },
