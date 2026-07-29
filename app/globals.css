@@ -2158,6 +2158,74 @@ button {
 .detail-gallery__tile:hover .detail-gallery__media {
   transform: scale(1.03);
 }
+
+/* One row of photos at a time, with the page controls underneath. */
+.detail-gallery-pager {
+  margin: 0 0 32px;
+}
+.detail-gallery-pager .detail-gallery {
+  margin-bottom: 0;
+}
+.detail-gallery-pager__nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.detail-gallery-pager__arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.detail-gallery-pager__arrow:hover:not(:disabled) {
+  background: var(--secondary);
+  color: var(--fg-1);
+}
+.detail-gallery-pager__arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.detail-gallery-pager__arrow:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.detail-gallery-pager__dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.detail-gallery-pager__dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: rgba(26, 26, 26, 0.2);
+  cursor: pointer;
+  transition: width 160ms ease, background 160ms ease;
+}
+.detail-gallery-pager__dot:hover {
+  background: rgba(26, 26, 26, 0.4);
+}
+.detail-gallery-pager__dot.is-current {
+  width: 22px;
+  background: var(--primary);
+}
+.detail-gallery-pager__dot:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
 .detail-lightbox {
   position: fixed;
   inset: 0;
@@ -2212,6 +2280,19 @@ button {
 }
 .detail-lightbox__nav--prev { left: 20px; }
 .detail-lightbox__nav--next { right: 20px; }
+.detail-lightbox__count {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fdfcfa;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
 
 .detail-body p {
   font-family: var(--font-serif);
