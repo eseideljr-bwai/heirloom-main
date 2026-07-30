@@ -1,9 +1,8 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
-import { requireActiveSpaceId, getCurrentUser } from '../../../../lib/server/auth';
-import { getKinloomServer } from '../../../../lib/server/queries';
+import { requireActiveSpaceId, getActiveSpace } from '../../../../lib/server/auth';
+import { getHome, getKinloomServer } from '../../../../lib/server/queries';
 import { ApiError } from '../../../../lib/api';
-import { parseFamilySpaces } from '../../../../lib/auth';
 import {
   bodyParagraphs,
   formatKinloomDate,
@@ -56,8 +55,14 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
     throw err;
   }
 
-  const user = await getCurrentUser();
-  const myMemberId = parseFamilySpaces(user?.family_spaces).find(s => s.ulid === familySpaceId)?.member_id ?? null;
+  // /home's user_summary.member_id is authoritative for the current member;
+  // family_spaces[].member_id on /me is optional and often absent, so it's
+  // only a fallback. A failed /home must not take the page down with it.
+  const [home, activeSpace] = await Promise.all([
+    getHome(familySpaceId).catch(() => null),
+    getActiveSpace(),
+  ]);
+  const myMemberId = home?.userSummary?.member_id || activeSpace?.member_id || null;
   const isAuthor = !!myMemberId && k.author?.member_id === myMemberId;
 
   const author = k.author;
@@ -77,19 +82,14 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
             Library
           </Link>
           {/*
-            Edit is shown to everyone and the API's 403 is the real guard.
-            `/me` doesn't return the caller's `member_id` per space, so
-            `isAuthor` can't be computed reliably client-side (see
-            backend ask: add member_id to /me). Until it does, gating Edit
-            on `isAuthor` would hide it for everyone. Delete stays gated on
-            `isAuthor` — it's destructive, so we don't expose it until we
-            can positively identify the author; it lights up automatically
-            once /me returns member_id.
+            Both actions are author-only, and we fail closed: when the
+            current member can't be identified nothing is offered rather
+            than showing controls the API would reject with a 403.
           */}
           <KinloomActions
             familySpaceId={familySpaceId}
             kinloom={k}
-            canEdit={true}
+            canEdit={isAuthor}
             canDelete={isAuthor}
           />
         </div>
