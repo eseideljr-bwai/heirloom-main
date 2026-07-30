@@ -1152,9 +1152,11 @@ button {
 .family-card__name { margin: 0; font-size: 14px; font-weight: 500; color: var(--fg-1); }
 .family-card__sub { margin: 2px 0 0; font-size: 12px; color: var(--fg-4); }
 
+/* auto-fit rather than a fixed 3 columns: non-owners don't get the
+   "Manage members" card, and the remaining two should fill the row. */
 .family-nav-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 16px;
   margin-bottom: 40px;
 }

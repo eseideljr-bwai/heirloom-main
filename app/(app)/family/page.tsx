@@ -1,5 +1,6 @@
 import Link from 'next/link';
-import { requireActiveSpaceId } from '../../../lib/server/auth';
+import { requireActiveSpaceId, getCurrentUser } from '../../../lib/server/auth';
+import { isOwnerOfSpace } from '../../../lib/auth';
 import { getFamilyOverview, type FamilyMember } from '../../../lib/server/queries';
 
 export const dynamic = 'force-dynamic';
@@ -38,7 +39,14 @@ function memberSecondaryLine(m: FamilyMember): string {
 export default async function FamilyPage() {
   const familySpaceId = await requireActiveSpaceId();
 
-  const { space, generations } = await getFamilyOverview(familySpaceId);
+  const [{ space, generations }, user] = await Promise.all([
+    getFamilyOverview(familySpaceId),
+    getCurrentUser(),
+  ]);
+  // Only owners can invite, add, or remove members, so the entry points to
+  // that work are theirs alone. /me carries `role` per space (`member_id`
+  // is not returned), which is what makes this check possible here.
+  const isOwner = isOwnerOfSpace(user, familySpaceId);
 
   return (
     <div className="family-page">
@@ -81,7 +89,9 @@ export default async function FamilyPage() {
         {[
           { href: '/family/feed',    label: 'Family kinlooms',  desc: 'See what your family has been creating.' },
           { href: '/family/tree',    label: 'Family tree',      desc: 'Visualize relationships across generations.' },
-          { href: '/family/members', label: 'Manage members',   desc: "Invite and manage who's in your space." },
+          ...(isOwner
+            ? [{ href: '/family/members', label: 'Manage members', desc: "Invite and manage who's in your space." }]
+            : []),
         ].map(s => (
           <Link key={s.href} href={s.href} className="family-nav-card">
             <h3 className="family-nav-card__title">{s.label}</h3>
@@ -90,13 +100,15 @@ export default async function FamilyPage() {
         ))}
       </div>
 
-      <div className="family-invite">
-        <div>
-          <h3 className="family-invite__title">Invite your family</h3>
-          <p className="family-invite__sub">Your family space is invite-only. Bring in the people who matter.</p>
+      {isOwner && (
+        <div className="family-invite">
+          <div>
+            <h3 className="family-invite__title">Invite your family</h3>
+            <p className="family-invite__sub">Your family space is invite-only. Bring in the people who matter.</p>
+          </div>
+          <Link href="/family/members" className="btn-primary">Manage members</Link>
         </div>
-        <Link href="/family/members" className="btn-primary">Manage members</Link>
-      </div>
+      )}
 
     </div>
   );
