@@ -96,7 +96,7 @@ export default async function HomePage() {
       <div className="home-page__header">
         <p className="eyebrow">Your family space</p>
         <h1 className="home-page__title">Welcome home.</h1>
-        <p className="home-page__intro">A few new things from your family this week. Take your time.</p>
+        <p className="home-page__intro">Your legacy is growing, one story at a time.</p>
       </div>
 
       <div className="home-actions">
@@ -123,7 +123,6 @@ export default async function HomePage() {
           <div>
             <div className="legacy-bank-card__pillrow">
               <span className="legacy-bank-card__pill"><span className="legacy-bank-card__dot" />Quietly building</span>
-              <span className="legacy-bank-card__future">a future feature</span>
             </div>
             <h3 className="legacy-bank-card__title">Your AI Legacy Bank.</h3>
             <p className="legacy-bank-card__lede">
@@ -132,10 +131,10 @@ export default async function HomePage() {
             <div className="legacy-bank-card__progress">
               <div className="legacy-bank-card__track"><div className="legacy-bank-card__bar" style={{ width: `${pct}%` }} /></div>
               <p className="legacy-bank-card__count">
-                <strong>{total}</strong>{' of ~'}{target}{' kinlooms gathered'}
+                <strong>{total}</strong>{' kinlooms gathered'}
               </p>
             </div>
-            <p className="legacy-bank-card__note">The more your family keeps, the richer the voice becomes.</p>
+            <p className="legacy-bank-card__note">The more you add, the richer the voice becomes.</p>
           </div>
           <span className="legacy-bank-card__cta">
             Learn more

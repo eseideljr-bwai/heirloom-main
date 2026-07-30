@@ -1746,10 +1746,16 @@ button {
 
 .lb-cta {
   display: flex;
-  gap: 12px;
-  justify-content: center;
+  gap: 14px;
+  justify-content: flex-start;
   flex-wrap: wrap;
   margin-top: 16px;
+  margin-bottom: 40px;
+}
+.lb-cta .btn-primary--lg,
+.lb-cta .btn-outline--lg {
+  padding: 20px 44px;
+  font-size: 18px;
 }
 .lb-cta__note {
   text-align: center;

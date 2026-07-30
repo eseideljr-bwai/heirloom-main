@@ -27,7 +27,10 @@ export default async function LegacyBankTryPage() {
       <p className="eyebrow lb-chat-try__eyebrow">Try a conversation</p>
       <h1 className="lb-chat-try__title">Whose legacy would you like to ask?</h1>
       <p className="lb-chat-try__lede">
-        Conversations are grounded only in what each person chose to keep. Pick a family member to begin.
+        Conversations are grounded only in what each person chose to keep.
+      </p>
+      <p className="lb-chat-try__lede">
+        Pick a family member to begin.
       </p>
 
       {subjects.length === 0 ? (
