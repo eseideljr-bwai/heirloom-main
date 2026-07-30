@@ -67,38 +67,27 @@ export default async function LegacyBankPage() {
   return (
     <div className="lb-page">
       <p className="eyebrow lb-page__eyebrow">AI Legacy Bank</p>
-      <h1 className="lb-page__title">A vault for what words alone can&rsquo;t carry.</h1>
+      <h1 className="lb-page__title">A vault for your Legacy to carry on.</h1>
       <p className="lb-page__lede">
-        One day, someone you love will want to know who you were &mdash; not what you did, but how you saw. The vault is empty, and waiting, and listening.
+        Every story you preserve teaches your Legacy Bank a little more about who you are. Over time it becomes a trusted guide—connecting memories, recognizing patterns, and helping future generations understand the people behind the stories.
+      </p>
+      <p className="lb-page__lede">
+        <strong>It becomes a lasting way for your family to remember who you are, long after the moments have passed.</strong>
       </p>
 
       <div className="lb-progress">
-        <div className="lb-progress__track"><div className="lb-progress__bar" style={{ width: `${pct}%` }} /></div>
-        <p className="lb-progress__count"><strong>{total}</strong>{' of ~'}{target}{' kinlooms gathered'}</p>
+        {/* <div className="lb-progress__track"><div className="lb-progress__bar" style={{ width: `${pct}%` }} /></div> */}
+        <p className="lb-progress__count"><strong>{total}</strong>{' kinlooms gathered'}</p>
       </div>
 
-      <div className="lb-hero">
+      {/* <div className="lb-hero">
         <VaultMark />
-      </div>
+      </div> */}
 
-      {subjects.length > 0 && (
-        <div className="lb-section">
-          <p className="eyebrow">Ask a family member&rsquo;s legacy</p>
-          <div className="lb-subject-grid">
-            {subjects.map(s => (
-              <Link key={s.member_id} href={`/legacy-bank/${s.member_id}`} className="lb-subject-card">
-                <span className="lb-subject-card__avatar" style={{ background: (s.tone || '#a39376') + '28', color: s.tone || '#556b5b' }}>
-                  {s.initials || s.name?.charAt(0) || '?'}
-                </span>
-                <div>
-                  <p className="lb-subject-card__name">{s.name}</p>
-                  <p className="lb-subject-card__role">{s.role_label || s.kin_term || ''}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
+      <div className="lb-cta">
+        <Link href="/legacy-bank/chat" className="btn-primary btn-primary--lg">Try a conversation</Link>
+        <Link href="/create" className="btn-outline btn-outline--lg">Create a kinloom</Link>
+      </div>
 
       {recentConversations.length > 0 && (
         <div className="lb-section">
@@ -119,7 +108,7 @@ export default async function LegacyBankPage() {
         </div>
       )}
 
-      <div className="lb-section">
+      {/* <div className="lb-section">
         <div className="lb-section__head">
           <p className="eyebrow">The first deposit</p>
           <span className="lb-section__hint">Choose any one. There&rsquo;s no order, and no clock.</span>
@@ -139,12 +128,8 @@ export default async function LegacyBankPage() {
             </Link>
           ))}
         </div>
-      </div>
+      </div> */}
 
-      <div className="lb-cta">
-        <Link href="/create" className="btn-primary btn-primary--lg">Begin the vault</Link>
-        <Link href="/legacy-bank/chat" className="btn-outline btn-outline--lg">Try a conversation</Link>
-      </div>
       <p className="lb-cta__note">You can leave at any time. Nothing is shared yet, and nothing will be without you.</p>
     </div>
   );
