@@ -4,8 +4,14 @@
  * BiographerBatchCard — rendered when the Biographer calls split_into_multiple.
  *
  * Shows the proposed kinlooms with a "Keep refining" escape and a primary
- * "Publish" action. Publish loops the single-create endpoint server-side
- * (POST /api/agent/biographer/publish) once per draft and reports a per-item
+ * "Publish" action. Each item can be edited inline (title, type, summary,
+ * body) or dropped from the set before publishing — this is how "review one
+ * at a time" works without leaving the import conversation. Editing is purely
+ * client-side: the edited values are what get sent at publish time. Dropped
+ * items are never published and don't count toward the batch.
+ *
+ * Publish loops the single-create endpoint server-side (POST
+ * /api/agent/biographer/publish) once per KEPT draft and reports a per-item
  * result. Because that loop is NOT transactional, a mid-batch failure leaves
  * some kinlooms created: the card marks each item done/failed and lets the
  * user retry ONLY the failures, so a success is never re-created (no dupes).
@@ -13,6 +19,7 @@
  */
 
 import { useState } from 'react';
+import { KINLOOM_TYPE_SLUGS } from '../../../../lib/agent/tools';
 
 export type ProposedKinloom = {
   working_title: string;
@@ -39,25 +46,53 @@ type Props = {
   onAllPublished: () => void;
 };
 
-export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPublished }: Props) {
-  const kinlooms = input.proposed_kinlooms;
+// Turn a slug ('photo-collection') into a readable label ('Photo Collection').
+function slugLabel(slug: string): string {
+  return slug
+    .split('-')
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
 
-  const [statuses, setStatuses] = useState<ItemStatus[]>(() => kinlooms.map(() => 'idle'));
-  const [errors, setErrors] = useState<Array<string | null>>(() => kinlooms.map(() => null));
+export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPublished }: Props) {
+  // Editable working copy — edits and drops live here, not in the tool input,
+  // so what the user sees is exactly what gets published.
+  const [items, setItems] = useState<ProposedKinloom[]>(() =>
+    input.proposed_kinlooms.map(k => ({ ...k })),
+  );
+  const [dropped, setDropped] = useState<boolean[]>(() => input.proposed_kinlooms.map(() => false));
+  const [editing, setEditing] = useState<number | null>(null);
+
+  const [statuses, setStatuses] = useState<ItemStatus[]>(() => input.proposed_kinlooms.map(() => 'idle'));
+  const [errors, setErrors] = useState<Array<string | null>>(() => input.proposed_kinlooms.map(() => null));
   const [publishing, setPublishing] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
 
-  const allPublished = statuses.length > 0 && statuses.every(s => s === 'done');
-  const failedCount = statuses.filter(s => s === 'error').length;
-  const hasAttempted = statuses.some(s => s !== 'idle');
+  const keptCount = dropped.filter(d => !d).length;
+  // "All published" only counts kept items, and requires at least one kept.
+  const allPublished =
+    keptCount > 0 && items.every((_, i) => dropped[i] || statuses[i] === 'done');
+  const failedCount = statuses.filter((s, i) => !dropped[i] && s === 'error').length;
+  const hasAttempted = statuses.some((s, i) => !dropped[i] && s !== 'idle');
+
+  const setItemField = (idx: number, field: keyof ProposedKinloom, value: string) => {
+    setItems(prev => prev.map((it, i) => (i === idx ? { ...it, [field]: value } : it)));
+  };
+
+  const toggleDropped = (idx: number) => {
+    setDropped(prev => prev.map((d, i) => (i === idx ? !d : d)));
+    if (editing === idx) setEditing(null);
+  };
 
   const handlePublish = async () => {
     if (publishing || allPublished) return;
 
-    // Only publish items not already created — a done item is never resent.
-    const targets = kinlooms.map((_, i) => i).filter(i => statuses[i] !== 'done');
+    // Only publish kept items not already created — a done item is never resent,
+    // a dropped item is never sent at all.
+    const targets = items.map((_, i) => i).filter(i => !dropped[i] && statuses[i] !== 'done');
     if (targets.length === 0) return;
 
+    setEditing(null);
     setPublishing(true);
     setBanner(null);
     setStatuses(prev => prev.map((s, i) => (targets.includes(i) ? 'publishing' : s)));
@@ -77,9 +112,9 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             drafts: [{
-              title: kinlooms[idx].working_title,
-              type_slug: kinlooms[idx].suggested_type_slug,
-              body: kinlooms[idx].body,
+              title: items[idx].working_title,
+              type_slug: items[idx].suggested_type_slug,
+              body: items[idx].body,
             }],
           }),
         });
@@ -109,8 +144,8 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
 
     setPublishing(false);
 
-    // targets were every not-yet-done item, so zero failures this pass means
-    // everything is now saved.
+    // targets were every kept, not-yet-done item, so zero failures this pass
+    // means everything the user wants to keep is now saved.
     if (failed === 0) {
       onAllPublished();
     } else {
@@ -118,16 +153,18 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
     }
   };
 
-  const doneCount = statuses.filter(s => s === 'done').length;
+  const doneCount = statuses.filter((s, i) => !dropped[i] && s === 'done').length;
   const publishLabel = publishing
-    ? `Saving… (${doneCount}/${kinlooms.length})`
+    ? `Saving… (${doneCount}/${keptCount})`
     : allPublished
       ? 'Published'
       : failedCount > 0
         ? `Retry ${failedCount} failed`
-        : `Publish ${kinlooms.length} to your library`;
+        : keptCount === 0
+          ? 'Nothing to publish'
+          : `Publish ${keptCount} to your library`;
 
-  const publishDisabled = publishing || allPublished;
+  const publishDisabled = publishing || allPublished || keptCount === 0;
 
   return (
     <div
@@ -150,7 +187,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
           margin: '0 0 8px',
         }}
       >
-        {kinlooms.length} kinloom{kinlooms.length === 1 ? '' : 's'} found
+        {keptCount} kinloom{keptCount === 1 ? '' : 's'} to publish
       </p>
       <p
         style={{
@@ -162,12 +199,16 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
       >
         {allPublished
           ? 'All saved to your library.'
-          : 'The Biographer found these in the document. Publish them to your library, or keep refining.'}
+          : 'The Biographer found these in the document. Edit or drop any of them, then publish the rest to your library — or keep refining.'}
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
-        {kinlooms.map((k, i) => {
+        {items.map((k, i) => {
           const status = statuses[i];
+          const isDropped = dropped[i];
+          const isEditing = editing === i;
+          const locked = publishing || status === 'done';
+
           return (
             <div
               key={i}
@@ -176,48 +217,81 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
                 border: `1px solid ${status === 'error' ? 'var(--destructive)' : 'var(--border)'}`,
                 borderRadius: 10,
                 padding: '16px 20px',
-                opacity: status === 'done' ? 0.7 : 1,
+                opacity: status === 'done' ? 0.7 : isDropped ? 0.5 : 1,
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                <p
-                  style={{
-                    fontFamily: 'var(--font-serif)',
-                    fontSize: 17,
-                    fontWeight: 400,
-                    color: 'var(--fg-1)',
-                    lineHeight: 1.3,
-                    margin: '0 0 4px',
-                  }}
-                >
-                  {k.working_title}
-                </p>
-                <StatusPill status={status} />
-              </div>
-              <p
-                style={{
-                  fontSize: 13,
-                  lineHeight: 1.55,
-                  color: 'var(--fg-3)',
-                  margin: '0 0 6px',
-                }}
-              >
-                {k.one_line_summary}
-              </p>
-              <p
-                style={{
-                  fontSize: 11,
-                  color: 'var(--fg-4)',
-                  margin: 0,
-                  textTransform: 'capitalize',
-                }}
-              >
-                {k.suggested_type_slug.replace('-', '‑')}
-              </p>
-              {status === 'error' && errors[i] && (
-                <p style={{ fontSize: 12, color: 'var(--destructive)', margin: '8px 0 0', lineHeight: 1.5 }}>
-                  {errors[i]}
-                </p>
+              {isEditing ? (
+                <ItemEditor
+                  item={k}
+                  onChange={(field, value) => setItemField(i, field, value)}
+                  onDone={() => setEditing(null)}
+                />
+              ) : (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                    <p
+                      style={{
+                        fontFamily: 'var(--font-serif)',
+                        fontSize: 17,
+                        fontWeight: 400,
+                        color: 'var(--fg-1)',
+                        lineHeight: 1.3,
+                        margin: '0 0 4px',
+                        textDecoration: isDropped ? 'line-through' : 'none',
+                      }}
+                    >
+                      {k.working_title}
+                    </p>
+                    <StatusPill status={status} dropped={isDropped} />
+                  </div>
+                  <p
+                    style={{
+                      fontSize: 13,
+                      lineHeight: 1.55,
+                      color: 'var(--fg-3)',
+                      margin: '0 0 6px',
+                    }}
+                  >
+                    {k.one_line_summary}
+                  </p>
+                  <p
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--fg-4)',
+                      margin: 0,
+                      textTransform: 'capitalize',
+                    }}
+                  >
+                    {k.suggested_type_slug.replace('-', '‑')}
+                  </p>
+
+                  {status === 'error' && errors[i] && (
+                    <p style={{ fontSize: 12, color: 'var(--destructive)', margin: '8px 0 0', lineHeight: 1.5 }}>
+                      {errors[i]}
+                    </p>
+                  )}
+
+                  {/* Per-item controls. Hidden once the item is saved — a
+                      published kinloom can't be edited or dropped from here. */}
+                  {status !== 'done' && (
+                    <div style={{ display: 'flex', gap: 16, marginTop: 12 }}>
+                      {isDropped ? (
+                        <RowButton onClick={() => toggleDropped(i)} disabled={publishing}>
+                          Restore
+                        </RowButton>
+                      ) : (
+                        <>
+                          <RowButton onClick={() => setEditing(i)} disabled={locked}>
+                            Edit
+                          </RowButton>
+                          <RowButton onClick={() => toggleDropped(i)} disabled={locked} destructive>
+                            Drop
+                          </RowButton>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           );
@@ -271,7 +345,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
         )}
         {hasAttempted && !allPublished && (
           <span style={{ fontSize: 12, color: 'var(--fg-4)' }}>
-            {doneCount}/{kinlooms.length} saved
+            {doneCount}/{keptCount} saved
           </span>
         )}
       </div>
@@ -279,7 +353,148 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
   );
 }
 
-function StatusPill({ status }: { status: ItemStatus }) {
+// ─── Inline per-item editor ─────────────────────────────────────────────────
+
+function ItemEditor({
+  item,
+  onChange,
+  onDone,
+}: {
+  item: ProposedKinloom;
+  onChange: (field: keyof ProposedKinloom, value: string) => void;
+  onDone: () => void;
+}) {
+  const fieldLabel: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 500,
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    color: 'var(--fg-4)',
+    margin: '0 0 6px',
+    display: 'block',
+  };
+  const inputStyle: React.CSSProperties = {
+    width: '100%',
+    padding: '10px 12px',
+    background: 'var(--input-background)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    fontFamily: 'var(--font-serif)',
+    fontSize: 15,
+    lineHeight: 1.5,
+    color: 'var(--foreground)',
+    outline: 'none',
+    boxSizing: 'border-box',
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div>
+        <label style={fieldLabel}>Title</label>
+        <input
+          type="text"
+          value={item.working_title}
+          onChange={e => onChange('working_title', e.target.value)}
+          style={inputStyle}
+        />
+      </div>
+
+      <div>
+        <label style={fieldLabel}>Type</label>
+        <select
+          value={item.suggested_type_slug}
+          onChange={e => onChange('suggested_type_slug', e.target.value)}
+          style={{ ...inputStyle, fontFamily: 'inherit', fontSize: 14 }}
+        >
+          {KINLOOM_TYPE_SLUGS.map(slug => (
+            <option key={slug} value={slug}>
+              {slugLabel(slug)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label style={fieldLabel}>Summary</label>
+        <input
+          type="text"
+          value={item.one_line_summary}
+          onChange={e => onChange('one_line_summary', e.target.value)}
+          style={inputStyle}
+        />
+      </div>
+
+      <div>
+        <label style={fieldLabel}>Content</label>
+        <textarea
+          value={item.body}
+          onChange={e => onChange('body', e.target.value)}
+          rows={8}
+          style={{ ...inputStyle, resize: 'vertical', minHeight: 140 }}
+        />
+      </div>
+
+      <div>
+        <button
+          onClick={onDone}
+          style={{
+            background: 'var(--primary)',
+            color: 'var(--primary-foreground)',
+            border: 'none',
+            borderRadius: 8,
+            padding: '8px 18px',
+            fontSize: 13,
+            fontWeight: 500,
+            fontFamily: 'inherit',
+            cursor: 'pointer',
+          }}
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// A quiet text button for per-row actions (Edit / Drop / Restore).
+function RowButton({
+  children,
+  onClick,
+  disabled,
+  destructive,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        background: 'none',
+        border: 'none',
+        padding: 0,
+        fontSize: 13,
+        fontWeight: 500,
+        fontFamily: 'inherit',
+        color: destructive ? 'var(--destructive)' : 'var(--primary)',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function StatusPill({ status, dropped }: { status: ItemStatus; dropped: boolean }) {
+  if (dropped) {
+    return (
+      <span style={{ fontSize: 11, color: 'var(--fg-4)', flexShrink: 0 }}>Dropped</span>
+    );
+  }
   if (status === 'done') {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--primary)', flexShrink: 0 }}>
