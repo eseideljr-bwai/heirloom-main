@@ -218,6 +218,37 @@ function UserQuote({ content }: { content: string }) {
   );
 }
 
+// A locked, read-only marker for a section that was already published during a
+// sectioned review. Deliberately does not list individual kinlooms — the tool
+// input holds the ORIGINAL proposal, before the user's edits and drops, so a
+// per-item list could be stale. The count comes from the persisted tool_result.
+function PublishedSectionSummary({ count }: { count: number }) {
+  return (
+    <div
+      style={{
+        border: '1px solid var(--border)',
+        borderRadius: 12,
+        background: 'var(--card)',
+        padding: '20px 24px',
+        marginBottom: 48,
+        opacity: 0.85,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+      }}
+    >
+      <span style={{ display: 'inline-flex', color: 'var(--primary)', flexShrink: 0 }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12" /></svg>
+      </span>
+      <span style={{ fontSize: 14, color: 'var(--fg-2)' }}>
+        {count > 0
+          ? `${count} kinloom${count === 1 ? '' : 's'} saved to your library.`
+          : 'Section saved to your library.'}
+      </span>
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 type Props = { onStartOver: () => void };
@@ -406,6 +437,17 @@ export default function BiographerView({ onStartOver }: Props) {
     router.refresh();
   };
 
+  // A non-final section (final_batch === false) was fully published. Keep the
+  // session alive and tell the Biographer to move on to the next section. The
+  // [section-published] tag lets the transcript renderer show this batch as a
+  // locked "Saved" summary once it is no longer the last turn (and after a
+  // reload, since it is persisted in the tool_result).
+  const handleSectionPublished = (toolUseId: string, publishedCount: number) =>
+    submitToolResult(
+      toolUseId,
+      `[section-published] Published ${publishedCount} kinloom${publishedCount === 1 ? '' : 's'} to the library. Continue to the next section.`,
+    );
+
   const handleStartOverInternal = () => {
     clearImportSession();
     onStartOver();
@@ -529,7 +571,21 @@ export default function BiographerView({ onStartOver }: Props) {
                   ? toolUse
                   : null;
               const choiceCard = toolUse?.name === 'ask_choices' ? toolUse : null;
-              const showCard = terminalCard || choiceCard;
+              // A split_into_multiple batch published as a non-final section:
+              // it carries a [section-published] tool_result and has scrolled
+              // out of the last-turn slot. Render it as a locked, read-only
+              // "Saved" summary so the published sections stay visible as the
+              // Biographer moves on to the next one.
+              const sectionResult =
+                toolUse?.name === 'split_into_multiple'
+                  ? findToolResultContent(turns, toolUse.id)
+                  : null;
+              const publishedSection =
+                sectionResult?.startsWith('[section-published]') ? toolUse : null;
+              const publishedCount = publishedSection
+                ? Number(sectionResult?.match(/Published (\d+)/)?.[1] ?? 0)
+                : 0;
+              const showCard = terminalCard || choiceCard || publishedSection;
 
               return (
                 <div key={i} style={{ marginBottom: showCard ? 0 : 48 }}>
@@ -552,7 +608,13 @@ export default function BiographerView({ onStartOver }: Props) {
                         input={terminalCard.input as BatchInput}
                         onKeepRefining={handleKeepRefining}
                         onAllPublished={handleBatchPublished}
+                        onSectionPublished={handleSectionPublished}
                       />
+                    </div>
+                  )}
+                  {publishedSection && (
+                    <div style={{ marginTop: 32 }}>
+                      <PublishedSectionSummary count={publishedCount} />
                     </div>
                   )}
                   {choiceCard && (
