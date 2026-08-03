@@ -32,6 +32,13 @@ export type ProposedKinloom = {
 export type BatchInput = {
   proposed_kinlooms: ProposedKinloom[];
   reasoning?: string;
+  /**
+   * False when this is one section of a longer, sectioned review and more
+   * sections remain. The client then keeps the conversation open (via
+   * onSectionPublished) instead of handing off to the Library. Undefined/true
+   * means this is the last (or only) batch — publishing navigates away.
+   */
+  final_batch?: boolean;
 };
 
 type ItemStatus = 'idle' | 'publishing' | 'done' | 'error';
@@ -42,8 +49,13 @@ type Props = {
   toolUseId: string;
   input: BatchInput;
   onKeepRefining: (toolUseId: string) => void;
-  /** Called once every proposed kinloom has been created. */
+  /** Called when the final (or only) batch is fully published — hands off to the Library. */
   onAllPublished: () => void;
+  /**
+   * Called when a non-final section (final_batch === false) is fully published.
+   * Keeps the conversation open so the Biographer can propose the next section.
+   */
+  onSectionPublished: (toolUseId: string, publishedCount: number) => void;
 };
 
 // Turn a slug ('photo-collection') into a readable label ('Photo Collection').
@@ -54,7 +66,8 @@ function slugLabel(slug: string): string {
     .join(' ');
 }
 
-export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPublished }: Props) {
+export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPublished, onSectionPublished }: Props) {
+  const isFinalBatch = input.final_batch !== false;
   // Editable working copy — edits and drops live here, not in the tool input,
   // so what the user sees is exactly what gets published.
   const [items, setItems] = useState<ProposedKinloom[]>(() =>
@@ -147,7 +160,13 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
     // targets were every kept, not-yet-done item, so zero failures this pass
     // means everything the user wants to keep is now saved.
     if (failed === 0) {
-      onAllPublished();
+      // Final/only batch → hand off to the Library. A non-final section →
+      // keep the conversation open so the next section can be proposed.
+      if (isFinalBatch) {
+        onAllPublished();
+      } else {
+        onSectionPublished(toolUseId, keptCount);
+      }
     } else {
       setBanner(`${failed} kinloom${failed === 1 ? '' : 's'} couldn’t be saved. The rest were published — you can retry just the failures.`);
     }
@@ -162,7 +181,9 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
         ? `Retry ${failedCount} failed`
         : keptCount === 0
           ? 'Nothing to publish'
-          : `Publish ${keptCount} to your library`;
+          : isFinalBatch
+            ? `Publish ${keptCount} to your library`
+            : `Publish ${keptCount} & continue`;
 
   const publishDisabled = publishing || allPublished || keptCount === 0;
 

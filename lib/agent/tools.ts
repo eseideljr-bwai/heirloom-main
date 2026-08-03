@@ -101,6 +101,11 @@ export const CONVERSE_TOOLS: Anthropic.Messages.Tool[] = [
           description:
             'A brief note on why these are distinct kinlooms rather than one — internal only, not shown to the user.',
         },
+        final_batch: {
+          type: 'boolean',
+          description:
+            "Whether this is the last batch you will propose for this document. Defaults to true. Only set it to false when you are reviewing a long document section by section and MORE sections remain after this one: the client keeps the conversation open so you can propose the next section once the user publishes this one. On the final section (or any single-batch document), leave it true so publishing hands off to the Library. Never set false unless you actually intend to propose another batch.",
+        },
       },
       required: ['proposed_kinlooms'],
     },
