@@ -178,7 +178,7 @@ button {
 .settings-h1 {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 36px;
+  font-size: clamp(26px, 5vw, 36px);
   line-height: 1.2;
   margin: 0 0 32px;
   color: var(--foreground);
@@ -360,7 +360,7 @@ button {
 .photo-grid {
   margin-top: 14px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(96px, 100%), 1fr));
   gap: 12px;
 }
 .photo-grid__item {
@@ -827,7 +827,7 @@ button {
 .home-page__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 48px;
+  font-size: clamp(30px, 7vw, 48px);
   line-height: 1.1;
   margin: 0 0 16px;
   letter-spacing: -0.005em;
@@ -937,7 +937,7 @@ button {
 .legacy-bank-card__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 28px;
+  font-size: clamp(22px, 4.5vw, 28px);
   line-height: 1.2;
   margin: 0 0 10px;
   color: var(--fg-1);
@@ -1000,7 +1000,7 @@ button {
 .home-section__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 28px;
+  font-size: clamp(22px, 4.5vw, 28px);
   margin: 0;
   color: var(--fg-1);
 }
@@ -1113,7 +1113,7 @@ button {
 .family-page__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 48px;
+  font-size: clamp(30px, 7vw, 48px);
   line-height: 1.1;
   margin: 0 0 16px;
   color: var(--fg-1);
@@ -1156,7 +1156,9 @@ button {
    "Manage members" card, and the remaining two should fill the row. */
 .family-nav-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  /* min() keeps the track from exceeding the container on narrow
+     screens; above ~220px it resolves to plain minmax(220px, 1fr). */
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 16px;
   margin-bottom: 40px;
 }
@@ -1220,7 +1222,7 @@ button {
 .feed-page__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 42px;
+  font-size: clamp(28px, 6vw, 42px);
   line-height: 1.15;
   margin: 0 0 8px;
   color: var(--fg-1);
@@ -1310,7 +1312,7 @@ button {
 .tree-page__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 42px;
+  font-size: clamp(28px, 6vw, 42px);
   line-height: 1.15;
   margin: 0 0 8px;
   color: var(--fg-1);
@@ -1377,7 +1379,7 @@ button {
 .tree-detail__name {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 28px;
+  font-size: clamp(22px, 4.5vw, 28px);
   margin: 0 0 4px;
   color: var(--fg-1);
 }
@@ -1443,7 +1445,7 @@ button {
 .member-page__name {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 36px;
+  font-size: clamp(26px, 5vw, 36px);
   line-height: 1.2;
   margin: 0 0 4px;
   color: var(--fg-1);
@@ -1460,7 +1462,7 @@ button {
 .member-page__h2 {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 28px;
+  font-size: clamp(22px, 4.5vw, 28px);
   margin: 0 0 24px;
   color: var(--fg-1);
 }
@@ -1484,7 +1486,7 @@ button {
 .manage-page__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 42px;
+  font-size: clamp(28px, 6vw, 42px);
   line-height: 1.15;
   margin: 0;
   color: var(--fg-1);
@@ -1544,7 +1546,7 @@ button {
 .lb-page__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 56px;
+  font-size: clamp(34px, 8vw, 56px);
   line-height: 1.05;
   letter-spacing: -0.01em;
   margin: 0 0 22px;
@@ -1599,7 +1601,7 @@ button {
 
 .lb-subject-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
   gap: 12px;
 }
 .lb-subject-card {
@@ -1773,7 +1775,7 @@ button {
 .lb-chat-try__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 38px;
+  font-size: clamp(26px, 5.5vw, 38px);
   line-height: 1.15;
   margin: 0 0 12px;
   color: var(--fg-1);
@@ -1816,7 +1818,7 @@ button {
 .lb-chat-page__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 30px;
+  font-size: clamp(24px, 4.5vw, 30px);
   margin: 0 0 2px;
   color: var(--fg-1);
 }
@@ -1957,7 +1959,7 @@ button {
 .library-page__title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 48px;
+  font-size: clamp(30px, 7vw, 48px);
   margin: 0;
   line-height: 1.1;
   color: var(--fg-1);
@@ -2097,7 +2099,7 @@ button {
 .detail-title {
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: 52px;
+  font-size: clamp(32px, 7.5vw, 52px);
   line-height: 1.1;
   margin: 0 0 24px;
   letter-spacing: -0.005em;
@@ -2134,7 +2136,7 @@ button {
 .detail-gallery {
   margin: 0 0 32px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(160px, 100%), 1fr));
   gap: 8px;
 }
 .detail-gallery--single {
@@ -2467,6 +2469,65 @@ button {
   flex: 1;
   margin-left: 240px;
   min-height: 100vh;
+}
+
+.app-nav {
+  width: 240px;
+  flex-shrink: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--background);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  z-index: 40;
+}
+.app-nav__logo { display: block; text-decoration: none; }
+.app-nav__logo img { height: 56px; width: auto; }
+.app-nav__head { padding: 20px 16px 4px; }
+.app-nav__space { padding: 8px 16px 4px; }
+.app-nav__nav { flex: 1; padding: 12px 12px 0; }
+.app-nav__group { display: flex; flex-direction: column; gap: 2px; }
+.app-nav__rule {
+  height: 1px;
+  background: var(--border);
+  margin: 16px 4px;
+}
+.app-nav__foot {
+  padding: 12px 16px 20px;
+  border-top: 1px solid var(--border);
+}
+.app-nav__email {
+  font-size: 12px;
+  color: rgba(26,26,26,0.5);
+  margin: 0 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-nav__signout {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  color: rgba(26,26,26,0.55);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* The mobile-only chrome. Hidden entirely on desktop; the
+   max-width block at the end of this file switches it on. */
+.app-topbar,
+.app-nav__backdrop,
+.app-nav__close {
+  display: none;
 }
 
 /* ─── Family space switcher ─────────────────────────────────── */
@@ -3032,3 +3093,424 @@ body.has-texture::before {
   color: var(--destructive);
 }
 .auth-note { font-size: 13px; color: var(--fg-4); margin: 0; line-height: 1.55; }
+
+/* ─── Create / help page shells ─────────────────────────────────
+   These four pages previously carried `padding: 48px` as an inline
+   style, which no media query could reach. Same values, now
+   overridable — matching the per-page convention used above. */
+.create-page  { padding: 48px; max-width: 760px; }
+.type-grid-page { padding: 48px; }
+.import-page  { padding: 48px; max-width: 720px; }
+.help-page    { padding: 48px; max-width: 720px; }
+.compose-page { padding: 48px; max-width: 900px; }
+
+.create-page__title,
+.type-grid-page__title,
+.help-page__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(30px, 7vw, 48px);
+  line-height: 1.1;
+  margin: 0 0 16px;
+  color: var(--fg-1);
+}
+.import-page__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(28px, 6vw, 40px);
+  line-height: 1.1;
+  margin: 0 0 14px;
+  color: var(--fg-1);
+}
+.compose-page__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(28px, 6vw, 42px);
+  line-height: 1.2;
+  margin: 0 0 20px;
+  color: var(--fg-1);
+}
+.compose-page__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.compose-page__cta { display: flex; gap: 12px; }
+.compose-page__cta--spaced { margin-top: 28px; }
+
+/* Two-pane compose/publish steps. */
+.compose-grid {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 32px;
+  align-items: flex-start;
+}
+.compose-grid--publish { grid-template-columns: 1fr 300px; }
+.compose-grid__aside { position: sticky; top: 48px; }
+.compose-visibility { display: flex; gap: 10px; }
+
+.type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.name-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+/* ─── Settings layout ───────────────────────────────────────────
+   Was an inline flex row with a fixed 200px aside, which alone
+   consumed 264px of a 390px screen. */
+.settings-layout {
+  padding: 48px;
+  display: flex;
+  gap: 64px;
+  align-items: flex-start;
+}
+.settings-layout__aside { width: 200px; flex-shrink: 0; }
+.settings-layout__body { flex: 1; min-width: 0; }
+.settings-layout__label {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--primary);
+  margin: 0 0 16px;
+}
+.settings-layout__nav { display: flex; flex-direction: column; gap: 2px; }
+.settings-layout__link {
+  font-size: 14px;
+  color: var(--fg-3);
+  text-decoration: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE
+   Every rule below lives inside a max-width query, so rendering
+   above the breakpoint is untouched. This block stays last in the
+   file: several selectors above are declared twice (.empty-card,
+   .btn-outline, .detail-back__inner), and appending is what makes
+   these overrides win without editing the originals.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Shell + drawer nav ────────────────────────────────────── */
+@media (max-width: 768px) {
+  .app-shell__main {
+    margin-left: 0;
+    /* Clears the fixed top bar. */
+    padding-top: 56px;
+    /* Stops wide flex/grid children forcing the column open. */
+    min-width: 0;
+  }
+
+  .app-topbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    padding: 0 12px;
+    background: var(--background);
+    border-bottom: 1px solid var(--border);
+    z-index: 45;
+  }
+  .app-topbar__logo { display: inline-flex; text-decoration: none; }
+  .app-topbar__logo img { height: 34px; width: auto; }
+
+  .app-topbar__menu,
+  .app-nav__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--fg-2);
+    cursor: pointer;
+  }
+  .app-topbar__menu:active,
+  .app-nav__close:active { background: var(--secondary); }
+
+  .app-nav {
+    /* Off-canvas. `visibility` keeps the links out of the tab order and
+       the a11y tree while closed.
+
+       The asymmetric timing is deliberate. Hiding is delayed by the
+       length of the slide so the drawer animates out instead of
+       vanishing. Revealing is immediate (0s, no delay) because a
+       *transitioned* visibility still computes to `hidden` on the first
+       frame, which makes focus() silently fail when the drawer opens. */
+    width: min(280px, 84vw);
+    transform: translateX(-100%);
+    visibility: hidden;
+    z-index: 55;
+    transition:
+      transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s linear 240ms;
+    padding-left: env(safe-area-inset-left);
+  }
+  .app-nav.is-open {
+    transform: translateX(0);
+    visibility: visible;
+    box-shadow: var(--shadow-xl);
+    transition:
+      transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s linear 0s;
+  }
+
+  .app-nav__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 8px 4px 16px;
+  }
+  .app-nav__logo img { height: 44px; }
+
+  .app-nav__backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(26,26,26,0.45);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 240ms ease, visibility 0s linear 240ms;
+  }
+  .app-nav__backdrop.is-open {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 240ms ease, visibility 0s linear 0s;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-nav,
+  .app-nav__backdrop { transition: none; }
+}
+
+/* ─── Page padding ──────────────────────────────────────────────
+   Every page shell hardcodes `padding: 48px`, which costs 96px of a
+   390px screen. Display type is handled by clamp() on the original
+   rules rather than here, so it scales continuously. */
+@media (max-width: 768px) {
+  .home-page,
+  .family-page,
+  .feed-page,
+  .tree-page,
+  .member-page,
+  .manage-page,
+  .lb-page,
+  .lb-chat-try,
+  .library-page,
+  .create-page,
+  .type-grid-page,
+  .import-page,
+  .help-page,
+  .compose-page {
+    padding: 24px 16px 48px;
+  }
+
+  .lb-chat-page { padding: 20px 16px 32px; }
+
+  .detail-back__inner { padding: 0 16px; }
+  .detail-article { padding: 0 16px 56px; }
+  .detail-back { margin-bottom: 24px; }
+
+  /* Bleeds to the page edge, so it has to track the padding above. */
+  .lb-hero { margin: 0 -16px 32px; }
+
+  .error-page {
+    margin: 48px auto;
+    padding: 0 20px;
+  }
+  .error-page--root { margin: 56px auto; }
+  .app-loading { padding: 56px 20px; }
+
+  .card,
+  .card-danger { padding: 20px; }
+  .empty-card { padding: 40px 20px; }
+  .invite-page {
+    margin: 32px 16px;
+    padding: 28px 20px;
+  }
+
+  /* Section rhythm tuned for the shorter measure. */
+  .home-page__header { margin-bottom: 32px; }
+  .home-actions { margin-bottom: 32px; }
+  .legacy-bank-card { margin-bottom: 32px; }
+  .home-section__head--spaced { margin-top: 32px; }
+  .family-page__header,
+  .family-roster { margin-bottom: 32px; }
+  .feed-page__sub { margin-bottom: 32px; }
+  .feed-page__back,
+  .tree-page__back { margin-bottom: 24px; }
+  .feed-section,
+  .lb-section { margin-bottom: 32px; }
+  .comments { margin-top: 32px; }
+  .detail-actions { margin-top: 32px; }
+}
+
+@media (max-width: 480px) {
+  .home-page,
+  .family-page,
+  .feed-page,
+  .tree-page,
+  .member-page,
+  .manage-page,
+  .lb-page,
+  .lb-chat-try,
+  .library-page,
+  .create-page,
+  .type-grid-page,
+  .import-page,
+  .help-page,
+  .compose-page {
+    padding: 20px 14px 40px;
+  }
+  .detail-back__inner { padding: 0 14px; }
+  .detail-article { padding: 0 14px 48px; }
+  .lb-hero { margin: 0 -14px 28px; }
+  .empty-card { padding: 32px 16px; }
+}
+
+/* ─── Grids and split rows ──────────────────────────────────────
+   Fixed column counts and `space-between` rows collapse to a single
+   column. The auto-fill grids are handled on their base rules with
+   minmax(min(...)), which needs no breakpoint. */
+@media (max-width: 768px) {
+  .home-actions,
+  .home-kinloom-grid,
+  .member-kinlooms,
+  .type-grid,
+  .name-pair {
+    grid-template-columns: 1fr;
+  }
+
+  /* Two-pane compose: content first, aside below and unstuck — a
+     sticky sidebar in a stacked column would float over the form. */
+  .compose-grid,
+  .compose-grid--publish {
+    grid-template-columns: 1fr;
+    gap: 24px;
+  }
+  .compose-grid__aside { position: static; top: auto; }
+  .compose-visibility { flex-direction: column; }
+  .compose-page__cta { flex-wrap: wrap; }
+  .compose-page__head { flex-wrap: wrap; gap: 8px; }
+
+  /* Settings: sub-nav becomes a scrollable strip above the content. */
+  .settings-layout {
+    display: block;
+    padding: 24px 16px 48px;
+  }
+  .settings-layout__aside {
+    width: auto;
+    margin-bottom: 24px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .settings-layout__nav {
+    flex-direction: row;
+    gap: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .settings-layout__nav::-webkit-scrollbar { display: none; }
+  .settings-layout__link {
+    white-space: nowrap;
+    background: var(--secondary);
+    padding: 8px 14px;
+    border-radius: var(--radius-full);
+  }
+
+  .legacy-bank-card { padding: 24px 20px; }
+  .legacy-bank-card__grid { grid-template-columns: 1fr; gap: 20px; }
+  .legacy-bank-card__cta { align-self: flex-start; }
+  .legacy-bank-card__bg { display: none; }
+  .legacy-bank-card__lede { margin-bottom: 16px; }
+
+  /* Fixed-basis progress tracks would push their rows wide. */
+  .legacy-bank-card__progress,
+  .lb-progress { flex-wrap: wrap; gap: 10px; }
+  .legacy-bank-card__track,
+  .lb-progress__track { flex: 1 1 100%; }
+
+  .lb-deposit {
+    grid-template-columns: 28px 1fr;
+    gap: 8px 14px;
+    padding: 18px 0;
+  }
+  .lb-deposit__cta { grid-column: 2; }
+  .lb-history-row,
+  .lb-convo-row { gap: 12px; }
+  .lb-cta { gap: 10px; }
+  .lb-cta .btn-primary--lg,
+  .lb-cta .btn-outline--lg {
+    padding: 16px 28px;
+    font-size: 16px;
+  }
+
+  /* Header rows that pair a title with actions. */
+  .library-page__title-row,
+  .manage-page__header,
+  .member-page__header,
+  .family-invite,
+  .home-section__head {
+    flex-wrap: wrap;
+  }
+  .library-page__title-row,
+  .manage-page__header,
+  .family-invite {
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .member-page__bank { margin-left: 0; }
+  .manage-page__actions { flex-wrap: wrap; }
+
+  .privacy-row,
+  .notif-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .notif-row__body { padding-right: 0; }
+  .privacy-row__select { width: 100%; }
+
+  .vis-row { flex-wrap: wrap; }
+  .modal-actions { flex-wrap: wrap; }
+  .modal { padding: 22px 20px; }
+
+  .voice-recorder__preview { grid-template-columns: 1fr auto auto; }
+  .voice-recorder__audio { min-width: 0; }
+  .voice-recorder__filename { max-width: none; }
+
+  .tree-layout { gap: 24px; }
+  .tree-side { min-width: 0; }
+  .feed-card__date { margin-left: 0; }
+  .feed-card__meta { flex-wrap: wrap; }
+  .detail-lightbox { padding: 20px; }
+}
+
+@media (max-width: 480px) {
+  .lb-cta .btn-primary--lg,
+  .lb-cta .btn-outline--lg {
+    width: 100%;
+    justify-content: center;
+  }
+  .modal-actions > * { flex: 1 1 auto; justify-content: center; }
+}

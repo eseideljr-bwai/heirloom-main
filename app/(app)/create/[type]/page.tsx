@@ -339,7 +339,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
   if (!typeData && !contextLoading) {
     return (
-      <div style={{ padding: '48px' }}>
+      <div className="compose-page">
         <p style={{ fontSize: 16, color: 'rgba(26,26,26,0.7)' }}>Unknown kinloom type.</p>
         <Link href="/create" style={{ color: '#556b5b', fontSize: 14 }}>← Back to create</Link>
       </div>
@@ -695,11 +695,11 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   );
 
   return (
-    <div style={{ padding: '48px', maxWidth: 900 }}>
+    <div className="compose-page">
 
       {/* Header */}
       <div style={{ borderBottom: '1px solid #d4d2cc', paddingBottom: 20, marginBottom: 36 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="compose-page__head">
           <Link href="/create" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(26,26,26,0.6)', textDecoration: 'none' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
             Create
@@ -723,7 +723,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
           <span style={{ display: 'inline-block', padding: '4px 12px', borderRadius: 9999, fontSize: 12, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b', marginBottom: 20 }}>
             {resolvedType.label}
           </span>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 42, lineHeight: 1.2, margin: '0 0 20px', color: '#1a1a1a' }}>
+          <h1 className="compose-page__title">
             {resolvedType.definition}
           </h1>
           <p style={{ fontSize: 16, lineHeight: 1.65, color: 'rgba(26,26,26,0.65)', margin: '0 0 36px' }}>
@@ -736,7 +736,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div className="compose-page__cta">
             <button
               onClick={() => setStep(2)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' }}
@@ -753,7 +753,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
       {/* Step 2: Compose */}
       {step === 2 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 32, alignItems: 'flex-start' }}>
+        <div className="compose-grid">
           <div>
             <span style={{ display: 'inline-block', padding: '4px 12px', borderRadius: 9999, fontSize: 12, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b', marginBottom: 16 }}>
               {resolvedType.label}
@@ -846,7 +846,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               <VideoThumbnailGrid items={videoItems} onRemove={handleRemoveVideo} disabled={saving} />
             )}
 
-            <div style={{ display: 'flex', gap: 12, marginTop: 28 }}>
+            <div className="compose-page__cta compose-page__cta--spaced">
               <button
                 onClick={() => body.trim() && setStep(3)}
                 disabled={!body.trim()}
@@ -865,7 +865,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
           </div>
 
           {/* Tips sidebar */}
-          <div style={{ position: 'sticky', top: 48 }}>
+          <div className="compose-grid__aside">
             <div style={{ background: 'rgba(85,107,91,0.04)', border: '1px solid rgba(85,107,91,0.15)', borderRadius: 12, padding: '20px 18px' }}>
               <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#556b5b' }}>Writing tips</p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -895,7 +895,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
       {/* Step 3: Tag & save */}
       {step === 3 && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 32, alignItems: 'flex-start' }}>
+        <div className="compose-grid compose-grid--publish">
           <div>
             <h2 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 32, margin: '0 0 8px', color: '#1a1a1a' }}>
               Almost there.
@@ -940,7 +940,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
             {/* Visibility */}
             <div style={{ marginBottom: 36 }}>
               <p style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a', margin: '0 0 12px' }}>Visibility</p>
-              <div style={{ display: 'flex', gap: 10 }}>
+              <div className="compose-visibility">
                 {[
                   { id: 'family', label: 'Family space', desc: 'All family members can read this.' },
                   { id: 'private', label: 'Only me', desc: 'Just for your personal record.' },
@@ -1041,7 +1041,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
           </div>
 
           {/* Preview sidebar */}
-          <div style={{ position: 'sticky', top: 48 }}>
+          <div className="compose-grid__aside">
             <div style={{ background: '#fff', border: '1px solid #d4d2cc', borderRadius: 12, padding: '20px' }}>
               <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(26,26,26,0.4)' }}>Preview</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>

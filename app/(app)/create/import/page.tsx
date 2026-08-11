@@ -105,18 +105,9 @@ export default function ImportPage() {
   }
 
   return (
-    <div style={{ padding: '48px', maxWidth: 720 }}>
+    <div className="import-page">
       <p className="eyebrow" style={{ marginBottom: 12 }}>Create · Import</p>
-      <h1
-        style={{
-          fontFamily: 'var(--font-serif)',
-          fontWeight: 400,
-          fontSize: 40,
-          lineHeight: 1.1,
-          margin: '0 0 12px',
-          color: 'var(--fg-1)',
-        }}
-      >
+      <h1 className="import-page__title">
         Bring a document in.
       </h1>
       <p

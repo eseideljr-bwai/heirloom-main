@@ -9,19 +9,13 @@ const SETTINGS_NAV = [
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ padding: '48px', display: 'flex', gap: 64, alignItems: 'flex-start' }}>
+    <div className="settings-layout">
       {/* Settings sub-nav */}
-      <aside style={{ width: 200, flexShrink: 0 }}>
-        <p style={{ fontSize: 13, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#556b5b', margin: '0 0 16px' }}>
-          Settings
-        </p>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <aside className="settings-layout__aside">
+        <p className="settings-layout__label">Settings</p>
+        <nav className="settings-layout__nav">
           {SETTINGS_NAV.map(item => (
-            <Link
-              key={item.href}
-              href={item.href}
-              style={{ fontSize: 14, color: 'rgba(26,26,26,0.7)', textDecoration: 'none', padding: '8px 12px', borderRadius: 6 }}
-            >
+            <Link key={item.href} href={item.href} className="settings-layout__link">
               {item.label}
             </Link>
           ))}
@@ -29,7 +23,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
       </aside>
 
       {/* Page content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="settings-layout__body">
         {children}
       </div>
     </div>

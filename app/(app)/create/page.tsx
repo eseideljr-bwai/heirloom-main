@@ -61,18 +61,11 @@ const MODES = [
 
 export default function CreatePage() {
   return (
-    <div style={{ padding: '48px', maxWidth: 760 }}>
+    <div className="create-page">
 
       <div style={{ marginBottom: 56 }}>
         <p className="eyebrow" style={{ marginBottom: 12 }}>Create</p>
-        <h1 style={{
-          fontFamily: 'var(--font-serif)',
-          fontWeight: 400,
-          fontSize: 48,
-          lineHeight: 1.1,
-          margin: '0 0 16px',
-          color: 'var(--fg-1)',
-        }}>
+        <h1 className="create-page__title">
           How would you like to begin?
         </h1>
         <p style={{ fontSize: 17, lineHeight: 1.65, color: 'var(--fg-3)', margin: 0, maxWidth: 480 }}>

@@ -71,6 +71,18 @@ const ChevronDownIcon = () => (
   </svg>
 );
 
+const MenuIcon = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" />
+  </svg>
+);
+
+const CloseIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
 const CheckIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="20 6 9 17 4 12" />
@@ -191,6 +203,79 @@ export default function AppNav({ user }: { user: AuthUser }) {
   const router = useRouter();
   const { logout } = useAuth();
 
+  // Below 768px the sidebar becomes an off-canvas drawer. Above it,
+  // `open` is inert — the trigger and backdrop are display:none and the
+  // aside is a static column, exactly as before.
+  const [open, setOpen] = useState(false);
+  const navRef = useRef<HTMLElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
+
+  // Navigating is the most common way out of the drawer.
+  useEffect(() => { setOpen(false); }, [pathname]);
+
+  // Escape to dismiss, and keep Tab inside the drawer while it covers
+  // the page.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setOpen(false);
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const root = navRef.current;
+      if (!root) return;
+      const stops = root.querySelectorAll<HTMLElement>('a[href], button:not([disabled])');
+      if (stops.length === 0) return;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      const active = document.activeElement;
+      const outside = !root.contains(active);
+      if (e.shiftKey && (active === first || outside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || outside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [open]);
+
+  // Move focus into the drawer on open, hand it back to the trigger on
+  // close. `wasOpen` keeps this from stealing focus on first mount.
+  //
+  // The rAF matters: this effect runs before the browser recomputes
+  // style, so the drawer is still `visibility: hidden` at this point and
+  // focus() would be silently refused. Waiting a frame lets the
+  // `is-open` styles resolve first.
+  useEffect(() => {
+    const target = open ? closeRef.current : wasOpen.current ? triggerRef.current : null;
+    wasOpen.current = open;
+    if (!target) return;
+    const frame = requestAnimationFrame(() => target.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
+  // Rotating to a desktop width would otherwise leave the body scroll
+  // locked with no visible way to close.
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 769px)');
+    const onChange = (e: MediaQueryListEvent) => { if (e.matches) setOpen(false); };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   const isActive = (href: string) =>
     pathname === href || (href !== '/home' && pathname.startsWith(href));
 
@@ -200,56 +285,75 @@ export default function AppNav({ user }: { user: AuthUser }) {
   };
 
   return (
-    <aside style={{
-      width: 240, flexShrink: 0,
-      position: 'fixed', top: 0, left: 0, bottom: 0,
-      display: 'flex', flexDirection: 'column',
-      background: '#fdfcfa',
-      borderRight: '1px solid #d4d2cc',
-      overflowY: 'auto',
-      zIndex: 40,
-    }}>
-      {/* Logo */}
-      <div style={{ padding: '20px 16px 4px' }}>
-        <Link href="/home" style={{ display: 'block', textDecoration: 'none' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo-kinloom.png" alt="Kinloom" style={{ height: 56, width: 'auto' }} />
-        </Link>
-      </div>
-
-      <div style={{ padding: '8px 16px 4px' }}>
-        <FamilySpaceSwitcher />
-      </div>
-
-      {/* Primary nav */}
-      <nav style={{ flex: 1, padding: '12px 12px 0' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {PRIMARY_NAV.map(item => (
-            <NavItem key={item.href} {...item} active={isActive(item.href)} />
-          ))}
-        </div>
-
-        <div style={{ height: 1, background: '#d4d2cc', margin: '16px 4px' }} />
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {SECONDARY_NAV.map(item => (
-            <NavItem key={item.href} {...item} active={isActive(item.href)} />
-          ))}
-        </div>
-      </nav>
-
-      {/* User / sign out */}
-      <div style={{ padding: '12px 16px 20px', borderTop: '1px solid #d4d2cc' }}>
-        <p style={{ fontSize: 12, color: 'rgba(26,26,26,0.5)', margin: '0 0 10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {user.email}
-        </p>
+    <>
+      <header className="app-topbar">
         <button
-          onClick={handleSignOut}
-          style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', padding: 0, fontSize: 13, color: 'rgba(26,26,26,0.55)', cursor: 'pointer', fontFamily: 'inherit' }}
+          ref={triggerRef}
+          type="button"
+          className="app-topbar__menu"
+          aria-label="Open navigation"
+          aria-expanded={open}
+          aria-controls="app-nav"
+          onClick={() => setOpen(true)}
         >
-          <LogOutIcon /> Sign out
+          <MenuIcon />
         </button>
-      </div>
-    </aside>
+        <Link href="/home" className="app-topbar__logo">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-kinloom.png" alt="Kinloom" />
+        </Link>
+      </header>
+
+      <div
+        className={`app-nav__backdrop${open ? ' is-open' : ''}`}
+        aria-hidden="true"
+        onClick={() => setOpen(false)}
+      />
+
+      <aside id="app-nav" ref={navRef} className={`app-nav${open ? ' is-open' : ''}`}>
+        <div className="app-nav__head">
+          <Link href="/home" className="app-nav__logo">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo-kinloom.png" alt="Kinloom" />
+          </Link>
+          <button
+            ref={closeRef}
+            type="button"
+            className="app-nav__close"
+            aria-label="Close navigation"
+            onClick={() => setOpen(false)}
+          >
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div className="app-nav__space">
+          <FamilySpaceSwitcher />
+        </div>
+
+        <nav className="app-nav__nav">
+          <div className="app-nav__group">
+            {PRIMARY_NAV.map(item => (
+              <NavItem key={item.href} {...item} active={isActive(item.href)} />
+            ))}
+          </div>
+
+          <div className="app-nav__rule" />
+
+          <div className="app-nav__group">
+            {SECONDARY_NAV.map(item => (
+              <NavItem key={item.href} {...item} active={isActive(item.href)} />
+            ))}
+          </div>
+        </nav>
+
+        <div className="app-nav__foot">
+          <p className="app-nav__email">{user.email}</p>
+          <button onClick={handleSignOut} className="app-nav__signout">
+            <LogOutIcon /> Sign out
+          </button>
+        </div>
+      </aside>
+    </>
   );
 }

@@ -69,7 +69,7 @@ export default function OnboardingProfileForm() {
 
       <div style={{ background: '#fff', border: '1px solid #d4d2cc', borderRadius: 16, padding: 32, boxShadow: '0 4px 12px -2px rgba(0,0,0,0.06)' }}>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div className="name-pair">
             <div>
               <label style={{ display: 'block', fontSize: 14, color: '#1a1a1a', marginBottom: 6 }}>First name</label>
               <input
