@@ -144,6 +144,42 @@ button {
   background: var(--card);
 }
 
+/* Plain inputs for the login / signup / onboarding funnel. These were
+   duplicated as identical inline style objects across five files, which
+   put them out of reach of the media query that lifts them to 16px on
+   mobile to stop iOS zooming on focus. Declarations are unchanged, so
+   these deliberately omit the `line-height` and `:focus` treatment that
+   `.field` above adds — inheriting those would make them taller. */
+.auth-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--input-background);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+}
+.auth-textarea {
+  width: 100%;
+  padding: 14px;
+  background: var(--input-background);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.65;
+  resize: vertical;
+  outline: none;
+}
+.auth-label {
+  display: block;
+  font-size: 14px;
+  color: var(--fg-1);
+  margin-bottom: 6px;
+}
+.auth-label--roomy { margin-bottom: 10px; }
+
 /* ─── Pills ────────────────────────────────────────────────── */
 .pill {
   display: inline-flex; align-items: center; gap: 6px;
@@ -3130,6 +3166,30 @@ body.has-texture::before {
   margin: 0 0 20px;
   color: var(--fg-1);
 }
+/* Biographer batch-review fields. Extracted from an inline style object
+   so the mobile 16px bump can reach them. */
+.batch-input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--input-background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--foreground);
+  outline: none;
+}
+/* Declared after .batch-input so it wins the font shorthand it overrides. */
+.batch-select {
+  font-family: inherit;
+  font-size: 14px;
+}
+.batch-textarea {
+  resize: vertical;
+  min-height: 140px;
+}
+
 .compose-page__head {
   display: flex;
   align-items: center;
@@ -3513,4 +3573,29 @@ body.has-texture::before {
     justify-content: center;
   }
   .modal-actions > * { flex: 1 1 auto; justify-content: center; }
+}
+
+/* ─── Form controls ─────────────────────────────────────────────
+   iOS Safari zooms the page on focus for any control under 16px and
+   offers no way back except a manual pinch. 16px is the exact
+   threshold, so this is the minimum that stops it. Desktop keeps its
+   14/15px sizes untouched.
+
+   Checkboxes, radios, and the visually-hidden file inputs are absent
+   on purpose: they hold no text and never trigger the zoom. */
+@media (max-width: 768px) {
+  .field input[type="text"],
+  .field input[type="email"],
+  .field input[type="password"],
+  .field textarea,
+  .field-input,
+  .chat-input__field,
+  .library-search__input,
+  .privacy-row__select,
+  .auth-input,
+  .auth-textarea,
+  .batch-input,
+  .batch-select {
+    font-size: 16px;
+  }
 }

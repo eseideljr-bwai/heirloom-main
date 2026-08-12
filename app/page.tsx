@@ -86,7 +86,7 @@ export default function Login() {
         <div style={{ background: '#ffffff', border: '1px solid #d4d2cc', borderRadius: 16, padding: 32, boxShadow: '0 10px 30px -8px rgba(0,0,0,0.05)' }}>
           <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 14, color: '#1a1a1a', marginBottom: 6 }}>Email address</label>
+              <label className="auth-label">Email address</label>
               <input
                 type="email"
                 value={email}
@@ -94,11 +94,11 @@ export default function Login() {
                 required
                 autoComplete="email"
                 placeholder="you@family.com"
-                style={{ width: '100%', padding: '12px 14px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                className="auth-input"
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 14, color: '#1a1a1a', marginBottom: 6 }}>Password</label>
+              <label className="auth-label">Password</label>
               <input
                 type="password"
                 value={password}
@@ -106,7 +106,7 @@ export default function Login() {
                 required
                 autoComplete="current-password"
                 placeholder="••••••••"
-                style={{ width: '100%', padding: '12px 14px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                className="auth-input"
               />
               <Link href="/forgot-password" className="auth-forgot">Forgot password?</Link>
             </div>

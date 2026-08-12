@@ -71,28 +71,28 @@ export default function OnboardingProfileForm() {
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <div className="name-pair">
             <div>
-              <label style={{ display: 'block', fontSize: 14, color: '#1a1a1a', marginBottom: 6 }}>First name</label>
+              <label className="auth-label">First name</label>
               <input
                 value={firstName}
                 onChange={e => setFirstName(e.target.value)}
                 required
                 placeholder="Your first name"
-                style={{ width: '100%', padding: '12px 14px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                className="auth-input"
               />
             </div>
             <div>
-              <label style={{ display: 'block', fontSize: 14, color: '#1a1a1a', marginBottom: 6 }}>Family name</label>
+              <label className="auth-label">Family name</label>
               <input
                 value={familyName}
                 onChange={e => setFamilyName(e.target.value)}
                 placeholder="Your family name"
-                style={{ width: '100%', padding: '12px 14px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+                className="auth-input"
               />
             </div>
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 14, color: '#1a1a1a', marginBottom: 10 }}>Your role in the family</label>
+            <label className="auth-label auth-label--roomy">Your role in the family</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {ROLES.map(r => (
                 <button

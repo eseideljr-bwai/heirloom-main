@@ -86,15 +86,6 @@ export default function Signup() {
     }
   };
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '12px 14px', background: '#f5f4f1',
-    border: '1px solid transparent', borderRadius: 8, fontSize: 15,
-    fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
-  };
-  const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: 14, color: '#1a1a1a', marginBottom: 6,
-  };
-
   return (
     <div style={{ minHeight: '100vh', background: '#fdfcfa', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px 16px' }}>
       <div style={{ width: '100%', maxWidth: 440 }}>
@@ -109,7 +100,7 @@ export default function Signup() {
         <div style={{ background: '#ffffff', border: '1px solid #d4d2cc', borderRadius: 16, padding: 32, boxShadow: '0 10px 30px -8px rgba(0,0,0,0.05)' }}>
           <form onSubmit={handleSignup} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             <div>
-              <label style={labelStyle}>Your name</label>
+              <label className="auth-label">Your name</label>
               <input
                 type="text"
                 value={name}
@@ -118,11 +109,11 @@ export default function Signup() {
                 maxLength={255}
                 autoComplete="name"
                 placeholder="Jane Doe"
-                style={inputStyle}
+                className="auth-input"
               />
             </div>
             <div>
-              <label style={labelStyle}>Email address</label>
+              <label className="auth-label">Email address</label>
               <input
                 type="email"
                 value={email}
@@ -130,11 +121,11 @@ export default function Signup() {
                 required
                 autoComplete="email"
                 placeholder="you@family.com"
-                style={inputStyle}
+                className="auth-input"
               />
             </div>
             <div>
-              <label style={labelStyle}>Password</label>
+              <label className="auth-label">Password</label>
               <input
                 type="password"
                 value={password}
@@ -143,11 +134,11 @@ export default function Signup() {
                 minLength={8}
                 autoComplete="new-password"
                 placeholder="Minimum 8 characters"
-                style={inputStyle}
+                className="auth-input"
               />
             </div>
             <div>
-              <label style={labelStyle}>Confirm password</label>
+              <label className="auth-label">Confirm password</label>
               <input
                 type="password"
                 value={passwordConfirm}
@@ -156,7 +147,7 @@ export default function Signup() {
                 minLength={8}
                 autoComplete="new-password"
                 placeholder="Re-enter password"
-                style={inputStyle}
+                className="auth-input"
               />
             </div>
 
