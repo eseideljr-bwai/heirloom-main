@@ -480,17 +480,7 @@ function RowButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      style={{
-        background: 'none',
-        border: 'none',
-        padding: 0,
-        fontSize: 13,
-        fontWeight: 500,
-        fontFamily: 'inherit',
-        color: destructive ? 'var(--destructive)' : 'var(--primary)',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
-      }}
+      className={`text-btn${destructive ? ' text-btn--danger' : ''}`}
     >
       {children}
     </button>

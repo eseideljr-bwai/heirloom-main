@@ -496,18 +496,7 @@ export default function BiographerView({ onStartOver }: Props) {
       >
         <button
           onClick={handleStartOverInternal}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 14,
-            color: 'var(--fg-3)',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 0,
-            fontFamily: 'inherit',
-          }}
+          className="text-btn text-btn--back"
         >
           <svg
             width="16"
@@ -674,16 +663,7 @@ export default function BiographerView({ onStartOver }: Props) {
               </p>
               <button
                 onClick={handleRetry}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  fontSize: 14,
-                  color: 'var(--primary)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  textDecoration: 'underline',
-                }}
+                className="text-btn text-btn--retry"
               >
                 Try again
               </button>

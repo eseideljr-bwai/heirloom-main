@@ -3190,6 +3190,46 @@ body.has-texture::before {
   min-height: 140px;
 }
 
+/* Quiet text buttons in create/import. Desktop padding matches the
+   inline styles they replace (0, or the 4px/10px the few outliers
+   already had). Mobile adds real padding in the touch-target block. */
+.text-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--primary);
+  cursor: pointer;
+}
+.text-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.text-btn--muted {
+  font-weight: 400;
+  color: var(--fg-4);
+}
+.text-btn--danger { color: var(--destructive); }
+.text-btn--retry {
+  font-size: 14px;
+  font-weight: 400;
+  text-decoration: underline;
+}
+.text-btn--back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--fg-3);
+}
+.text-btn--underline { text-decoration: underline; }
+.text-btn--quiet { padding: 10px 4px; font-weight: 400; color: var(--fg-4); }
+.text-btn--link { padding: 4px 0; font-weight: 400; color: var(--fg-4); }
+.text-btn--push { margin-left: auto; }
+
 .compose-page__head {
   display: flex;
   align-items: center;
@@ -3597,5 +3637,64 @@ body.has-texture::before {
   .batch-input,
   .batch-select {
     font-size: 16px;
+  }
+}
+
+/* ─── Touch targets ─────────────────────────────────────────────
+   Icon/dot controls keep their painted size. A 44×44 ::after sits
+   on top of each one so the hit area meets the WCAG 2.5.5 floor
+   without a layout shift. Already-positioned controls (absolute
+   remove button, lightbox close, the toggle) are left alone;
+   the rest get `position: relative` for the pseudo.
+
+   Text buttons in create/import can't use ::after — Edit/Drop/
+   Restore sit 16px apart and the expanded boxes would overlap —
+   so they get real padding instead. */
+@media (max-width: 768px) {
+  .voice-recorder__remove,
+  .audio-player__skip,
+  .audio-player__play,
+  .voice-recorder__stop,
+  .detail-gallery-pager__arrow,
+  .detail-gallery-pager__dot,
+  .pagination__page,
+  .pagination__step,
+  .kinloom-menu__toggle,
+  .comments__delete,
+  .manage-list__icon-btn,
+  .tree-detail__close {
+    position: relative;
+  }
+
+  .photo-grid__remove::after,
+  .voice-recorder__remove::after,
+  .audio-player__skip::after,
+  .audio-player__play::after,
+  .voice-recorder__stop::after,
+  .detail-gallery-pager__arrow::after,
+  .detail-gallery-pager__dot::after,
+  .pagination__page::after,
+  .pagination__step::after,
+  .kinloom-menu__toggle::after,
+  .comments__delete::after,
+  .manage-list__icon-btn::after,
+  .tree-detail__close::after,
+  .detail-lightbox__close::after,
+  .toggle::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  .text-btn {
+    display: inline-flex;
+    align-items: center;
+    padding: 12px 10px;
+    min-height: 44px;
+    box-sizing: border-box;
   }
 }

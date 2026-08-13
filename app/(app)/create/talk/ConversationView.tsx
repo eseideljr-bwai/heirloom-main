@@ -388,15 +388,7 @@ export default function ConversationView() {
         {hasHistory && !sending && (
           <button
             onClick={handleStartOver}
-            style={{
-              background: 'none',
-              border: 'none',
-              padding: 0,
-              fontSize: 13,
-              color: 'var(--fg-4)',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-            }}
+            className="text-btn text-btn--muted"
           >
             Start fresh
           </button>
@@ -470,16 +462,7 @@ export default function ConversationView() {
               </p>
               <button
                 onClick={handleRetry}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  fontSize: 14,
-                  color: 'var(--primary)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  textDecoration: 'underline',
-                }}
+                className="text-btn text-btn--retry"
               >
                 Try again
               </button>

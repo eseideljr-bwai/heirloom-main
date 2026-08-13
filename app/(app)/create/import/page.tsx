@@ -222,15 +222,7 @@ export default function ImportPage() {
             </div>
             <button
               onClick={handleReplaceFile}
-              style={{
-                background: 'none',
-                border: 'none',
-                fontSize: 13,
-                color: 'var(--fg-4)',
-                cursor: 'pointer',
-                padding: '4px 0',
-                fontFamily: 'inherit',
-              }}
+              className="text-btn text-btn--link"
             >
               Replace file
             </button>
