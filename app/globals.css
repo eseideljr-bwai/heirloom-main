@@ -3230,6 +3230,55 @@ body.has-texture::before {
 .text-btn--link { padding: 4px 0; font-weight: 400; color: var(--fg-4); }
 .text-btn--push { margin-left: auto; }
 
+/* Full-screen Talk / Import conversations. `100vh` first so browsers
+   without dvh still fill the viewport; `100dvh` then tracks mobile
+   browser chrome. Composer padding is overridden on small screens. */
+.chat-flow {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+.chat-flow__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 48px;
+  border-bottom: 1px solid var(--border);
+}
+.chat-flow__thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 64px 56px 0;
+}
+.chat-flow__thread-inner { max-width: 620px; }
+.chat-flow__composer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 18px 56px 24px;
+  background: var(--background);
+  transition: opacity 200ms ease;
+}
+.chat-flow__composer.is-blocked {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.chat-flow__composer-row {
+  max-width: 620px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+.chat-flow__hint {
+  max-width: 620px;
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--fg-4);
+}
+
 .compose-page__head {
   display: flex;
   align-items: center;
@@ -3696,5 +3745,57 @@ body.has-texture::before {
     padding: 12px 10px;
     min-height: 44px;
     box-sizing: border-box;
+  }
+}
+
+/* ─── Chat flows ────────────────────────────────────────────────
+   The two full-screen conversations live inside AppShell, whose
+   main already has padding-top for the mobile topbar. Filling via
+   flex (not a hardcoded 100dvh) means the composer tracks both the
+   topbar and a keyboard-resized layout viewport.
+
+   viewport-fit=cover is what makes env(safe-area-inset-*) non-zero;
+   the topbar/main padding grows by the inset so the notch doesn't
+   eat the hamburger. Desktop insets are 0, so this is a no-op there. */
+@media (max-width: 768px) {
+  .app-topbar {
+    padding-top: env(safe-area-inset-top, 0px);
+    height: calc(56px + env(safe-area-inset-top, 0px));
+  }
+  .app-shell__main {
+    padding-top: calc(56px + env(safe-area-inset-top, 0px));
+  }
+
+  .app-shell:has(.chat-flow) {
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .app-shell:has(.chat-flow) .app-shell__main {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .chat-flow {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+
+  .chat-flow__head {
+    padding: 12px 16px;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .chat-flow__thread {
+    padding: 24px 16px 0;
+  }
+  .chat-flow__composer {
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
   }
 }

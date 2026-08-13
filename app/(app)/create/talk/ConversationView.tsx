@@ -345,22 +345,10 @@ export default function ConversationView() {
   const hasHistory = turns.filter(t => !('synthetic' in t && (t as AssistantTurn).synthetic)).length > 0;
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      overflow: 'hidden',
-    }}>
+    <div className="chat-flow">
 
       {/* ── Header ─────────────────────────────────────────────────── */}
-      <div style={{
-        flexShrink: 0,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '20px 48px',
-        borderBottom: '1px solid var(--border)',
-      }}>
+      <div className="chat-flow__head">
         <Link href="/create" style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -397,12 +385,8 @@ export default function ConversationView() {
       </div>
 
       {/* ── Conversation scroll area ────────────────────────────────── */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '64px 56px 0',
-      }}>
-        <div style={{ maxWidth: 620 }}>
+      <div className="chat-flow__thread">
+        <div className="chat-flow__thread-inner">
 
           {turns.map((turn, i) => {
             // For the last assistant turn with a tool_use, render prose then the card.
@@ -501,21 +485,8 @@ export default function ConversationView() {
       </div>
 
       {/* ── Input bar ──────────────────────────────────────────────── */}
-      <div style={{
-        flexShrink: 0,
-        borderTop: '1px solid var(--border)',
-        padding: '18px 56px 24px',
-        background: 'var(--background)',
-        opacity: isAwaitingCard ? 0.4 : 1,
-        pointerEvents: isAwaitingCard ? 'none' : 'auto',
-        transition: 'opacity 200ms ease',
-      }}>
-        <div style={{
-          maxWidth: 620,
-          display: 'flex',
-          gap: 12,
-          alignItems: 'flex-end',
-        }}>
+      <div className={`chat-flow__composer${isAwaitingCard ? ' is-blocked' : ''}`}>
+        <div className="chat-flow__composer-row">
           <textarea
             ref={textareaRef}
             value={draft}
@@ -572,12 +543,7 @@ export default function ConversationView() {
             Send
           </button>
         </div>
-        <p style={{
-          maxWidth: 620,
-          margin: '10px 0 0',
-          fontSize: 12,
-          color: 'var(--fg-4)',
-        }}>
+        <p className="chat-flow__hint">
           Enter to send &middot; Shift+Enter for a new line
         </p>
       </div>
