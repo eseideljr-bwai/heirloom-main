@@ -1367,8 +1367,14 @@ button {
   border-radius: 16px;
   overflow: hidden;
   flex-shrink: 0;
+  max-width: 100%;
 }
-.tree-canvas svg { display: block; }
+.tree-canvas svg {
+  display: block;
+  width: 720px;
+  max-width: 100%;
+  height: auto;
+}
 .tree-node { cursor: pointer; }
 .tree-node__initials {
   font-size: 13px;
@@ -3797,5 +3803,17 @@ body.has-texture::before {
     padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
     padding-left: max(16px, env(safe-area-inset-left, 0px));
     padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+}
+
+/* ─── Family tree ───────────────────────────────────────────────
+   The SVG already had a correct viewBox; the 720×N presentation
+   attrs plus flex-shrink: 0 were what forced horizontal overflow.
+   min-width: 0 beats the flex min-content size (still the viewBox
+   width even after the attrs are gone). */
+@media (max-width: 768px) {
+  .tree-canvas {
+    flex-shrink: 1;
+    min-width: 0;
   }
 }

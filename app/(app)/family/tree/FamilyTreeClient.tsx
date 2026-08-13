@@ -99,7 +99,7 @@ export default function FamilyTreeClient({ nodes, parentEdges, coupleEdges }: Pr
   return (
     <div className="tree-layout">
       <div className="tree-canvas">
-        <svg viewBox={`0 0 ${CANVAS_W} ${canvasH}`} width={CANVAS_W} height={canvasH}>
+        <svg viewBox={`0 0 ${CANVAS_W} ${canvasH}`}>
           <defs>
             <pattern id="tree-grid" width="40" height="40" patternUnits="userSpaceOnUse">
               <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#d4d2cc" strokeWidth="0.4" opacity="0.4" />
