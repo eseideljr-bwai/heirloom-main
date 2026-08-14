@@ -394,19 +394,6 @@ function ItemEditor({
     margin: '0 0 6px',
     display: 'block',
   };
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    padding: '10px 12px',
-    background: 'var(--input-background)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    fontFamily: 'var(--font-serif)',
-    fontSize: 15,
-    lineHeight: 1.5,
-    color: 'var(--foreground)',
-    outline: 'none',
-    boxSizing: 'border-box',
-  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -416,7 +403,7 @@ function ItemEditor({
           type="text"
           value={item.working_title}
           onChange={e => onChange('working_title', e.target.value)}
-          style={inputStyle}
+          className="batch-input"
         />
       </div>
 
@@ -425,7 +412,7 @@ function ItemEditor({
         <select
           value={item.suggested_type_slug}
           onChange={e => onChange('suggested_type_slug', e.target.value)}
-          style={{ ...inputStyle, fontFamily: 'inherit', fontSize: 14 }}
+          className="batch-input batch-select"
         >
           {KINLOOM_TYPE_SLUGS.map(slug => (
             <option key={slug} value={slug}>
@@ -441,7 +428,7 @@ function ItemEditor({
           type="text"
           value={item.one_line_summary}
           onChange={e => onChange('one_line_summary', e.target.value)}
-          style={inputStyle}
+          className="batch-input"
         />
       </div>
 
@@ -451,7 +438,7 @@ function ItemEditor({
           value={item.body}
           onChange={e => onChange('body', e.target.value)}
           rows={8}
-          style={{ ...inputStyle, resize: 'vertical', minHeight: 140 }}
+          className="batch-input batch-textarea"
         />
       </div>
 
@@ -493,17 +480,7 @@ function RowButton({
     <button
       onClick={onClick}
       disabled={disabled}
-      style={{
-        background: 'none',
-        border: 'none',
-        padding: 0,
-        fontSize: 13,
-        fontWeight: 500,
-        fontFamily: 'inherit',
-        color: destructive ? 'var(--destructive)' : 'var(--primary)',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.5 : 1,
-      }}
+      className={`text-btn${destructive ? ' text-btn--danger' : ''}`}
     >
       {children}
     </button>

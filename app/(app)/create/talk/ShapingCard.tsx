@@ -107,16 +107,7 @@ export function ShapingCard({ input, toolUseId, onPublish, onKeepGoing, onStartO
         </button>
         <button
           onClick={onStartOver}
-          style={{
-            background: 'none',
-            border: 'none',
-            padding: '10px 4px',
-            fontSize: 13,
-            color: 'var(--fg-4)',
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            marginLeft: 'auto',
-          }}
+          className="text-btn text-btn--quiet text-btn--push"
         >
           Start over
         </button>

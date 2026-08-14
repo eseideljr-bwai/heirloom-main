@@ -3,7 +3,7 @@ import { KINLOOM_TYPES } from '../../../lib/kinloom-types';
 
 export default function CreateTypeGridPage() {
   return (
-    <div style={{ padding: '48px' }}>
+    <div className="type-grid-page">
 
       <div style={{ marginBottom: 8 }}>
         <Link href="/create" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--fg-3)', textDecoration: 'none', marginBottom: 32 }}>
@@ -16,7 +16,7 @@ export default function CreateTypeGridPage() {
 
       <div style={{ marginBottom: 48 }}>
         <p className="eyebrow" style={{ marginBottom: 12 }}>Write</p>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 48, lineHeight: 1.1, margin: '0 0 16px', color: '#1a1a1a' }}>
+        <h1 className="type-grid-page__title">
           What would you like to capture?
         </h1>
         <p style={{ fontSize: 18, lineHeight: 1.65, color: 'rgba(26,26,26,0.7)', margin: 0, maxWidth: 560 }}>
@@ -24,7 +24,7 @@ export default function CreateTypeGridPage() {
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 20 }}>
+      <div className="type-grid">
         {KINLOOM_TYPES.map(type => (
           <Link
             key={type.slug}

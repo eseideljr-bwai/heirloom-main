@@ -61,7 +61,7 @@ export default function FirstKinloomForm({ familySpaceId }: { familySpaceId: str
             placeholder="Write your story here…"
             rows={8}
             maxLength={65000}
-            style={{ width: '100%', padding: '14px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', lineHeight: 1.65, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+            className="auth-textarea"
           />
           {error && <p className="create-banner create-banner--error" style={{ margin: 0 }}>{error}</p>}
           <div style={{ display: 'flex', gap: 12 }}>

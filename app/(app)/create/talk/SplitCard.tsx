@@ -92,16 +92,7 @@ export function SplitCard({ input, toolUseId, onDevelopFirst, onKeepTalking }: P
 
       <button
         onClick={() => onKeepTalking(toolUseId)}
-        style={{
-          background: 'none',
-          border: 'none',
-          padding: '4px 0',
-          fontSize: 13,
-          color: 'var(--fg-4)',
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-          textDecoration: 'underline',
-        }}
+        className="text-btn text-btn--link text-btn--underline"
       >
         Keep talking instead
       </button>

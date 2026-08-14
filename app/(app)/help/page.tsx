@@ -27,13 +27,13 @@ const FAQS = [
 
 export default function HelpPage() {
   return (
-    <div style={{ padding: '48px', maxWidth: 720 }}>
+    <div className="help-page">
 
       <div style={{ marginBottom: 48 }}>
         <p style={{ fontSize: 13, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#556b5b', margin: '0 0 12px' }}>
           Help
         </p>
-        <h1 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 48, lineHeight: 1.1, margin: '0 0 16px', color: '#1a1a1a' }}>
+        <h1 className="help-page__title">
           How can we help?
         </h1>
         <p style={{ fontSize: 18, lineHeight: 1.65, color: 'rgba(26,26,26,0.7)', margin: 0 }}>

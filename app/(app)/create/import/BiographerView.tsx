@@ -481,33 +481,13 @@ export default function BiographerView({ onStartOver }: Props) {
   // ── Render ─────────────────────────────────────────────────────────
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <div className="chat-flow">
 
       {/* ── Header ───────────────────────────────────────────────────── */}
-      <div
-        style={{
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '20px 48px',
-          borderBottom: '1px solid var(--border)',
-        }}
-      >
+      <div className="chat-flow__head">
         <button
           onClick={handleStartOverInternal}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            fontSize: 14,
-            color: 'var(--fg-3)',
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            padding: 0,
-            fontFamily: 'inherit',
-          }}
+          className="text-btn text-btn--back"
         >
           <svg
             width="16"
@@ -541,8 +521,8 @@ export default function BiographerView({ onStartOver }: Props) {
       </div>
 
       {/* ── Conversation scroll area ──────────────────────────────────── */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '64px 56px 0' }}>
-        <div style={{ maxWidth: 620 }}>
+      <div className="chat-flow__thread">
+        <div className="chat-flow__thread-inner">
 
           {/* Initial loading state — before first response arrives */}
           {turns.length === 0 && sending && (
@@ -674,16 +654,7 @@ export default function BiographerView({ onStartOver }: Props) {
               </p>
               <button
                 onClick={handleRetry}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  padding: 0,
-                  fontSize: 14,
-                  color: 'var(--primary)',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                  textDecoration: 'underline',
-                }}
+                className="text-btn text-btn--retry"
               >
                 Try again
               </button>
@@ -695,18 +666,8 @@ export default function BiographerView({ onStartOver }: Props) {
       </div>
 
       {/* ── Input bar ────────────────────────────────────────────────── */}
-      <div
-        style={{
-          flexShrink: 0,
-          borderTop: '1px solid var(--border)',
-          padding: '18px 56px 24px',
-          background: 'var(--background)',
-          opacity: isBlockingCard ? 0.4 : 1,
-          pointerEvents: isBlockingCard ? 'none' : 'auto',
-          transition: 'opacity 200ms ease',
-        }}
-      >
-        <div style={{ maxWidth: 620, display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+      <div className={`chat-flow__composer${isBlockingCard ? ' is-blocked' : ''}`}>
+        <div className="chat-flow__composer-row">
           <textarea
             ref={textareaRef}
             value={draft}
@@ -763,7 +724,7 @@ export default function BiographerView({ onStartOver }: Props) {
             Send
           </button>
         </div>
-        <p style={{ maxWidth: 620, margin: '10px 0 0', fontSize: 12, color: 'var(--fg-4)' }}>
+        <p className="chat-flow__hint">
           Enter to send · Shift+Enter for a new line
         </p>
       </div>

@@ -1,4 +1,4 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Inter, Crimson_Pro } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '../lib/auth-context';
@@ -26,6 +26,13 @@ const crimsonPro = Crimson_Pro({
 export const metadata: Metadata = {
   title: 'Kinloom — Preserve Your Family Legacy',
   description: 'A private family platform that helps you create, preserve, and stay connected through what matters most.',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+  interactiveWidget: 'resizes-content',
 };
 
 /**
