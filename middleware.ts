@@ -7,9 +7,10 @@ import { NextResponse, type NextRequest } from 'next/server';
  *      Presence-checks the `kinloom_session` cookie. Protected routes
  *      redirect to `/` when it's missing; auth-entry routes redirect
  *      to `/home` when it's present. Actual signature verification
- *      happens in `getCurrentUser` (server component) — middleware
- *      runs hot enough that a remote verify per request would be
- *      wasteful.
+ *      happens in the `(app)` and `onboarding` server layouts —
+ *      middleware runs hot enough that a remote verify per request
+ *      would be wasteful, and the Admin SDK can't run on the edge.
+ *      This is a cheap filter, not the authentication boundary.
  *
  *   2. Strict CSP with a per-request nonce (Epic 1).
  *      Replaces the old `'unsafe-inline'` script-src policy with a
@@ -123,14 +124,15 @@ export function middleware(req: NextRequest) {
 
 export const config = {
   matcher: [
-    // Skip Next internals, static assets, and the media-upload proxy.
-    {
-      source:
-        '/((?!_next/static|_next/image|favicon\\.ico|robots\\.txt|sitemap\\.xml|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|woff|woff2|ttf|otf)).*)',
-      missing: [
-        { type: 'header', key: 'next-router-prefetch' },
-        { type: 'header', key: 'purpose', value: 'prefetch' },
-      ],
-    },
+    // Skip Next internals and static assets.
+    //
+    // Deliberately no `missing: [next-router-prefetch, purpose=prefetch]`
+    // clause. The Next.js CSP guide suggests one so prefetches skip nonce
+    // generation, but `missing` gates the whole matcher — it switches
+    // middleware off wholesale, route protection included. Sending
+    // `purpose: prefetch` was enough to reach every protected path with no
+    // cookie at all, and it stripped the CSP header too. Paying for a nonce
+    // per prefetch is the cheaper side of that trade.
+    '/((?!_next/static|_next/image|favicon\\.ico|robots\\.txt|sitemap\\.xml|.*\\.(?:png|jpg|jpeg|gif|webp|svg|ico|css|js|map|woff|woff2|ttf|otf)).*)',
   ],
 };
