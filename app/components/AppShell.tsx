@@ -4,8 +4,10 @@
  * Auth/onboarding gate for the (app) route group.
  *
  * Epic 2 AC: "Protected pages never render a loading state."
- *   • Middleware already bounced unauthenticated visitors at the edge, so
- *     by the time this component mounts there's a session cookie.
+ *   • The (app) server layout verifies the session before this renders, so
+ *     by the time it mounts the request is authenticated. The `!user` check
+ *     below is UX, not a security boundary — it runs in the browser, long
+ *     after the payload has been sent.
  *   • AuthProvider hydrates `user` from the server layout on first paint.
  *   • While auth is still settling we render nothing (not a splash). Once
  *     settled we either show the shell or hard-redirect — never sit on a
