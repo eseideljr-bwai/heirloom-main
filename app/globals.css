@@ -3817,3 +3817,514 @@ body.has-texture::before {
     min-width: 0;
   }
 }
+
+/* ─── Feedback tool (behind NEXT_PUBLIC_FEEDBACK_TOOL) ───────────
+   An operational utility bolted onto the product, and it should read
+   as one: sans throughout (the product's serif is reserved for the
+   user's own words), no illustration, no gradient, flat surfaces.
+   It recedes by visual weight only — every boundary and label here
+   clears WCAG AA.
+
+   --fb-line is NOT var(--border). That token is a 1.5:1 hairline for
+   non-interactive dividers; interactive boundaries need 3:1, and this
+   one measures 3.9:1 on --card and 3.85:1 on --background. */
+.fb-overlay {
+  --fb-line: rgba(26,26,26,0.55);
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  justify-content: flex-end;
+  font-family: var(--font-sans);
+}
+.fb-overlay__scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(26,26,26,0.45);
+}
+.fb-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 420px;
+  max-width: 100%;
+  height: 100%;
+  background: var(--card);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-xl);
+  animation: fb-slide-in 220ms cubic-bezier(0.16,1,0.3,1);
+}
+@keyframes fb-slide-in {
+  from { transform: translateX(16px); opacity: 0; }
+  to   { transform: none; opacity: 1; }
+}
+
+.fb-sheet__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 16px 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.fb-sheet__title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--fg-1);
+}
+.fb-sheet__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 24px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--fg-1);
+}
+.fb-sheet__body:focus { outline: none; }
+
+/* ─── Type ─────────────────────────────────────────────────────── */
+.fb-text {
+  margin: 0 0 24px;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--fg-3);
+}
+.fb-hint {
+  margin: 8px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--fg-3);
+}
+.fb-hint:empty { margin: 0; height: 0; overflow: hidden; }
+.fb-label {
+  display: block;
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--fg-1);
+}
+.fb-error {
+  margin: 16px 0 0;
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--destructive);
+}
+/* Stays in the DOM so role="alert" has a region to fill, but takes no
+   space until it says something. Never display:none — an alert that is
+   inserted and revealed in the same paint announces unreliably. */
+.fb-error:empty { margin: 0; height: 0; overflow: hidden; }
+
+.fb-sent__headline {
+  margin: 0 0 24px;
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--fg-1);
+}
+
+/* ─── Fields ───────────────────────────────────────────────────── */
+.fb-field { margin: 0 0 24px; }
+.fb-fieldset {
+  margin: 0 0 24px;
+  padding: 0;
+  border: none;
+}
+.fb-fieldset > .fb-label { padding: 0; }
+
+.fb-input {
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--card);
+  border: 1px solid var(--fb-line);
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--fg-1);
+  min-height: 44px;
+}
+.fb-textarea { resize: vertical; min-height: 112px; }
+.fb-select { cursor: pointer; }
+.fb-input:focus { border-color: var(--primary); }
+
+.fb-check {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  margin: 0 0 8px;
+}
+.fb-checkbox {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.fb-check__label {
+  font-size: 16px;
+  line-height: 1.45;
+  color: var(--fg-1);
+  cursor: pointer;
+  /* The whole row is the hit area, not just the 20px box. */
+  flex: 1;
+  padding: 12px 0;
+}
+
+/* ─── Chips ────────────────────────────────────────────────────── */
+.fb-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.fb-chip {
+  min-height: 44px;
+  padding: 10px 16px;
+  background: var(--card);
+  border: 1px solid var(--fb-line);
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--fg-1);
+  cursor: pointer;
+  text-align: left;
+}
+/* Fill and label colour both change — selection is never carried by hue
+   alone, and aria-pressed carries it non-visually. */
+.fb-chip.is-selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+
+/* ─── Buttons ──────────────────────────────────────────────────── */
+.fb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 24px;
+}
+.fb-btn {
+  min-height: 44px;
+  padding: 11px 20px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.fb-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.fb-btn--primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.fb-btn--quiet {
+  background: var(--card);
+  border-color: var(--fb-line);
+  color: var(--fg-1);
+}
+.fb-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  color: var(--fg-1);
+  cursor: pointer;
+}
+.fb-attach {
+  min-height: 44px;
+  padding: 11px 16px;
+  background: none;
+  border: 1px dashed var(--fb-line);
+  border-radius: 8px;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  color: var(--fg-3);
+}
+.fb-attach:disabled { cursor: not-allowed; }
+
+/* ─── Reference code ───────────────────────────────────────────── */
+.fb-reference { margin: 0 0 24px; }
+.fb-reference__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.fb-reference__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 18px;
+  letter-spacing: 0.06em;
+  color: var(--fg-1);
+  background: var(--secondary);
+  border: 1px solid var(--fb-line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  user-select: all;
+}
+
+/* ─── Entry points ─────────────────────────────────────────────── */
+.fb-trigger {
+  --fb-line: rgba(26,26,26,0.55);
+  position: fixed;
+  right: 20px;
+  bottom: max(20px, env(safe-area-inset-bottom, 0px));
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 11px 18px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+/* Visible: filled sage. 5.6:1 label, findable during beta — but smaller
+   and flatter than any creation CTA on the page. */
+.fb-trigger--visible {
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+}
+/* Quiet: low weight, full contrast. 17.4:1 label on a 3.9:1 boundary. */
+.fb-trigger--quiet {
+  background: var(--card);
+  color: var(--fg-1);
+  border-color: var(--fb-line);
+}
+
+.fb-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 14px;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 8px;
+  background: none;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: rgba(26,26,26,0.65);
+  text-align: left;
+  cursor: pointer;
+}
+.fb-nav-item__icon {
+  display: flex;
+  color: rgba(26,26,26,0.4);
+}
+
+/* ─── Focus ────────────────────────────────────────────────────── */
+/* The app's prevailing pattern is `outline: none` plus a border tint,
+   which leaves no ring at all on unbordered controls. Everything in
+   this tool keeps a real one. The 2px offset puts the ring on the
+   surface behind the control, so it stays visible on the sage fill
+   too. */
+.fb-sheet :focus-visible,
+.fb-trigger:focus-visible,
+.fb-nav-item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* ─── Dev switcher — deliberately ugly ─────────────────────────── */
+.fb-dev {
+  position: fixed;
+  left: 12px;
+  bottom: 12px;
+  z-index: 300;
+  padding: 8px 10px;
+  background: #fff;
+  border: 2px dashed #c0007a;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #c0007a;
+}
+.fb-dev__title { margin: 0 0 6px; font-weight: 700; letter-spacing: 0.04em; }
+.fb-dev__row { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.fb-dev__legend { width: 46px; opacity: 0.75; }
+.fb-dev__btn {
+  padding: 3px 6px;
+  background: #fff;
+  border: 1px solid #c0007a;
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 11px;
+  color: #c0007a;
+  cursor: pointer;
+}
+.fb-dev__btn.is-on { background: #c0007a; color: #fff; }
+
+/* ─── Narrow widths ────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .fb-sheet {
+    width: 100%;
+    border-left: none;
+  }
+  .fb-sheet__body {
+    padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  }
+  .fb-sheet__head { padding: 12px 12px 12px 16px; }
+}
+
+@media (max-width: 768px) {
+  /* The Talk and Import composers own the bottom-right corner on mobile;
+     a floating trigger would sit on the Send button. The nav item is
+     still there, so the tool stays reachable. */
+  body:has(.chat-flow) .fb-trigger { display: none; }
+  .fb-nav-item { min-height: 44px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fb-sheet { animation: none; }
+}
+
+/* ─── Feedback conversation (UI-2) ──────────────────────────────
+   The transcript scrolls; the composer stays pinned to the bottom
+   of the sheet. The body drops its own padding and scrolling so
+   this view can own both. */
+.fb-sheet__body--flush {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.fb-convo {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.fb-convo__head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--border);
+}
+/* What's left of the chips once the branch is fixed: a plain label,
+   no longer a control. */
+.fb-convo__tag {
+  margin: 0;
+  font-size: 16px;
+  color: var(--fg-3);
+}
+.fb-text-btn {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 10px 4px;
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  color: var(--fg-3);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.fb-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 24px;
+}
+/* Messages are plain text — pre-wrap preserves the line breaks the user
+   typed without any markup being interpreted. */
+.fb-msg {
+  margin: 0 0 20px;
+  font-size: 16px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.fb-msg--assistant { color: var(--fg-1); }
+/* The user's own words are set apart by an indent and a rule, not by
+   colour — the distinction survives greyscale and high-contrast modes. */
+.fb-msg--user {
+  color: var(--fg-2);
+  padding-left: 14px;
+  border-left: 2px solid var(--fb-line);
+}
+
+.fb-composer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--border);
+  padding: 16px 24px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+.fb-composer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+.fb-composer__field {
+  flex: 1;
+  min-height: 44px;
+  resize: none;
+  overflow: hidden;
+}
+
+@media (max-width: 640px) {
+  .fb-convo__head { padding: 10px 16px; }
+  .fb-transcript { padding: 20px 16px; }
+  .fb-composer {
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* ─── Confirmation card (UI-3) ──────────────────────────────────
+   Mirrors the Biographer proposal card's shape — bordered block,
+   uppercase eyebrow, stacked fields, primary-plus-quiet actions.
+
+   The tinted ground is doing real work: it is what makes the white
+   input fills read as inputs at a glance. On a white-on-white card
+   the fields would rely entirely on their 1px border and the whole
+   thing would scan as a read-only summary, which is the one outcome
+   this screen cannot afford. Flat — no shadow, nothing lifted. */
+.fb-card {
+  margin: 8px 0 0;
+  padding: 24px 20px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.fb-card__eyebrow {
+  margin: 0 0 8px;
+  font-family: var(--font-sans);
+  /* The Biographer eyebrow is 11px. This one is 16px because the sheet
+     has a 16px floor on text; the uppercase and letterspacing carry the
+     same role without going under it. */
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+.fb-card__lede {
+  margin: 0 0 24px;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--fg-3);
+}
+/* Fields sit directly on the tint, so their fill is the contrast. */
+.fb-card .fb-input { background: var(--card); }
+.fb-card .fb-field:last-of-type { margin-bottom: 16px; }
+
+@media (max-width: 640px) {
+  .fb-card { padding: 20px 16px; }
+}

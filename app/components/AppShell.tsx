@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { useActiveFamilySpace } from '../../lib/active-family-space';
 import AppNav from './AppNav';
+import { FeedbackProvider } from './feedback/FeedbackContext';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { user, authReady, provisional } = useAuth();
@@ -59,9 +60,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   if (!spaceId) return null;
 
   return (
-    <div className="app-shell">
-      <AppNav user={user} />
-      <main className="app-shell__main">{children}</main>
-    </div>
+    // FeedbackProvider sits inside the auth gate, so the feedback tool exists
+    // only on authenticated routes. With its flag off it renders children and
+    // nothing else.
+    <FeedbackProvider>
+      <div className="app-shell">
+        <AppNav user={user} />
+        <main className="app-shell__main">{children}</main>
+      </div>
+    </FeedbackProvider>
   );
 }
