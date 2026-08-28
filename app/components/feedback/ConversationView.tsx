@@ -27,6 +27,8 @@ function prefersReducedMotion(): boolean {
 export function ConversationView({
   conversation,
   metadata,
+  screenshot,
+  onScreenshotChange,
   onSend,
   onStartOver,
   onSent,
@@ -34,6 +36,8 @@ export function ConversationView({
 }: {
   conversation: FeedbackConversation;
   metadata: FeedbackMetadata;
+  screenshot: File | null;
+  onScreenshotChange: (file: File | null) => void;
   onSend: (text: string) => void;
   onStartOver: () => void;
   onSent: (receipt: FeedbackReceipt) => void;
@@ -135,6 +139,8 @@ export function ConversationView({
             <ConfirmationCard
               metadata={metadata}
               conversation={conversation}
+              screenshot={screenshot}
+              onScreenshotChange={onScreenshotChange}
               onSent={onSent}
               onCancel={onCancel}
             />

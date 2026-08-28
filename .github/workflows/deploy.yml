@@ -39,7 +39,9 @@ jobs:
           NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.DEV_FIREBASE_STORAGE_BUCKET }}
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
           NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FEEDBACK_TOOL=1
           EOF
+          echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
 
       - name: 'Deploy to Cloud Run (Dev)'
         uses: 'google-github-actions/deploy-cloudrun@v2'
@@ -54,6 +56,7 @@ jobs:
           env_vars: |
             FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
             ANTHROPIC_API_KEY=${{ secrets.DEV_ANTHROPIC_API_KEY }}
+            FEEDBACK_INGEST_URL=https://us-east1-bw-heirloom-dev.cloudfunctions.net/feedback-ingest-dev
 
   deploy-prod:
       name: Deploy to Prod
@@ -103,7 +106,9 @@ jobs:
           NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.DEV_FIREBASE_STORAGE_BUCKET }}
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
           NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FEEDBACK_TOOL=1
           EOF
+          echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
 
       - id: 'deploy'
         uses: 'google-github-actions/deploy-cloudrun@v2'
@@ -117,6 +122,7 @@ jobs:
           # service-account JSON). Consumed by lib/server/firebase-admin.ts.
           env_vars: |
             FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
+            FEEDBACK_INGEST_URL=https://us-east1-bw-heirloom-dev.cloudfunctions.net/feedback-ingest-dev
       - name: 'Comment PR'
         uses: 'actions/github-script@v7'
         with:

@@ -25,15 +25,18 @@ import {
   saveConversation,
   type FeedbackConversation,
 } from '../../../lib/feedback/conversation-storage';
+import { submitFeedbackReport } from '../../../lib/feedback/submit';
 import { advance, startConversation } from '../../../lib/feedback/scripted-agent';
 import type {
   FeedbackCategory,
   FeedbackMetadata,
   FeedbackReceipt,
+  FeedbackReport,
 } from '../../../lib/feedback/types';
 import { CHIPS } from './chips';
 import { ConversationView } from './ConversationView';
 import { FallbackForm } from './FallbackForm';
+import { ScreenshotField } from './ScreenshotField';
 import { SentPanel } from './SentPanel';
 
 export type SheetView = 'composer' | 'conversation' | 'fallback' | 'sent';
@@ -92,6 +95,10 @@ export function FeedbackSheet({
   );
   const [chip, setChip] = useState<FeedbackCategory | null>(null);
   const [note, setNote] = useState('');
+  const [screenshot, setScreenshot] = useState<File | null>(null);
+  const [followUpOk, setFollowUpOk] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   // The dev switcher can drop straight into the sent state, which has no real
   // receipt behind it. Nothing was submitted to produce this one.
   const [receipt, setReceipt] = useState<FeedbackReceipt | null>(() =>
@@ -102,6 +109,7 @@ export function FeedbackSheet({
   const viewRef = useRef<HTMLDivElement>(null);
   const headingId = useId();
   const noteId = useId();
+  const followUpId = useId();
 
   // Closing the sheet mid-conversation must not lose the conversation, so
   // every change is written through immediately.
@@ -181,6 +189,9 @@ export function FeedbackSheet({
     setConversation(null);
     setChip(null);
     setNote('');
+    setScreenshot(null);
+    setFollowUpOk(false);
+    setSendError(null);
     setView('composer');
   };
 
@@ -198,11 +209,46 @@ export function FeedbackSheet({
     setConversation(null);
     setChip(null);
     setNote('');
+    setScreenshot(null);
+    setFollowUpOk(false);
+    setSendError(null);
     setReceipt(null);
     setView('composer');
   };
 
-  const canContinue = note.trim().length > 0 || chip !== null;
+  const handleSendNow = async () => {
+    const description = note.trim();
+    if (!description || sending) return;
+
+    setSendError(null);
+    setSending(true);
+
+    const report: FeedbackReport = {
+      ...metadata,
+      category: chip ?? 'other',
+      area: 'unknown',
+      severity: 'minor',
+      title: description.slice(0, 80),
+      summary: description,
+      steps: null,
+      expected: null,
+      actual: null,
+      contains_personal_content: false,
+      follow_up_ok: followUpOk,
+      submission_mode: 'fallback_form',
+      messages: [],
+    };
+
+    try {
+      handleSent(await submitFeedbackReport(report, screenshot));
+    } catch {
+      setSendError('That didn’t send. Try again.');
+      setSending(false);
+    }
+  };
+
+  const canSend = note.trim().length > 0;
+  const canContinue = canSend || chip !== null;
 
   return (
     <div className="fb-overlay">
@@ -275,29 +321,39 @@ export function FeedbackSheet({
                 />
               </div>
 
-              {/* Present but inert — upload is out of scope for this build.
-                  The button's own text is its label; the hint says why it
-                  does nothing, so a dead control isn't left unexplained. */}
-              <div className="fb-field">
-                <button
-                  type="button"
-                  className="fb-attach"
-                  disabled
-                  aria-describedby={`${noteId}-shot-note`}
-                >
-                  Attach a screenshot
-                </button>
-                <p className="fb-hint" id={`${noteId}-shot-note`}>
-                  Not available yet.
-                </p>
+              <ScreenshotField value={screenshot} onChange={setScreenshot} />
+
+              <div className="fb-check">
+                <input
+                  id={followUpId}
+                  type="checkbox"
+                  className="fb-checkbox"
+                  checked={followUpOk}
+                  onChange={e => setFollowUpOk(e.target.checked)}
+                />
+                <label className="fb-check__label" htmlFor={followUpId}>
+                  You can email me about this
+                </label>
               </div>
+
+              <p className="fb-error" role="alert">
+                {sendError}
+              </p>
 
               <div className="fb-actions">
                 <button
                   type="button"
                   className="fb-btn fb-btn--primary"
+                  onClick={handleSendNow}
+                  disabled={!canSend || sending}
+                >
+                  {sending ? 'Sending…' : 'Send'}
+                </button>
+                <button
+                  type="button"
+                  className="fb-btn fb-btn--quiet"
                   onClick={handleContinue}
-                  disabled={!canContinue}
+                  disabled={!canContinue || sending}
                 >
                   Continue
                 </button>
@@ -309,6 +365,8 @@ export function FeedbackSheet({
             <ConversationView
               conversation={conversation}
               metadata={metadata}
+              screenshot={screenshot}
+              onScreenshotChange={setScreenshot}
               onSend={handleReply}
               onStartOver={handleStartOver}
               onSent={handleSent}
@@ -321,6 +379,8 @@ export function FeedbackSheet({
               metadata={metadata}
               initialCategory={chip}
               initialDescription={note}
+              screenshot={screenshot}
+              onScreenshotChange={setScreenshot}
               onSent={handleSent}
               onCancel={onClose}
             />

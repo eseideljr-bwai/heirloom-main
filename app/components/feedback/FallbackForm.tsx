@@ -11,6 +11,7 @@
 
 import { useId, useState } from 'react';
 import { submitFeedbackReport } from '../../../lib/feedback/submit';
+import { ScreenshotField } from './ScreenshotField';
 import type {
   FeedbackCategory,
   FeedbackMetadata,
@@ -32,12 +33,16 @@ export function FallbackForm({
   metadata,
   initialCategory,
   initialDescription,
+  screenshot,
+  onScreenshotChange,
   onSent,
   onCancel,
 }: {
   metadata: FeedbackMetadata;
   initialCategory: FeedbackCategory | null;
   initialDescription: string;
+  screenshot: File | null;
+  onScreenshotChange: (file: File | null) => void;
   onSent: (receipt: FeedbackReceipt) => void;
   onCancel: () => void;
 }) {
@@ -86,7 +91,7 @@ export function FallbackForm({
     };
 
     try {
-      onSent(await submitFeedbackReport(report));
+      onSent(await submitFeedbackReport(report, screenshot));
     } catch {
       setError('That didn’t send. Try again.');
       setSubmitting(false);
@@ -142,6 +147,12 @@ export function FallbackForm({
           onChange={e => setDescription(e.target.value)}
         />
       </div>
+
+      <ScreenshotField
+        value={screenshot}
+        onChange={onScreenshotChange}
+        disabled={submitting}
+      />
 
       <div className="fb-check">
         <input

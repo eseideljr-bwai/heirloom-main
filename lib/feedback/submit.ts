@@ -2,48 +2,56 @@
  * ─────────────────────────────────────────────────────────────────────────
  *  THIS MODULE IS THE ONLY PLACE A FEEDBACK REQUEST WILL EVER BE INTRODUCED.
  *
- *  No component may construct or send one directly. When this stops being a
- *  mock, the change happens here and nowhere else — every caller already
- *  awaits a Promise<FeedbackReceipt> and handles rejection, so swapping the
- *  body of submitFeedbackReport is the whole migration.
- *
- *  Right now it makes NO network call. It logs the payload and invents a
- *  reference code.
+ *  No component may construct or send one directly. Callers already await
+ *  Promise<FeedbackReceipt> and handle rejection — keep it that way.
  * ─────────────────────────────────────────────────────────────────────────
  */
 
 import type { FeedbackReceipt, FeedbackReport } from './types';
 
-/**
- * Ambiguous glyphs (I/1, O/0, S/5) are left out — this code gets read aloud
- * and typed back in from a screenshot.
- */
-const REFERENCE_ALPHABET = 'ABCDEFGHJKLMNPQRTUVWXYZ2346789';
-
-function referenceCode(): string {
-  const bytes = new Uint8Array(4);
-  crypto.getRandomValues(bytes);
-  let out = '';
-  for (let i = 0; i < bytes.length; i++) {
-    out += REFERENCE_ALPHABET[bytes[i] % REFERENCE_ALPHABET.length];
-  }
-  return `KL-${out}`;
-}
-
-/**
- * Accepts a report and resolves with its receipt.
- *
- * The short delay is deliberate: it keeps the submitting state on screen long
- * enough to be real, so the pending and disabled treatments are exercised in
- * the mock exactly as they will be against a server.
- */
 export async function submitFeedbackReport(
   report: FeedbackReport,
+  screenshot?: Blob | null,
 ): Promise<FeedbackReceipt> {
-  // eslint-disable-next-line no-console
-  console.log('[feedback] submit (mock — nothing was sent)', report);
+  const form = new FormData();
+  form.append(
+    'report',
+    JSON.stringify({
+      ...report,
+      // v0.4 names. The function accepts both; identity still comes from
+      // the Firebase token, not these fields.
+      description: report.summary,
+      page: report.route,
+      console_errors: report.client_errors,
+    }),
+  );
 
-  await new Promise(resolve => setTimeout(resolve, 400));
+  if (screenshot && screenshot.size > 0) {
+    const name = screenshot instanceof File ? screenshot.name : 'screenshot.png';
+    form.append('screenshot', screenshot, name);
+  }
 
-  return { id: report.id, reference: referenceCode() };
+  const res = await fetch('/api/feedback', {
+    method: 'POST',
+    body: form,
+    credentials: 'same-origin',
+  });
+
+  let payload: unknown = null;
+  try {
+    payload = await res.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!res.ok) {
+    throw new Error('Feedback submit failed.');
+  }
+
+  const body = payload as { id?: unknown; reference?: unknown };
+  if (typeof body.id !== 'string' || typeof body.reference !== 'string') {
+    throw new Error('Feedback submit returned an invalid receipt.');
+  }
+
+  return { id: body.id, reference: body.reference };
 }

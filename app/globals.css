@@ -4049,6 +4049,11 @@ body.has-texture::before {
   font-family: var(--font-sans);
   font-size: 16px;
   color: var(--fg-3);
+  cursor: pointer;
+}
+.fb-attach.has-file {
+  color: var(--fg-1);
+  border-style: solid;
 }
 .fb-attach:disabled { cursor: not-allowed; }
 

@@ -16,7 +16,9 @@ const BUCKET = process.env.BUCKET || 'bw-heirloom-feedback-dev';
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 const SHEET_NAME = process.env.SHEET_NAME || 'Feedback';
 
-const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024;
+const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
+const MAX_JSON_BYTES = 100 * 1024;
+const MAX_DESCRIPTION_CHARS = 5000;
 const ALLOWED_IMAGE_TYPES = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
@@ -148,7 +150,7 @@ function decodeScreenshot(body) {
 
 async function uploadScreenshot(reportId, shot) {
   if (!shot) return '';
-  const objectPath = `reports/${reportId}/${Date.now()}.${shot.ext}`;
+  const objectPath = `feedback/${reportId}/screenshot.${shot.ext}`;
   const file = storage.bucket(BUCKET).file(objectPath);
   await file.save(shot.buffer, {
     resumable: false,
@@ -231,10 +233,26 @@ http('ingestFeedback', async (req, res) => {
     const token = await verifyCaller(req);
     const body = req.body && typeof req.body === 'object' ? req.body : {};
 
-    const title = asString(body.title).trim();
-    const summary = asString(body.summary).trim();
-    if (!title || !summary) {
-      json(res, 400, { error: 'title and summary are required.' });
+    const claimedUid = asString(body.uid).trim();
+    if (claimedUid && claimedUid !== token.uid) {
+      json(res, 403, { error: 'uid does not match caller.' });
+      return;
+    }
+
+    const { screenshot_base64, screenshot_content_type, ...reportFields } =
+      body;
+    const jsonBytes = Buffer.byteLength(JSON.stringify(reportFields), 'utf8');
+    if (jsonBytes > MAX_JSON_BYTES) {
+      json(res, 413, { error: 'Payload is too large.' });
+      return;
+    }
+
+    const description = (
+      asString(body.description).trim() || asString(body.summary).trim()
+    ).slice(0, MAX_DESCRIPTION_CHARS);
+    const title = asString(body.title).trim() || description.slice(0, 80);
+    if (!description) {
+      json(res, 422, { error: 'description is required.' });
       return;
     }
 
@@ -242,8 +260,11 @@ http('ingestFeedback', async (req, res) => {
       ? asString(body.id)
       : require('crypto').randomUUID();
 
-    const report = { ...body, id, title, summary };
-    const shot = decodeScreenshot(body);
+    const report = { ...body, id, title, summary: description };
+    const shot = decodeScreenshot({
+      screenshot_base64,
+      screenshot_content_type,
+    });
     const screenshotUrl = await uploadScreenshot(id, shot);
     const reference = referenceCode();
 

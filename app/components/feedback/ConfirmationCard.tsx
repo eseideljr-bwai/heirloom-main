@@ -21,6 +21,7 @@ import { useId, useState } from 'react';
 import type { FeedbackConversation } from '../../../lib/feedback/conversation-storage';
 import { proposalForBranch } from '../../../lib/feedback/scripted-agent';
 import { submitFeedbackReport } from '../../../lib/feedback/submit';
+import { ScreenshotField } from './ScreenshotField';
 import type {
   FeedbackArea,
   FeedbackCategory,
@@ -70,11 +71,15 @@ const SEVERITIES: ReadonlyArray<{ value: FeedbackSeverity; label: string }> = [
 export function ConfirmationCard({
   metadata,
   conversation,
+  screenshot,
+  onScreenshotChange,
   onSent,
   onCancel,
 }: {
   metadata: FeedbackMetadata;
   conversation: FeedbackConversation;
+  screenshot: File | null;
+  onScreenshotChange: (file: File | null) => void;
   onSent: (receipt: FeedbackReceipt) => void;
   onCancel: () => void;
 }) {
@@ -136,7 +141,7 @@ export function ConfirmationCard({
     };
 
     try {
-      onSent(await submitFeedbackReport(report));
+      onSent(await submitFeedbackReport(report, screenshot));
     } catch {
       setError('That didn’t send. Try again.');
       setSubmitting(false);
@@ -229,6 +234,12 @@ export function ConfirmationCard({
           ))}
         </select>
       </div>
+
+      <ScreenshotField
+        value={screenshot}
+        onChange={onScreenshotChange}
+        disabled={submitting}
+      />
 
       <div className="fb-check">
         <input
