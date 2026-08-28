@@ -1,0 +1,14 @@
+{
+  "name": "feedback-ingest",
+  "private": true,
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "@google-cloud/functions-framework": "^3.4.5",
+    "@google-cloud/storage": "^7.16.0",
+    "firebase-admin": "^13.10.0",
+    "googleapis": "^144.0.0"
+  }
+}
