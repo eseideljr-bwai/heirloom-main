@@ -15,6 +15,9 @@ export default function InviteAcceptClient({ token }: { token: string }) {
   const { setActiveSpaceId } = useActiveFamilySpace();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A dead link (already used, expired, or invalid) can never succeed on
+  // retry, so we swap the accept card for a terminal message instead.
+  const [linkDead, setLinkDead] = useState(false);
   const [accepted, setAccepted] = useState<{ ulid: string; name: string } | null>(null);
 
   async function onAccept() {
@@ -34,8 +37,16 @@ export default function InviteAcceptClient({ token }: { token: string }) {
       await refresh();
       void revalidateAllData();
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Could not accept this invitation.';
-      setError(msg);
+      if (err instanceof ApiError && (err.status === 403 || err.status === 410)) {
+        setLinkDead(true);
+        setError('That invite link has already been used.');
+      } else if (err instanceof ApiError && err.status === 404) {
+        setLinkDead(true);
+        setError('This invite link isn\u2019t valid anymore. Ask your family member to send a new invitation.');
+      } else {
+        const msg = err instanceof ApiError ? err.message : 'Could not accept this invitation.';
+        setError(msg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -76,6 +87,18 @@ export default function InviteAcceptClient({ token }: { token: string }) {
         <p className="invite-page__lede">
           You&apos;re now part of this family space. Their kinlooms are waiting for you.
         </p>
+        <div className="vis-row vis-row--center">
+          <button type="button" className="btn-save" onClick={goHome}>Go to home</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (linkDead) {
+    return (
+      <div className="invite-page">
+        <h1 className="invite-page__title">This invitation is no longer active.</h1>
+        <p className="invite-page__lede">{error}</p>
         <div className="vis-row vis-row--center">
           <button type="button" className="btn-save" onClick={goHome}>Go to home</button>
         </div>
