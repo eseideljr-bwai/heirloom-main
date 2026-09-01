@@ -68,16 +68,21 @@ function slugLabel(slug: string): string {
 
 export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPublished, onSectionPublished }: Props) {
   const isFinalBatch = input.final_batch !== false;
+  // A turn truncated at the output ceiling comes back with an EMPTY tool input,
+  // so this array can be absent entirely. The route now catches that case and
+  // never returns such a turn, but normalize here regardless: an unguarded
+  // `.map` in a state initializer throws during render, and a render throw
+  // escapes to the route-segment error boundary and unmounts the whole
+  // conversation. A degraded, non-actionable card is a far better failure.
+  const proposed = Array.isArray(input.proposed_kinlooms) ? input.proposed_kinlooms : [];
   // Editable working copy — edits and drops live here, not in the tool input,
   // so what the user sees is exactly what gets published.
-  const [items, setItems] = useState<ProposedKinloom[]>(() =>
-    input.proposed_kinlooms.map(k => ({ ...k })),
-  );
-  const [dropped, setDropped] = useState<boolean[]>(() => input.proposed_kinlooms.map(() => false));
+  const [items, setItems] = useState<ProposedKinloom[]>(() => proposed.map(k => ({ ...k })));
+  const [dropped, setDropped] = useState<boolean[]>(() => proposed.map(() => false));
   const [editing, setEditing] = useState<number | null>(null);
 
-  const [statuses, setStatuses] = useState<ItemStatus[]>(() => input.proposed_kinlooms.map(() => 'idle'));
-  const [errors, setErrors] = useState<Array<string | null>>(() => input.proposed_kinlooms.map(() => null));
+  const [statuses, setStatuses] = useState<ItemStatus[]>(() => proposed.map(() => 'idle'));
+  const [errors, setErrors] = useState<Array<string | null>>(() => proposed.map(() => null));
   const [publishing, setPublishing] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
 

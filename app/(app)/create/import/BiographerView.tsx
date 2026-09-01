@@ -38,6 +38,13 @@ type ToolResultUserTurn = {
   _tool_result: true;
 };
 type UserTurn = TextUserTurn | ToolResultUserTurn;
+
+/**
+ * How long a turn must run before we tell the user it may take a while.
+ * A whole-document batch proposal is a genuinely long generation; ordinary
+ * conversational turns land in a few seconds and never trip this.
+ */
+const SLOW_TURN_MS = 5000;
 type AssistantTurn = { role: 'assistant'; content: ContentBlock[]; stop_reason: string };
 type Turn = UserTurn | AssistantTurn;
 
@@ -260,6 +267,8 @@ export default function BiographerView({ onStartOver }: Props) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  // True once the in-flight turn has run longer than SLOW_TURN_MS.
+  const [slowTurn, setSlowTurn] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -307,6 +316,20 @@ export default function BiographerView({ onStartOver }: Props) {
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [turns, sending]);
+
+  // Escalate the waiting state once a turn has been running a while. Keyed off
+  // elapsed time rather than which option the user picked: the chip labels are
+  // model-generated and vary run to run ("Propose all thirteen", "Yes, propose
+  // them all", …), so any string match on them would silently rot. Elapsed time
+  // is self-targeting — a fast turn never reaches it, a slow one always does.
+  useEffect(() => {
+    if (!sending) {
+      setSlowTurn(false);
+      return;
+    }
+    const id = window.setTimeout(() => setSlowTurn(true), SLOW_TURN_MS);
+    return () => window.clearTimeout(id);
+  }, [sending]);
 
   // Auto-grow textarea up to ~6 rows.
   const adjustHeight = useCallback(() => {
@@ -536,6 +559,7 @@ export default function BiographerView({ onStartOver }: Props) {
               }}
             >
               Reading your document…
+              {slowTurn && ' This may take a while…'}
             </p>
           )}
 
@@ -604,6 +628,7 @@ export default function BiographerView({ onStartOver }: Props) {
                         input={choiceCard.input as ChoicesInput}
                         onSubmit={handleChoices}
                         answerText={findToolResultContent(turns, choiceCard.id) ?? undefined}
+                        pending={sending}
                       />
                     </div>
                   )}
@@ -644,6 +669,19 @@ export default function BiographerView({ onStartOver }: Props) {
                   />
                 ))}
               </div>
+              {slowTurn && (
+                <p
+                  style={{
+                    fontFamily: 'var(--font-serif)',
+                    fontSize: 15,
+                    fontStyle: 'italic',
+                    color: 'var(--fg-4)',
+                    margin: '12px 0 0',
+                  }}
+                >
+                  This may take a while&hellip;
+                </p>
+              )}
             </div>
           )}
 
