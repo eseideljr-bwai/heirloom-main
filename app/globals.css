@@ -1329,14 +1329,6 @@ button {
 
 .badge--sm { padding: 2px 8px; font-size: 11px; }
 
-.feed-load-more {
-  padding: 24px 0 8px;
-  text-align: center;
-  font-size: 13px;
-  color: var(--fg-4);
-}
-.feed-load-more--error { color: #a94442; }
-
 /* Tree */
 .tree-page { padding: 48px; }
 .tree-page__back {

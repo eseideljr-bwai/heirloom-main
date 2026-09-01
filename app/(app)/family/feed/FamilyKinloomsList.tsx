@@ -1,9 +1,5 @@
-'use client';
-
-import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { formatKinloomDate, type KinloomAuthor, type LibraryRow } from '../../../../lib/kinloom';
-import { fetchFamilyKinloomsPage } from './actions';
 
 function Silhouette({ author, size = 36, idKey }: { author: KinloomAuthor; size?: number; idKey: string }) {
   const gender = author.gender || 'n';
@@ -58,57 +54,7 @@ function KinloomFeedCard({ k }: { k: LibraryRow }) {
   );
 }
 
-type Props = {
-  initialItems: LibraryRow[];
-  initialHasMore: boolean;
-};
-
-export default function FamilyKinloomsList({ initialItems, initialHasMore }: Props) {
-  const [items, setItems] = useState(initialItems);
-  const [hasMore, setHasMore] = useState(initialHasMore);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const loadingRef = useRef(false);
-
-  const loadMore = useCallback(() => {
-    if (loadingRef.current || !hasMore) return;
-    loadingRef.current = true;
-    setLoading(true);
-    setError('');
-
-    void fetchFamilyKinloomsPage(items.length)
-      .then(page => {
-        setItems(prev => {
-          const seen = new Set(prev.map(k => k.ulid));
-          const next = page.items.filter(k => !seen.has(k.ulid));
-          return next.length ? [...prev, ...next] : prev;
-        });
-        setHasMore(page.hasMore);
-      })
-      .catch(() => {
-        setError('Could not load more kinlooms.');
-      })
-      .finally(() => {
-        loadingRef.current = false;
-        setLoading(false);
-      });
-  }, [hasMore, items.length]);
-
-  useEffect(() => {
-    const node = sentinelRef.current;
-    if (!node || !hasMore) return;
-
-    const observer = new IntersectionObserver(
-      entries => {
-        if (entries.some(e => e.isIntersecting)) loadMore();
-      },
-      { rootMargin: '200px 0px' },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [hasMore, loadMore]);
-
+export default function FamilyKinloomsList({ items }: { items: LibraryRow[] }) {
   if (items.length === 0) {
     return (
       <div className="empty-card">
@@ -120,12 +66,6 @@ export default function FamilyKinloomsList({ initialItems, initialHasMore }: Pro
   return (
     <>
       {items.map(k => <KinloomFeedCard key={k.ulid} k={k} />)}
-      {error && <p className="feed-load-more feed-load-more--error" role="alert">{error}</p>}
-      {hasMore && (
-        <div ref={sentinelRef} className="feed-load-more" aria-live="polite">
-          {loading ? 'Loading more…' : '\u00a0'}
-        </div>
-      )}
     </>
   );
 }
