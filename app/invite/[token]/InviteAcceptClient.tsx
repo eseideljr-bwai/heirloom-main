@@ -40,7 +40,7 @@ export default function InviteAcceptClient({ token }: { token: string }) {
       if (err instanceof ApiError && (err.status === 403 || err.status === 410)) {
         setLinkDead(true);
         setError('That invite link has already been used.');
-      } else if (err instanceof ApiError && err.status === 404) {
+      } else if (err instanceof ApiError && (err.status === 404 || err.status === 422)) {
         setLinkDead(true);
         setError('This invite link isn\u2019t valid anymore. Ask your family member to send a new invitation.');
       } else {
