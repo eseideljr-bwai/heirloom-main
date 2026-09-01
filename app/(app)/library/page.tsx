@@ -91,12 +91,35 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
   // in /family/feed. The /library endpoint returns the whole space and has no
   // author filter, so scope to the current member here.
   // /home's user_summary.member_id is authoritative for the current member;
-  // family_spaces[].member_id is optional and often absent on /me.
-  const myMemberId = home.userSummary?.member_id || activeSpace?.member_id || null;
-  const kinlooms = myMemberId
-    ? allKinlooms.filter(r => r.author?.member_id === myMemberId)
-    : allKinlooms;
+  // family_spaces[].member_id is optional and often absent on /me. The API is
+  // inconsistent about ULID casing across endpoints, so compare lowercased.
+  const myMemberIds = new Set(
+    [home.userSummary?.member_id, activeSpace?.member_id]
+      .filter((v): v is string => typeof v === 'string' && v.length > 0)
+      .map(v => v.toLowerCase()),
+  );
+  const kinlooms = allKinlooms.filter(r =>
+    r.author?.member_id && myMemberIds.has(String(r.author.member_id).toLowerCase()),
+  );
   const total = kinlooms.length;
+
+  // Without a resolvable member id we can't scope the space-wide payload to
+  // the current user; surface that instead of showing someone else's pieces.
+  if (myMemberIds.size === 0) {
+    return (
+      <div className="library-page">
+        <div className="library-page__header">
+          <p className="eyebrow">Library</p>
+          <h1 className="library-page__title">Your kinlooms</h1>
+        </div>
+        <div className="empty-card">
+          <p className="empty-card__text">
+            We couldn&rsquo;t load your library right now. Please refresh the page or try again shortly.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const type = searchParams?.type || '';
   const q = (searchParams?.q || '').trim().toLowerCase();

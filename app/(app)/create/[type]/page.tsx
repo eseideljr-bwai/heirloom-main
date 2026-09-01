@@ -470,6 +470,11 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       setSaveError('No family space found for your account.');
       return;
     }
+    if (!title.trim()) {
+      setSaveError('Please give it a title before saving.');
+      setStep(2);
+      return;
+    }
     if (!body.trim()) {
       setSaveError('Please write something before saving.');
       setStep(2);
@@ -489,7 +494,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       if (!createdId) {
         const created = await createKinloom(familySpaceId, {
           type_slug: resolvedType.slug,
-          title: title.trim() || 'Untitled',
+          title: title.trim(),
           body: body.trim(),
           visibility,
           status: 'draft',
@@ -500,7 +505,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       } else {
         // Sync the latest text/visibility/tags into the existing draft.
         await updateKinloom(familySpaceId, createdId, {
-          title: title.trim() || 'Untitled',
+          title: title.trim(),
           body: body.trim(),
           visibility,
           tagged_member_ids: taggedKin,
@@ -848,9 +853,9 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
             <div className="compose-page__cta compose-page__cta--spaced">
               <button
-                onClick={() => body.trim() && setStep(3)}
-                disabled={!body.trim()}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: body.trim() ? 'pointer' : 'not-allowed', opacity: body.trim() ? 1 : 0.5 }}
+                onClick={() => title.trim() && body.trim() && setStep(3)}
+                disabled={!title.trim() || !body.trim()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: title.trim() && body.trim() ? 'pointer' : 'not-allowed', opacity: title.trim() && body.trim() ? 1 : 0.5 }}
               >
                 Continue
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 12 L10 8 L6 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
