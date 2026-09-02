@@ -33,11 +33,19 @@ export class ApiError extends Error {
   status: number;
   body: unknown;
   errors?: ValidationErrors;
-  constructor(status: number, message: string, body: unknown) {
+  /**
+   * Seconds from a 429's `Retry-After` header, when the upstream sent one.
+   * Response headers are discarded once the Response is dropped, so this is
+   * the only way the wait reaches a caller that wants to tell the user how
+   * long to hold off.
+   */
+  retryAfterSeconds?: number;
+  constructor(status: number, message: string, body: unknown, retryAfterSeconds?: number) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
     this.body = body;
+    this.retryAfterSeconds = retryAfterSeconds;
     if (body && typeof body === 'object' && 'errors' in body) {
       this.errors = (body as { errors?: ValidationErrors }).errors;
     }

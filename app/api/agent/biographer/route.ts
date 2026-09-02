@@ -23,7 +23,7 @@
 
 import { NextResponse } from 'next/server';
 import type Anthropic from '@anthropic-ai/sdk';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { resolveActiveSpaceForRoute } from '../../../../lib/server/auth';
 import { getAnthropicClient } from '../../../../lib/agent/client';
 import { BIOGRAPHER_TOOLS } from '../../../../lib/agent/tools';
 import { BIOGRAPHER_SYSTEM_PROMPT } from '../../../../lib/biographer/system-prompt';
@@ -184,9 +184,9 @@ function validateRequest(
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const spaceId = await getActiveSpaceId();
-  if (!spaceId) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });
+  const space = await resolveActiveSpaceForRoute('agent/biographer');
+  if (space.ok === false) {
+    return NextResponse.json({ error: space.error }, { status: space.status });
   }
 
   let raw: unknown;

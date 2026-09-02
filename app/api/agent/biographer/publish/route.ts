@@ -16,15 +16,18 @@
  * Laravel batch endpoint (JC), not this frontend loop.
  *
  * The family space id is resolved server-side from the session
- * (getActiveSpaceId) and the author from the Bearer token — neither is
- * trusted from the request body.
+ * (resolveActiveSpaceForRoute) and the author from the Bearer token —
+ * neither is trusted from the request body. That resolution reaches
+ * Laravel for /me, so it can fail independently of the drafts; it returns
+ * a structured result rather than throwing, because an escaped error here
+ * used to collapse the whole batch into an opaque 500.
  *
  * Request:  { drafts: Array<{ title; type_slug; body; visibility? }> }
  * Response: { results: Array<{ ok; ulid?; title; error? }> }
  */
 
 import { NextResponse } from 'next/server';
-import { getActiveSpaceId } from '../../../../../lib/server/auth';
+import { resolveActiveSpaceForRoute } from '../../../../../lib/server/auth';
 import { serverApiFetch, ApiError } from '../../../../../lib/server/api';
 import { KINLOOM_TYPE_SLUGS } from '../../../../../lib/agent/tools';
 import { KINLOOM_TYPES } from '../../../../lib/kinloom-types';
@@ -63,10 +66,11 @@ type IncomingDraft = {
 type ItemResult = { ok: boolean; ulid?: string; title: string; error?: string };
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const spaceId = await getActiveSpaceId();
-  if (!spaceId) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });
+  const space = await resolveActiveSpaceForRoute('agent/biographer/publish');
+  if (space.ok === false) {
+    return NextResponse.json({ error: space.error }, { status: space.status });
   }
+  const spaceId = space.spaceId;
 
   let raw: unknown;
   try {
@@ -126,6 +130,34 @@ export async function POST(request: Request): Promise<NextResponse> {
           : 'Could not save this kinloom.';
       results.push({ ok: false, title: label, error: message });
     }
+  }
+
+  // One line per batch so a partial failure is visible without reconstructing
+  // it from the per-request upstream logs. The failing titles are included
+  // because "3 failed" on its own doesn't say which items need a retry.
+  const created = results.filter(r => r.ok).length;
+  const failures = results.filter(r => !r.ok);
+  if (failures.length > 0) {
+    // When creates fail, print what /me said about this membership. If /me
+    // reports a member_id for the space we posted to and Laravel's
+    // ResolveFamilySpace still can't find a FamilyMember, the two sides
+    // disagree and it isn't a question of which space we picked. If instead
+    // member_id is absent — or another space is listed — the selection is
+    // ours to fix.
+    console.warn(
+      `[agent/biographer/publish] ${drafts.length} draft(s): ${created} created, ${failures.length} failed — ` +
+        failures.map(f => `"${f.title}": ${f.error ?? 'unknown error'}`).join('; '),
+    );
+    console.warn(
+      `[agent/biographer/publish] posted to space=${spaceId} ` +
+        `me.member_id=${space.space?.member_id ?? 'ABSENT'} ` +
+        `me.role=${space.space?.role ?? 'ABSENT'} ` +
+        `me.spaces=${JSON.stringify(
+          space.allSpaces.map(s => ({ ulid: s.ulid, member_id: s.member_id ?? null, role: s.role ?? null })),
+        )}`,
+    );
+  } else {
+    console.log(`[agent/biographer/publish] ${drafts.length} draft(s): all ${created} created`);
   }
 
   return NextResponse.json({ results });

@@ -28,6 +28,13 @@ export const SERVER_API_BASE = (
   'https://kinloom-api-laravel-fz0wpjzb.on-forge.com/api'
 ).replace(/\/$/, '');
 
+/**
+ * Cap on how much of an upstream error body we log. Laravel's exception
+ * payload carries a full stack `trace` that can run to tens of KB; the
+ * fields that matter (`message`, `exception`, `errors`) come first.
+ */
+const MAX_LOGGED_BODY_CHARS = 4000;
+
 export type ServerFetchOptions = Omit<RequestInit, 'body'> & {
   body?: unknown;
   /** Skip Authorization header even if a token is available. */
@@ -163,11 +170,46 @@ export async function serverApiFetch<T = unknown>(
   }
 
   if (!res.ok) {
+    // Log the complete upstream response. By the time an ApiError reaches a
+    // caller the Response object is gone, and the browser only ever sees
+    // whatever we chose to re-emit — which is why a throttled publish showed
+    // up in the network tab as a bare 500 with nothing to go on.
+    //
+    // 401/403 stay a one-liner: getUserState reads them as ordinary control
+    // flow ("not onboarded yet"), so they'd otherwise flood the log on every
+    // signed-out render.
+    if (res.status === 401 || res.status === 403) {
+      console.warn(`[serverApiFetch] ${res.status} ${path}`);
+    } else {
+      // Rate-limit headers are the only statement of the actual budget, and
+      // they'd be buried in a full header dump — pull them to the front.
+      const rateLimit =
+        res.status === 429
+          ? ` retry_after=${res.headers.get('retry-after') ?? 'n/a'}` +
+            ` limit=${res.headers.get('x-ratelimit-limit') ?? 'n/a'}` +
+            ` remaining=${res.headers.get('x-ratelimit-remaining') ?? 'n/a'}`
+          : '';
+      const truncated = text.length > MAX_LOGGED_BODY_CHARS;
+      const bodyText = truncated
+        ? `${text.slice(0, MAX_LOGGED_BODY_CHARS)}…[truncated ${text.length - MAX_LOGGED_BODY_CHARS} chars]`
+        : text;
+      console.error(
+        `[serverApiFetch] ${res.status} ${res.statusText || ''} ${path}${rateLimit}\n` +
+          `  headers: ${JSON.stringify(Object.fromEntries(res.headers.entries()))}\n` +
+          `  body: ${bodyText || '(empty)'}`,
+      );
+    }
     const message =
       data && typeof data === 'object' && 'message' in data && typeof (data as { message: unknown }).message === 'string'
         ? (data as { message: string }).message
         : `Request failed (${res.status})`;
-    throw new ApiError(res.status, message, data);
+    const retryAfter = Number(res.headers.get('retry-after'));
+    throw new ApiError(
+      res.status,
+      message,
+      data,
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+    );
   }
 
   return data as T;

@@ -13,7 +13,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
+import { resolveActiveSpaceForRoute } from '../../../../lib/server/auth';
 import { getAnthropicClient, AGENT_MODEL, AGENT_MAX_TOKENS } from '../../../../lib/agent/client';
 import { SYSTEM_PROMPT } from '../../../../lib/agent/system-prompt';
 import { CONVERSE_TOOLS } from '../../../../lib/agent/tools';
@@ -55,9 +55,9 @@ function validateRequest(body: unknown): { messages: ConverseRequest['messages']
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const spaceId = await getActiveSpaceId();
-  if (!spaceId) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });
+  const space = await resolveActiveSpaceForRoute('agent/converse');
+  if (space.ok === false) {
+    return NextResponse.json({ error: space.error }, { status: space.status });
   }
 
   let raw: unknown;

@@ -122,6 +122,9 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
     // silent wait, and records each success immediately — so a retry only
     // re-sends the items that genuinely failed, never re-creating a saved one.
     let failed = 0;
+    // Set when the backend rate-limits us; carries the message (which includes
+    // how long to wait) and signals that we stopped early rather than finished.
+    let throttled: string | null = null;
 
     for (const idx of targets) {
       try {
@@ -138,6 +141,17 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
         });
         if (!res.ok) {
           const data = (await res.json().catch(() => ({}))) as { error?: string };
+          // A 429 is not this item's fault, and pressing on makes it worse:
+          // every further request spends more of the same budget and pushes
+          // the reset further out. Stop here and hand the remaining items back
+          // to 'idle' — they were never attempted, so marking them 'error'
+          // would inflate the retry count with work that never failed.
+          if (res.status === 429) {
+            throttled =
+              data.error ?? 'Too many requests right now. Please wait a moment and try again.';
+            setStatuses(prev => prev.map(s => (s === 'publishing' ? 'idle' : s)));
+            break;
+          }
           throw new Error(data.error ?? `Publish failed (${res.status})`);
         }
         const data = (await res.json()) as { results: PublishResult[] };
@@ -162,6 +176,17 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
 
     setPublishing(false);
 
+    // Stopped early on a rate limit: some items may be saved, the rest are
+    // untouched and still queued. Not a handoff — there's more to publish.
+    if (throttled) {
+      const alsoFailed =
+        failed > 0 ? ` ${failed} kinloom${failed === 1 ? '' : 's'} also couldn’t be saved.` : '';
+      setBanner(
+        `${throttled}${alsoFailed} Anything already saved is safe — retrying only sends what’s left.`,
+      );
+      return;
+    }
+
     // targets were every kept, not-yet-done item, so zero failures this pass
     // means everything the user wants to keep is now saved.
     if (failed === 0) {
@@ -178,6 +203,10 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
   };
 
   const doneCount = statuses.filter((s, i) => !dropped[i] && s === 'done').length;
+  // Kept items that still need sending. Diverges from keptCount once a run
+  // partially completes — which a rate-limited stop now makes routine — so the
+  // button promises what it will actually do rather than the batch total.
+  const remainingCount = items.filter((_, i) => !dropped[i] && statuses[i] !== 'done').length;
   const publishLabel = publishing
     ? `Saving… (${doneCount}/${keptCount})`
     : allPublished
@@ -187,8 +216,8 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
         : keptCount === 0
           ? 'Nothing to publish'
           : isFinalBatch
-            ? `Publish ${keptCount} to your library`
-            : `Publish ${keptCount} & continue`;
+            ? `Publish ${remainingCount} to your library`
+            : `Publish ${remainingCount} & continue`;
 
   const publishDisabled = publishing || allPublished || keptCount === 0;
 
