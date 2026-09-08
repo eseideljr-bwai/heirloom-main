@@ -27,6 +27,7 @@ import { resolveActiveSpaceForRoute } from '../../../../lib/server/auth';
 import { getAnthropicClient } from '../../../../lib/agent/client';
 import { BIOGRAPHER_TOOLS } from '../../../../lib/agent/tools';
 import { BIOGRAPHER_SYSTEM_PROMPT } from '../../../../lib/biographer/system-prompt';
+import { findToolUse, turnIsTruncated } from '../../../../lib/agent/truncation';
 import { MAX_TURNS, type MessageParam, type ConverseResponse } from '../../../../lib/agent/types';
 
 export const dynamic = 'force-dynamic';
@@ -56,7 +57,9 @@ function isValidRole(role: unknown): role is 'user' | 'assistant' {
 
 type ValidatedRequest = { documentText: string; messages: MessageParam[] };
 
-// ─── Truncated-turn detection (BIO-16) ────────────────────────────────────────
+// ─── Truncated-batch fallback (BIO-16) ────────────────────────────────────────
+// Detection itself lives in lib/agent/truncation.ts, shared with /converse.
+// What stays here is the Biographer's remedy: halve the batch and retry.
 
 /**
  * Steering message for the one retry after a truncated batch proposal.
@@ -71,74 +74,6 @@ const HALVE_BATCH_STEER =
   'Propose only the first half of the kinlooms you identified, in a single split_into_multiple call, ' +
   'and set final_batch to false so the remaining ones can follow in a later batch. ' +
   'Do not shorten or alter the kinlooms you do include.';
-
-type ToolUseBlock = Extract<Anthropic.Messages.ContentBlock, { type: 'tool_use' }>;
-
-function findToolUse(content: Anthropic.Messages.ContentBlock[]): ToolUseBlock | null {
-  for (const block of content) {
-    if (block.type === 'tool_use') return block as ToolUseBlock;
-  }
-  return null;
-}
-
-/**
- * True when a tool_use carries nothing the client can render.
- *
- * When generation hits `max_tokens` mid-tool_use the API returns the block with
- * an EMPTY input — not a partial object — so there is no salvageable content and
- * no client-side guard can reconstruct it. We also reject an input whose
- * required fields are missing, which is the same class of failure arriving by a
- * different route.
- */
-function toolUseIsUnusable(block: ToolUseBlock): boolean {
-  const input = block.input as Record<string, unknown> | null | undefined;
-  if (!input || typeof input !== 'object' || Object.keys(input).length === 0) return true;
-
-  if (block.name === 'split_into_multiple') {
-    const items = input.proposed_kinlooms;
-    if (!Array.isArray(items) || items.length === 0) return true;
-    // A single malformed item is enough to break the card's render.
-    return items.some(item => {
-      if (!item || typeof item !== 'object') return true;
-      const k = item as Record<string, unknown>;
-      return (
-        typeof k.working_title !== 'string' ||
-        typeof k.one_line_summary !== 'string' ||
-        typeof k.body !== 'string' ||
-        typeof k.suggested_type_slug !== 'string'
-      );
-    });
-  }
-
-  if (block.name === 'propose_draft') {
-    return (
-      typeof input.title !== 'string' ||
-      typeof input.type_slug !== 'string' ||
-      typeof input.body !== 'string'
-    );
-  }
-
-  if (block.name === 'ask_choices') {
-    const questions = input.questions;
-    return !Array.isArray(questions) || questions.length === 0;
-  }
-
-  return false;
-}
-
-/**
- * True when a turn came back truncated and must not be returned to the client.
- *
- * Scoped deliberately to turns carrying a tool_use. A prose turn that stops on
- * `max_tokens` is also broken, but halving a batch is the wrong remedy for it —
- * steering it here would answer a truncated explanation with an instruction
- * about kinloom batches. That case is left alone.
- */
-function turnIsTruncated(response: Anthropic.Messages.Message): boolean {
-  const toolUse = findToolUse(response.content);
-  if (!toolUse) return false;
-  return toolUseIsUnusable(toolUse);
-}
 
 /** Count of proposed items on a batch turn, for logging. -1 when not determinable. */
 function proposedCount(response: Anthropic.Messages.Message): number {
