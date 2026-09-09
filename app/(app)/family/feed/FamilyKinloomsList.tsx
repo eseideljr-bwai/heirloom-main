@@ -54,11 +54,17 @@ function KinloomFeedCard({ k }: { k: LibraryRow }) {
   );
 }
 
-export default function FamilyKinloomsList({ items }: { items: LibraryRow[] }) {
+export default function FamilyKinloomsList({
+  items,
+  emptyText = 'Nothing here yet.',
+}: {
+  items: LibraryRow[];
+  emptyText?: string;
+}) {
   if (items.length === 0) {
     return (
       <div className="empty-card">
-        <p className="empty-card__text">Nothing here yet.</p>
+        <p className="empty-card__text">{emptyText}</p>
       </div>
     );
   }

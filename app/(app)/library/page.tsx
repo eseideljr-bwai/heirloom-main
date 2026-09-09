@@ -11,6 +11,7 @@ import {
 } from '../../../lib/kinloom';
 import { KINLOOM_TYPES } from '../../lib/kinloom-types';
 import { paginate, parsePageParam } from '../../../lib/pagination';
+import { matchesDateRange, parseDayParam } from '../../../lib/date-filter';
 import Pagination from '../../components/Pagination';
 import LibraryFilters from './LibraryFilters';
 
@@ -76,7 +77,7 @@ function KinloomCard({ row }: { row: LibraryRow }) {
   );
 }
 
-type Search = { type?: string; q?: string; page?: string };
+type Search = { type?: string; q?: string; page?: string; from?: string; to?: string };
 
 export default async function LibraryPage({ searchParams }: { searchParams?: Search }) {
   const familySpaceId = await requireActiveSpaceId();
@@ -123,13 +124,16 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
 
   const type = searchParams?.type || '';
   const q = (searchParams?.q || '').trim().toLowerCase();
+  const from = parseDayParam(searchParams?.from);
+  const to = parseDayParam(searchParams?.to);
   const filtered = kinlooms.filter(r => {
     const matchType = !type || type === 'All' || r.type_label === type;
     const matchQ = !q
       || (r.title || '').toLowerCase().includes(q)
       || rowExcerpt(r).toLowerCase().includes(q);
-    return matchType && matchQ;
+    return matchType && matchQ && matchesDateRange(r.created_at, from, to);
   });
+  const hasFilters = Boolean(type || q || from || to);
 
   const { items: pageRows, page, totalPages } = paginate(filtered, parsePageParam(searchParams?.page));
 
@@ -147,11 +151,13 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
           </Link>
         </div>
         <p className="library-page__sub">
-          {total} piece{total === 1 ? '' : 's'} in your library.
+          {hasFilters
+            ? `${filtered.length} matching of ${total} piece${total === 1 ? '' : 's'}.`
+            : `${total} piece${total === 1 ? '' : 's'} in your library.`}
         </p>
       </div>
 
-      <LibraryFilters types={typeLabels} type={type} q={q} />
+      <LibraryFilters types={typeLabels} type={type} q={q} from={from} to={to} />
 
       {kinlooms.length === 0 ? (
         <div className="empty-card">
@@ -171,7 +177,7 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
             page={page}
             totalPages={totalPages}
             basePath="/library"
-            params={{ type, q: searchParams?.q }}
+            params={{ type, q: searchParams?.q, from, to }}
             totalItems={filtered.length}
             label="Library pages"
           />

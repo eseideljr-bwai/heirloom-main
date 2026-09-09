@@ -1,16 +1,26 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useTransition } from 'react';
+import DateRangeFields from '../../components/DateRangeFields';
 
-type Props = { types: string[]; type: string; q: string };
+type Props = { types: string[]; type: string; q: string; from: string; to: string };
 
-export default function LibraryFilters({ types, type, q }: Props) {
+export default function LibraryFilters({ types, type, q, from, to }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const [query, setQuery] = useState(q);
   const [pending, startTransition] = useTransition();
+
+  // "Clear filters" navigates to the bare path but keeps this instance
+  // mounted, so pull the input back in line with the URL when `q` changes
+  // out from under us. Skipped while the debounce below is what changed it.
+  useEffect(() => {
+    if (q !== query.trim()) setQuery(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q]);
 
   // Debounced URL update for the search input.
   useEffect(() => {
@@ -30,16 +40,33 @@ export default function LibraryFilters({ types, type, q }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, pathname, router]);
 
-  function applyType(next: string) {
+  function replace(mutate: (sp: URLSearchParams) => void) {
     const sp = new URLSearchParams(params.toString());
-    if (next === 'All') sp.delete('type');
-    else sp.set('type', next);
+    mutate(sp);
     sp.delete('page');
     const search = sp.toString();
     startTransition(() =>
       router.replace(`${pathname}${search ? `?${search}` : ''}`, { scroll: false }),
     );
   }
+
+  function applyType(next: string) {
+    replace(sp => {
+      if (next === 'All') sp.delete('type');
+      else sp.set('type', next);
+    });
+  }
+
+  function applyDates(next: { from: string; to: string }) {
+    replace(sp => {
+      if (next.from) sp.set('from', next.from);
+      else sp.delete('from');
+      if (next.to) sp.set('to', next.to);
+      else sp.delete('to');
+    });
+  }
+
+  const hasFilters = Boolean(type || q || from || to);
 
   return (
     <>
@@ -57,6 +84,7 @@ export default function LibraryFilters({ types, type, q }: Props) {
         {pending && <span className="library-search__pending">...</span>}
       </div>
 
+      <div className="filter-bar">
       <div className="library-filters">
         {['All', ...types].map(f => (
           <button
@@ -68,6 +96,12 @@ export default function LibraryFilters({ types, type, q }: Props) {
             {f}
           </button>
         ))}
+      </div>
+
+      <DateRangeFields from={from} to={to} onChange={applyDates} />
+      {hasFilters && (
+        <Link href={pathname} className="filter-clear">Clear filters</Link>
+      )}
       </div>
     </>
   );
