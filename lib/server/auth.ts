@@ -175,6 +175,81 @@ export async function getActiveSpaceId(): Promise<string | null> {
   return state.spaces[0].ulid;
 }
 
+export type ActiveSpaceResult =
+  | {
+      ok: true;
+      spaceId: string;
+      /** The chosen space as /me described it — carries member_id and role. */
+      space: FamilySpaceRef | null;
+      /** Every space /me listed, so a caller can log what else was available. */
+      allSpaces: FamilySpaceRef[];
+    }
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      /**
+       * Seconds to wait, on a 429. Passed as a number so a caller can drive a
+       * live countdown; the prose in `error` is for callers that can't.
+       */
+      retryAfterSeconds?: number;
+    };
+
+/**
+ * Resolve the active space for an API route, turning an upstream failure into
+ * a structured result instead of letting it escape the handler.
+ *
+ * `getActiveSpaceId` reaches Laravel for `/me`, so it can fail for reasons
+ * that have nothing to do with the caller's session — a throttle, an outage,
+ * a middleware 404. Called bare as a route's first statement, any of those
+ * escaped the handler and Next emitted a naked 500: no JSON body, nothing in
+ * the network tab to act on, and on the batch publish it destroyed the
+ * per-item result envelope the client needs to retry only what failed.
+ *
+ * `routeLabel` is used for the log line so a failure names the route it came
+ * from without having to read a stack.
+ */
+export async function resolveActiveSpaceForRoute(
+  routeLabel: string,
+): Promise<ActiveSpaceResult> {
+  try {
+    const spaceId = await getActiveSpaceId();
+    if (!spaceId) return { ok: false, status: 401, error: 'Not authenticated.' };
+    // getUserState is request-cached, so this is free — getActiveSpaceId just
+    // called it. Carrying the refs out lets a caller log what /me claimed
+    // about membership when a downstream call disagrees.
+    const state = await getUserState();
+    const allSpaces = state.status === 'ready' ? state.spaces : [];
+    return {
+      ok: true,
+      spaceId,
+      space: allSpaces.find(s => s.ulid === spaceId) ?? null,
+      allSpaces,
+    };
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 429) {
+      const wait = err.retryAfterSeconds;
+      console.error(
+        `[${routeLabel}] rate limited resolving active space; retry_after=${wait ?? 'n/a'}`,
+      );
+      return {
+        ok: false,
+        status: 429,
+        error: wait
+          ? `Too many requests right now. Please wait about ${wait} seconds and try again.`
+          : 'Too many requests right now. Please wait a moment and try again.',
+        retryAfterSeconds: wait,
+      };
+    }
+    console.error(`[${routeLabel}] could not resolve active space:`, err);
+    return {
+      ok: false,
+      status: 502,
+      error: 'Could not reach your family space. Please try again in a moment.',
+    };
+  }
+}
+
 export async function getActiveSpace(): Promise<FamilySpaceRef | null> {
   const state = await getUserState();
   if (state.status !== 'ready') return null;

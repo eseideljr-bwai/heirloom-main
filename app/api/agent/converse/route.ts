@@ -13,15 +13,28 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
-import { getActiveSpaceId } from '../../../../lib/server/auth';
-import { getAnthropicClient, AGENT_MODEL, AGENT_MAX_TOKENS } from '../../../../lib/agent/client';
+import { resolveActiveSpaceForRoute } from '../../../../lib/server/auth';
+import { getAnthropicClient, AGENT_MODEL, AGENT_MAX_TOKENS, AGENT_EFFORT } from '../../../../lib/agent/client';
 import { SYSTEM_PROMPT } from '../../../../lib/agent/system-prompt';
 import { CONVERSE_TOOLS } from '../../../../lib/agent/tools';
 import { isEmptyContent } from '../../../../lib/agent/content';
+import { findToolUse, turnIsTruncated } from '../../../../lib/agent/truncation';
 import { MAX_TURNS, type ConverseRequest, type ConverseResponse } from '../../../../lib/agent/types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+
+/**
+ * Steering message for the one retry after a truncated proposal.
+ *
+ * Sent as an ordinary user turn on the RETRY REQUEST ONLY — never persisted
+ * to the client transcript, and not a change to SYSTEM_PROMPT.
+ */
+const SHORTEN_DRAFT_STEER =
+  'Your previous response was cut off because it was too long to return in one turn. ' +
+  'Propose the same kinloom again in a single tool call, keeping the body to the essential ' +
+  'material in the user\'s own words. Do not add new details and do not shorten it into ' +
+  'fragments — write complete sentences.';
 
 function isValidRole(role: unknown): role is 'user' | 'assistant' {
   return role === 'user' || role === 'assistant';
@@ -55,9 +68,9 @@ function validateRequest(body: unknown): { messages: ConverseRequest['messages']
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const spaceId = await getActiveSpaceId();
-  if (!spaceId) {
-    return NextResponse.json({ error: 'Not authenticated.' }, { status: 401 });
+  const space = await resolveActiveSpaceForRoute('agent/converse');
+  if (space.ok === false) {
+    return NextResponse.json({ error: space.error }, { status: space.status });
   }
 
   let raw: unknown;
@@ -83,13 +96,57 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   try {
     const client = getAnthropicClient();
-    const response = await client.messages.create({
-      model: AGENT_MODEL,
-      max_tokens: AGENT_MAX_TOKENS,
-      system: SYSTEM_PROMPT,
-      tools: CONVERSE_TOOLS,
-      messages,
-    });
+    const ask = (msgs: ConverseRequest['messages']) =>
+      client.messages.create({
+        model: AGENT_MODEL,
+        max_tokens: AGENT_MAX_TOKENS,
+        system: SYSTEM_PROMPT,
+        tools: CONVERSE_TOOLS,
+        output_config: { effort: AGENT_EFFORT },
+        messages: msgs,
+      });
+
+    let response = await ask(messages);
+
+    // Every turn logs its stop_reason and output volume. `stop_reason=max_tokens`
+    // on a PROSE turn is the mid-sentence-truncation signal — the tool_use case
+    // is caught by the guard below, but a truncated question only shows up here.
+    console.log(
+      `[agent/converse] stop_reason=${response.stop_reason} output_tokens=${response.usage.output_tokens}`,
+    );
+
+    // ── Truncated-proposal fallback ─────────────────────────────────────────
+    // A turn that hit the output ceiling comes back with an empty tool input.
+    // Retry server-side so the failed turn never reaches the browser: it is
+    // neither returned nor included in the retry, so an unanswered tool_use can
+    // never be persisted to sessionStorage.
+    if (turnIsTruncated(response)) {
+      const firstAttempt = response;
+      response = await ask([...messages, { role: 'user', content: SHORTEN_DRAFT_STEER }]);
+
+      console.log(
+        `[agent/converse] draft fallback: retries=1 ` +
+          `first_stop_reason=${firstAttempt.stop_reason} ` +
+          `first_output_tokens=${firstAttempt.usage.output_tokens} ` +
+          `first_tool=${findToolUse(firstAttempt.content)?.name ?? 'none'} ` +
+          `retry_stop_reason=${response.stop_reason} ` +
+          `retry_output_tokens=${response.usage.output_tokens}`,
+      );
+
+      // One retry only. Each attempt is a full generation, so chaining them
+      // produces multi-minute waits.
+      if (turnIsTruncated(response)) {
+        console.error('[agent/converse] draft fallback exhausted; returning draft_too_large');
+        return NextResponse.json(
+          {
+            error:
+              'That draft was too long to shape in one go. Reply and ask me to keep it to the heart of the story, and we can carry on from here.',
+            code: 'draft_too_large',
+          },
+          { status: 422 },
+        );
+      }
+    }
 
     const result: ConverseResponse = {
       message: response.content,

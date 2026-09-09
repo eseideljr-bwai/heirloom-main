@@ -35,9 +35,16 @@ type Props = {
    * instead of tapping, nothing matches and the text is shown as a caption.
    */
   answerText?: string;
+  /**
+   * True while a turn is in flight. The chips go non-interactive so a second
+   * tap can't fire, and — with the local selection recorded below — the chosen
+   * chip stays highlighted for the whole wait. Without this the card looked
+   * completely untouched for the full duration of a slow propose turn.
+   */
+  pending?: boolean;
 };
 
-export function BiographerChoiceCard({ input, toolUseId, onSubmit, answerText }: Props) {
+export function BiographerChoiceCard({ input, toolUseId, onSubmit, answerText, pending }: Props) {
   const questions = input.questions ?? [];
   // Live selection per question index (before submit).
   const [selected, setSelected] = useState<Array<string | null>>(
@@ -45,6 +52,8 @@ export function BiographerChoiceCard({ input, toolUseId, onSubmit, answerText }:
   );
 
   const locked = answerText != null;
+  // Answered (locked) or mid-flight (pending) both mean "don't take input".
+  const interactive = !locked && !pending;
   // When locked, recover the chosen option per question from the answer text.
   const picks = locked
     ? questions.map(q => q.options.find(o => answerText.includes(o)) ?? null)
@@ -57,8 +66,12 @@ export function BiographerChoiceCard({ input, toolUseId, onSubmit, answerText }:
   const singleQuestion = questions.length === 1;
 
   const handlePick = (qi: number, option: string) => {
-    if (locked) return;
+    if (!interactive) return;
     if (singleQuestion) {
+      // Record the pick locally as well as submitting it. The transcript-derived
+      // `answerText` only lands once the tool_result turn exists; recording here
+      // means the chip highlights on the tap itself.
+      setSelected([option]);
       onSubmit(toolUseId, [option]);
       return;
     }
@@ -70,7 +83,7 @@ export function BiographerChoiceCard({ input, toolUseId, onSubmit, answerText }:
   };
 
   const handleSubmit = () => {
-    if (locked || !allAnswered) return;
+    if (!interactive || !allAnswered) return;
     onSubmit(toolUseId, selected.map(s => s ?? ''));
   };
 
@@ -106,7 +119,7 @@ export function BiographerChoiceCard({ input, toolUseId, onSubmit, answerText }:
                   <button
                     key={oi}
                     type="button"
-                    disabled={locked}
+                    disabled={!interactive}
                     onClick={() => handlePick(qi, option)}
                     style={{
                       background: isChosen ? 'var(--primary)' : 'none',
@@ -117,7 +130,9 @@ export function BiographerChoiceCard({ input, toolUseId, onSubmit, answerText }:
                       fontSize: 14,
                       fontWeight: 500,
                       fontFamily: 'inherit',
-                      cursor: locked ? 'default' : 'pointer',
+                      // Dim only the chips that weren't chosen, so the pick stays legible.
+                      opacity: !interactive && !isChosen ? 0.55 : 1,
+                      cursor: interactive ? 'pointer' : 'default',
                       transition: 'background 120ms ease, border-color 120ms ease, color 120ms ease',
                     }}
                   >
@@ -150,7 +165,7 @@ export function BiographerChoiceCard({ input, toolUseId, onSubmit, answerText }:
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={!allAnswered}
+            disabled={!allAnswered || !interactive}
             style={{
               background: 'var(--primary)',
               color: 'var(--primary-foreground)',
@@ -160,8 +175,8 @@ export function BiographerChoiceCard({ input, toolUseId, onSubmit, answerText }:
               fontSize: 14,
               fontWeight: 500,
               fontFamily: 'inherit',
-              cursor: allAnswered ? 'pointer' : 'not-allowed',
-              opacity: allAnswered ? 1 : 0.5,
+              cursor: allAnswered && interactive ? 'pointer' : 'not-allowed',
+              opacity: allAnswered && interactive ? 1 : 0.5,
               transition: 'opacity 150ms ease',
             }}
           >
