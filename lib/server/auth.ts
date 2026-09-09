@@ -184,7 +184,16 @@ export type ActiveSpaceResult =
       /** Every space /me listed, so a caller can log what else was available. */
       allSpaces: FamilySpaceRef[];
     }
-  | { ok: false; status: number; error: string };
+  | {
+      ok: false;
+      status: number;
+      error: string;
+      /**
+       * Seconds to wait, on a 429. Passed as a number so a caller can drive a
+       * live countdown; the prose in `error` is for callers that can't.
+       */
+      retryAfterSeconds?: number;
+    };
 
 /**
  * Resolve the active space for an API route, turning an upstream failure into
@@ -229,6 +238,7 @@ export async function resolveActiveSpaceForRoute(
         error: wait
           ? `Too many requests right now. Please wait about ${wait} seconds and try again.`
           : 'Too many requests right now. Please wait a moment and try again.',
+        retryAfterSeconds: wait,
       };
     }
     console.error(`[${routeLabel}] could not resolve active space:`, err);

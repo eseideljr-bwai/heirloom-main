@@ -68,7 +68,10 @@ type ItemResult = { ok: boolean; ulid?: string; title: string; error?: string };
 export async function POST(request: Request): Promise<NextResponse> {
   const space = await resolveActiveSpaceForRoute('agent/biographer/publish');
   if (space.ok === false) {
-    return NextResponse.json({ error: space.error }, { status: space.status });
+    return NextResponse.json(
+      { error: space.error, retryAfterSeconds: space.retryAfterSeconds },
+      { status: space.status },
+    );
   }
   const spaceId = space.spaceId;
 

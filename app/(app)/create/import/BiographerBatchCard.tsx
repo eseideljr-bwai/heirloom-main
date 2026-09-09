@@ -18,7 +18,7 @@
  * On full success it locks and hands off to the Library via onAllPublished.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KINLOOM_TYPE_SLUGS } from '../../../../lib/agent/tools';
 
 export type ProposedKinloom = {
@@ -42,6 +42,9 @@ export type BatchInput = {
 };
 
 type ItemStatus = 'idle' | 'publishing' | 'done' | 'error';
+
+/** Fallback wait when a 429 arrives without a Retry-After we can read. */
+const DEFAULT_COOLDOWN_SECONDS = 45;
 
 type PublishResult = { ok: boolean; ulid?: string; title: string; error?: string };
 
@@ -85,6 +88,19 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
   const [errors, setErrors] = useState<Array<string | null>>(() => proposed.map(() => null));
   const [publishing, setPublishing] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  // Rate-limit cooldown. Kept separate from `banner` (which reports genuine
+  // per-item failures) because this one is transient and self-clearing: the
+  // work isn't lost, it just can't continue yet.
+  const [throttled, setThrottled] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  // Self-rescheduling tick. Counts down once per second and stops at zero, so
+  // there's no interval left running once the wait is over.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const id = window.setTimeout(() => setCooldown(c => c - 1), 1000);
+    return () => window.clearTimeout(id);
+  }, [cooldown]);
 
   const keptCount = dropped.filter(d => !d).length;
   // "All published" only counts kept items, and requires at least one kept.
@@ -113,6 +129,8 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
     setEditing(null);
     setPublishing(true);
     setBanner(null);
+    setThrottled(false);
+    setCooldown(0);
     setStatuses(prev => prev.map((s, i) => (targets.includes(i) ? 'publishing' : s)));
     setErrors(prev => prev.map((e, i) => (targets.includes(i) ? null : e)));
 
@@ -122,9 +140,10 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
     // silent wait, and records each success immediately — so a retry only
     // re-sends the items that genuinely failed, never re-creating a saved one.
     let failed = 0;
-    // Set when the backend rate-limits us; carries the message (which includes
-    // how long to wait) and signals that we stopped early rather than finished.
-    let throttled: string | null = null;
+    // Set when the backend rate-limits us — signals we stopped early rather
+    // than finished, and carries the wait so the banner can count it down.
+    let rateLimited = false;
+    let retryAfter: number | undefined;
 
     for (const idx of targets) {
       try {
@@ -140,15 +159,18 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
           }),
         });
         if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
+          const data = (await res.json().catch(() => ({}))) as {
+            error?: string;
+            retryAfterSeconds?: number;
+          };
           // A 429 is not this item's fault, and pressing on makes it worse:
           // every further request spends more of the same budget and pushes
           // the reset further out. Stop here and hand the remaining items back
           // to 'idle' — they were never attempted, so marking them 'error'
           // would inflate the retry count with work that never failed.
           if (res.status === 429) {
-            throttled =
-              data.error ?? 'Too many requests right now. Please wait a moment and try again.';
+            rateLimited = true;
+            retryAfter = data.retryAfterSeconds;
             setStatuses(prev => prev.map(s => (s === 'publishing' ? 'idle' : s)));
             break;
           }
@@ -178,11 +200,15 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
 
     // Stopped early on a rate limit: some items may be saved, the rest are
     // untouched and still queued. Not a handoff — there's more to publish.
-    if (throttled) {
-      const alsoFailed =
-        failed > 0 ? ` ${failed} kinloom${failed === 1 ? '' : 's'} also couldn’t be saved.` : '';
+    // The wait is rendered as a live countdown rather than baked into the
+    // banner text, so the number on screen stays true as it ticks down.
+    if (rateLimited) {
+      setThrottled(true);
+      setCooldown(retryAfter ?? DEFAULT_COOLDOWN_SECONDS);
       setBanner(
-        `${throttled}${alsoFailed} Anything already saved is safe — retrying only sends what’s left.`,
+        failed > 0
+          ? `${failed} kinloom${failed === 1 ? '' : 's'} also couldn’t be saved.`
+          : null,
       );
       return;
     }
@@ -219,7 +245,9 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
             ? `Publish ${remainingCount} to your library`
             : `Publish ${remainingCount} & continue`;
 
-  const publishDisabled = publishing || allPublished || keptCount === 0;
+  // Publishing during the cooldown just spends another request against a
+  // budget that hasn't reset, so the action is held until the timer expires.
+  const publishDisabled = publishing || allPublished || keptCount === 0 || cooldown > 0;
 
   return (
     <div
@@ -352,6 +380,25 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
           );
         })}
       </div>
+
+      {throttled && (
+        <p style={{ fontSize: 13, color: 'var(--fg-2)', margin: '0 0 16px', lineHeight: 1.55 }}>
+          {cooldown > 0 ? (
+            <>
+              Too many requests right now. Anything already saved is safe — retrying only
+              sends what&rsquo;s left.{' '}
+              <strong style={{ fontWeight: 600 }}>
+                Try again in {cooldown}s
+              </strong>
+            </>
+          ) : (
+            <>
+              Ready to go. Anything already saved is safe — retrying only sends what&rsquo;s
+              left. <strong style={{ fontWeight: 600 }}>Try again</strong>
+            </>
+          )}
+        </p>
+      )}
 
       {banner && (
         <p style={{ fontSize: 13, color: 'var(--destructive)', margin: '0 0 16px', lineHeight: 1.55 }}>
