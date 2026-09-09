@@ -6,6 +6,8 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { useActiveFamilySpace } from '../../lib/active-family-space';
 import type { AuthUser } from '../../lib/auth';
+import { useFeedback } from './feedback/FeedbackContext';
+import { FeedbackNavItem } from './feedback/FeedbackTrigger';
 
 // ─── Icons ────────────────────────────────────────────────────────────
 
@@ -202,6 +204,7 @@ export default function AppNav({ user }: { user: AuthUser }) {
   const pathname = usePathname();
   const router = useRouter();
   const { logout } = useAuth();
+  const feedback = useFeedback();
 
   // Below 768px the sidebar becomes an off-canvas drawer. Above it,
   // `open` is inert — the trigger and backdrop are display:none and the
@@ -344,6 +347,7 @@ export default function AppNav({ user }: { user: AuthUser }) {
             {SECONDARY_NAV.map(item => (
               <NavItem key={item.href} {...item} active={isActive(item.href)} />
             ))}
+            {feedback.enabled && <FeedbackNavItem onOpen={feedback.openSheet} />}
           </div>
         </nav>
 

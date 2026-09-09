@@ -11,6 +11,7 @@ import {
 } from '../../../lib/kinloom';
 import { KINLOOM_TYPES } from '../../lib/kinloom-types';
 import { paginate, parsePageParam } from '../../../lib/pagination';
+import { matchesDateRange, parseDayParam } from '../../../lib/date-filter';
 import Pagination from '../../components/Pagination';
 import LibraryFilters from './LibraryFilters';
 
@@ -76,7 +77,7 @@ function KinloomCard({ row }: { row: LibraryRow }) {
   );
 }
 
-type Search = { type?: string; q?: string; page?: string };
+type Search = { type?: string; q?: string; page?: string; from?: string; to?: string };
 
 export default async function LibraryPage({ searchParams }: { searchParams?: Search }) {
   const familySpaceId = await requireActiveSpaceId();
@@ -91,22 +92,48 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
   // in /family/feed. The /library endpoint returns the whole space and has no
   // author filter, so scope to the current member here.
   // /home's user_summary.member_id is authoritative for the current member;
-  // family_spaces[].member_id is optional and often absent on /me.
-  const myMemberId = home.userSummary?.member_id || activeSpace?.member_id || null;
-  const kinlooms = myMemberId
-    ? allKinlooms.filter(r => r.author?.member_id === myMemberId)
-    : allKinlooms;
+  // family_spaces[].member_id is optional and often absent on /me. The API is
+  // inconsistent about ULID casing across endpoints, so compare lowercased.
+  const myMemberIds = new Set(
+    [home.userSummary?.member_id, activeSpace?.member_id]
+      .filter((v): v is string => typeof v === 'string' && v.length > 0)
+      .map(v => v.toLowerCase()),
+  );
+  const kinlooms = allKinlooms.filter(r =>
+    r.author?.member_id && myMemberIds.has(String(r.author.member_id).toLowerCase()),
+  );
   const total = kinlooms.length;
+
+  // Without a resolvable member id we can't scope the space-wide payload to
+  // the current user; surface that instead of showing someone else's pieces.
+  if (myMemberIds.size === 0) {
+    return (
+      <div className="library-page">
+        <div className="library-page__header">
+          <p className="eyebrow">Library</p>
+          <h1 className="library-page__title">Your kinlooms</h1>
+        </div>
+        <div className="empty-card">
+          <p className="empty-card__text">
+            We couldn&rsquo;t load your library right now. Please refresh the page or try again shortly.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const type = searchParams?.type || '';
   const q = (searchParams?.q || '').trim().toLowerCase();
+  const from = parseDayParam(searchParams?.from);
+  const to = parseDayParam(searchParams?.to);
   const filtered = kinlooms.filter(r => {
     const matchType = !type || type === 'All' || r.type_label === type;
     const matchQ = !q
       || (r.title || '').toLowerCase().includes(q)
       || rowExcerpt(r).toLowerCase().includes(q);
-    return matchType && matchQ;
+    return matchType && matchQ && matchesDateRange(r.created_at, from, to);
   });
+  const hasFilters = Boolean(type || q || from || to);
 
   const { items: pageRows, page, totalPages } = paginate(filtered, parsePageParam(searchParams?.page));
 
@@ -124,11 +151,13 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
           </Link>
         </div>
         <p className="library-page__sub">
-          {total} piece{total === 1 ? '' : 's'} in your library.
+          {hasFilters
+            ? `${filtered.length} matching of ${total} piece${total === 1 ? '' : 's'}.`
+            : `${total} piece${total === 1 ? '' : 's'} in your library.`}
         </p>
       </div>
 
-      <LibraryFilters types={typeLabels} type={type} q={q} />
+      <LibraryFilters types={typeLabels} type={type} q={q} from={from} to={to} />
 
       {kinlooms.length === 0 ? (
         <div className="empty-card">
@@ -148,7 +177,7 @@ export default async function LibraryPage({ searchParams }: { searchParams?: Sea
             page={page}
             totalPages={totalPages}
             basePath="/library"
-            params={{ type, q: searchParams?.q }}
+            params={{ type, q: searchParams?.q, from, to }}
             totalItems={filtered.length}
             label="Library pages"
           />

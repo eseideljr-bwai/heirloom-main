@@ -357,6 +357,10 @@ function EditKinloomModal({
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!title.trim()) {
+      setError('Please give it a title before saving.');
+      return;
+    }
     if (!body.trim()) {
       setError('Please write something before saving.');
       return;
@@ -364,12 +368,12 @@ function EditKinloomModal({
     setError(null);
     setPhotoError(null);
 
-    const nextTitle = title.trim() || 'Untitled';
+    const nextTitle = title.trim();
     const nextBody = body.trim();
 
     // Build a partial payload from only the fields the user changed.
     const payload: UpdateKinloomPayload = {};
-    if (nextTitle !== (initial.title.trim() || 'Untitled')) payload.title = nextTitle;
+    if (nextTitle !== initial.title.trim()) payload.title = nextTitle;
     if (nextBody !== initial.body.trim()) payload.body = nextBody;
     if (visibility !== initial.visibility) payload.visibility = visibility;
     if (!sameIdSet(tagged, initial.tagged)) payload.tagged_member_ids = tagged;

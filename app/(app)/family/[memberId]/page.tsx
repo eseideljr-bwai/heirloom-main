@@ -1,23 +1,63 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { requireActiveSpaceId } from '../../../../lib/server/auth';
-import { getMemberProfile } from '../../../../lib/server/queries';
+import { getLibraryServer, getMemberProfile } from '../../../../lib/server/queries';
 import { ApiError } from '../../../../lib/api';
-import { formatKinloomDate } from '../../../../lib/kinloom';
+import { formatKinloomDate, type LibraryRow } from '../../../../lib/kinloom';
+import { paginate, parsePageParam, PAGE_SIZE } from '../../../../lib/pagination';
+import Pagination from '../../../components/Pagination';
 
 export const dynamic = 'force-dynamic';
 
-export default async function MemberProfilePage({ params }: { params: { memberId: string } }) {
+type Search = { page?: string };
+
+/** Newest first, matching the order the profile endpoint itself uses. */
+function sortByNewestFirst(rows: LibraryRow[]): LibraryRow[] {
+  const time = (row: LibraryRow) => {
+    const parsed = new Date(row.created_at ?? '').getTime();
+    return Number.isNaN(parsed) ? -Infinity : parsed;
+  };
+  return [...rows].sort((a, b) => time(b) - time(a));
+}
+
+export default async function MemberProfilePage({
+  params,
+  searchParams,
+}: {
+  params: { memberId: string };
+  searchParams?: Search;
+}) {
   const familySpaceId = await requireActiveSpaceId();
 
   let data;
+  let library: LibraryRow[] = [];
   try {
-    data = await getMemberProfile(familySpaceId, params.memberId);
+    [data, { kinlooms: library }] = await Promise.all([
+      getMemberProfile(familySpaceId, params.memberId),
+      getLibraryServer(familySpaceId),
+    ]);
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) notFound();
     throw err;
   }
-  const { member, kinlooms, kinloomCount } = data;
+  const { member, kinloomCount } = data;
+
+  // The profile endpoint caps its `kinlooms` list at 20 with no page param,
+  // so paging over it alone would strand anything past the cap (QA UI-16).
+  // /library returns the whole space under the same visibility rules, so
+  // pull this member's full set from there and fall back to the profile
+  // list only if the library yields less than the endpoint already gave us.
+  const memberId = params.memberId.toLowerCase();
+  const fromLibrary = library.filter(
+    r => r.author?.member_id && String(r.author.member_id).toLowerCase() === memberId,
+  );
+  const allKinlooms = sortByNewestFirst(
+    fromLibrary.length >= data.kinlooms.length ? fromLibrary : data.kinlooms,
+  );
+  const { items: kinlooms, page, totalPages } = paginate(
+    allKinlooms,
+    parsePageParam(searchParams?.page),
+  );
 
   return (
     <div className="member-page">
@@ -48,8 +88,8 @@ export default async function MemberProfilePage({ params }: { params: { memberId
         <p className="member-page__bio">{member.description}</p>
       )}
 
-      <h2 className="member-page__h2">Their kinlooms</h2>
-      {kinlooms.length === 0 ? (
+      <h2 className="member-page__h2" id="their-kinlooms">Their kinlooms</h2>
+      {allKinlooms.length === 0 ? (
         <div className="empty-card">
           <p className="empty-card__text">
             {kinloomCount > 0
@@ -58,18 +98,29 @@ export default async function MemberProfilePage({ params }: { params: { memberId
           </p>
         </div>
       ) : (
-        <div className="member-kinlooms">
-          {kinlooms.map(k => (
-            <Link key={k.ulid} href={`/library/${k.ulid}`} className="kinloom-card">
-              <div className="kinloom-card__top">
-                {k.type_label && <span className="badge">{k.type_label}</span>}
-              </div>
-              <h3 className="kinloom-card__title">{k.title || 'Untitled'}</h3>
-              {k.excerpt && <p className="kinloom-card__excerpt">{k.excerpt}</p>}
-              {k.created_at && <p className="kinloom-card__byline">{formatKinloomDate(k.created_at)}</p>}
-            </Link>
-          ))}
-        </div>
+        <>
+          <div className="member-kinlooms">
+            {kinlooms.map(k => (
+              <Link key={k.ulid} href={`/library/${k.ulid}`} className="kinloom-card">
+                <div className="kinloom-card__top">
+                  {k.type_label && <span className="badge">{k.type_label}</span>}
+                </div>
+                <h3 className="kinloom-card__title">{k.title || 'Untitled'}</h3>
+                {k.excerpt && <p className="kinloom-card__excerpt">{k.excerpt}</p>}
+                {k.created_at && <p className="kinloom-card__byline">{formatKinloomDate(k.created_at)}</p>}
+              </Link>
+            ))}
+          </div>
+          <Pagination
+            page={page}
+            totalPages={totalPages}
+            basePath={`/family/${encodeURIComponent(params.memberId)}`}
+            hash="their-kinlooms"
+            totalItems={allKinlooms.length}
+            pageSize={PAGE_SIZE}
+            label="Member kinlooms pages"
+          />
+        </>
       )}
     </div>
   );
