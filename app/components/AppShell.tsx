@@ -18,10 +18,18 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { useActiveFamilySpace } from '../../lib/active-family-space';
+import { OnboardingProvider } from '../../lib/onboarding-context';
+import type { OnboardingFlags } from '../../lib/onboarding';
 import AppNav from './AppNav';
 import { FeedbackProvider } from './feedback/FeedbackContext';
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+export default function AppShell({
+  onboardingFlags,
+  children,
+}: {
+  onboardingFlags: OnboardingFlags;
+  children: React.ReactNode;
+}) {
   const { user, authReady, provisional } = useAuth();
   const { activeSpaceId, spaces } = useActiveFamilySpace();
   const router = useRouter();
@@ -65,11 +73,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     // FeedbackProvider sits inside the auth gate, so the feedback tool exists
     // only on authenticated routes. With its flag off it renders children and
     // nothing else.
-    <FeedbackProvider>
-      <div className="app-shell">
-        <AppNav user={user} />
-        <main className="app-shell__main">{children}</main>
-      </div>
-    </FeedbackProvider>
+    <OnboardingProvider initialFlags={onboardingFlags}>
+      <FeedbackProvider>
+        <div className="app-shell">
+          <AppNav user={user} />
+          <main className="app-shell__main">{children}</main>
+        </div>
+      </FeedbackProvider>
+    </OnboardingProvider>
   );
 }

@@ -24,6 +24,7 @@ import {
   BIOGRAPHER_SOFT_WORD_LIMIT,
 } from '../../../../lib/biographer/constants';
 import BiographerView from './BiographerView';
+import { MarkOnboardingTask } from '../../../../lib/onboarding-context';
 
 type Phase = 'pick' | 'preview' | 'converse';
 
@@ -106,6 +107,7 @@ export default function ImportPage() {
 
   return (
     <div className="import-page">
+      <MarkOnboardingTask task="agent" />
       <p className="eyebrow" style={{ marginBottom: 12 }}>Create · Import</p>
       <h1 className="import-page__title">
         Bring a document in.
