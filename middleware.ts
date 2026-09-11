@@ -31,6 +31,7 @@ const PROTECTED_PREFIXES = [
   '/settings',
   '/help',
   '/onboarding',
+  '/welcome',
   // Needs a session but NOT a verified email (that's the whole point of
   // this screen). The verified-email gate lives in the (app)/onboarding
   // server layouts, which deliberately don't cover this route.
@@ -98,7 +99,13 @@ export function middleware(req: NextRequest) {
     }
     return NextResponse.redirect(url);
   }
-  if (hasSession && AUTH_ENTRY_PATHS.has(pathname)) {
+  // A server layout that just rejected the cookie (verifySession → null)
+  // redirects here with ?reason=session_expired. The cookie is still
+  // present, so bouncing back to /home would loop until the browser gives
+  // up (ERR_TOO_MANY_REDIRECTS). Let the login page render instead; the
+  // client either re-mints a valid cookie or shows the form.
+  const sessionRejected = req.nextUrl.searchParams.get('reason') === 'session_expired';
+  if (hasSession && AUTH_ENTRY_PATHS.has(pathname) && !sessionRejected) {
     const url = req.nextUrl.clone();
     url.pathname = '/home';
     url.search = '';

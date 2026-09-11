@@ -1,8 +1,17 @@
 import Link from 'next/link';
-import { requireActiveSpaceId } from '../../../lib/server/auth';
-import { getHome, type HomeRecentKinloom, type HomeWhisper } from '../../../lib/server/queries';
+import { redirect } from 'next/navigation';
+import { requireActiveSpaceId, requireUser } from '../../../lib/server/auth';
+import {
+  getHome,
+  getManageMembers,
+  type HomeRecentKinloom,
+  type HomeWhisper,
+} from '../../../lib/server/queries';
+import { readOnboardingFlagsServer } from '../../../lib/server/onboarding';
 import { KINLOOM_TYPE_MAP } from '../../lib/kinloom-types';
 import { formatKinloomDate } from '../../../lib/kinloom';
+import HomeActions from './HomeActions';
+import OnboardingChecklist from './OnboardingChecklist';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,9 +92,27 @@ function WhisperRow({ w, isLast }: { w: HomeWhisper; isLast: boolean }) {
 export default async function HomePage() {
   const familySpaceId = await requireActiveSpaceId();
 
+  // First arrival: send them through the welcome splash once. The splash
+  // writes the cookie, so this only ever fires for a browser that hasn't
+  // seen it for this user.
+  const user = await requireUser();
+  const flags = readOnboardingFlagsServer(user.ulid);
+  if (!flags.welcomeSeen) redirect('/welcome');
+
   const data = await getHome(familySpaceId);
   const { recentKinlooms, recentWhispers, legacyBankProgress } = data;
   const total = legacyBankProgress.total_kinlooms;
+
+  // "Invite a family member" is done once anyone besides me is in the space
+  // or an invitation is outstanding. manage-members may be admin-only, so a
+  // failure just leaves the item unchecked.
+  let invited = false;
+  try {
+    const { members, pending } = await getManageMembers(familySpaceId);
+    invited = members.length > 1 || pending.length > 0;
+  } catch {
+    invited = false;
+  }
   const target = legacyBankProgress.target || 50;
   const pct = legacyBankProgress.percent != null
     ? Math.max(0, Math.min(100, Math.round(legacyBankProgress.percent)))
@@ -97,20 +124,12 @@ export default async function HomePage() {
         <p className="eyebrow">Your family space</p>
         <h1 className="home-page__title">Welcome home.</h1>
         <p className="home-page__intro">Your legacy is growing, one story at a time.</p>
+        <Link href="/welcome" className="home-page__revisit">Revisit the welcome</Link>
       </div>
 
-      <div className="home-actions">
-        {[
-          { label: 'Create a kinloom', desc: 'Capture something worth preserving.', href: '/create', primary: true },
-          { label: 'Your library',      desc: "Review what you've already captured.", href: '/library', primary: false },
-          { label: 'Family space',      desc: 'See what your family has shared.', href: '/family', primary: false },
-        ].map(a => (
-          <Link key={a.href} href={a.href} className={`home-action${a.primary ? ' is-primary' : ''}`}>
-            <h3 className="home-action__title">{a.label}</h3>
-            <p className="home-action__desc">{a.desc}</p>
-          </Link>
-        ))}
-      </div>
+      <HomeActions hasKinlooms={total > 0} />
+
+      <OnboardingChecklist totalKinlooms={total} invited={invited} />
 
       <Link href="/legacy-bank" className="legacy-bank-card">
         <svg viewBox="0 0 200 100" preserveAspectRatio="xMidYMid slice" className="legacy-bank-card__bg" aria-hidden="true">

@@ -1,73 +1,92 @@
-const FAQS = [
+import Link from 'next/link';
+import HelpFeedbackLink from './HelpFeedbackLink';
+
+const SECTIONS = [
   {
-    q: 'What is a kinloom?',
-    a: 'A kinloom is the smallest unit of a person\'s legacy — a meaningful piece of your life captured to be shared with your family and preserved across generations.',
+    num: '01',
+    title: 'Three ways to make a kinloom',
+    body: 'Every kinloom starts the same way — with something you want your family to keep. How you get it down is up to you.',
+    points: [
+      'Write it. A prompt asks one question at a time and you shape the words.',
+      'Talk it through. Speak your answers; what you say is kept the way you said it.',
+      'Import what you have. Photos, letters, and documents become starting points you approve.',
+    ],
+    href: '/create/start',
+    cta: 'Create a kinloom',
   },
   {
-    q: 'Who can see my kinlooms?',
-    a: 'Only the family members you\'ve invited to your private family space. Kinloom is invite-only by design — nothing you create is public.',
+    num: '02',
+    title: 'Where what you make lives',
+    body: 'Nothing you preserve is public. A kinloom sits in your library until you decide to share it with your family space.',
+    points: [
+      'Your library holds everything you have written, spoken, or imported.',
+      'Family kinlooms are the ones shared with the people you invite.',
+    ],
+    href: '/library',
+    cta: 'Open your library',
   },
   {
-    q: 'How does the AI Legacy Bank work?',
-    a: 'The AI Legacy Bank lets family members ask questions about a person\'s stories, lessons, and beliefs. It responds only using what that person has actually captured in their kinlooms — no invented facts, no impersonation.',
+    num: '03',
+    title: 'Inviting your family',
+    body: 'Kinloom works best with one other person in it. An invitation gives them their own space to preserve alongside yours — they are not just readers.',
+    points: [
+      'You choose who joins. The space stays invite-only.',
+      'Their kinlooms sit next to yours, and neither of you can edit the other.',
+    ],
+    href: '/family/members',
+    cta: 'Invite a family member',
   },
   {
-    q: 'Can I edit or delete a kinloom after saving?',
-    a: 'Yes. Open any kinloom from your library and use the edit or delete actions. Deleted kinlooms are removed permanently.',
-  },
-  {
-    q: 'How do I invite family members?',
-    a: 'Go to Family → Members and use the invite button. Invited members receive an email with a link to join your family space.',
-  },
-  {
-    q: 'Can I export my kinlooms?',
-    a: 'Yes. Visit Settings → Export & backup to download all your kinlooms as PDF or JSON.',
+    num: '04',
+    title: 'What the Legacy Bank does',
+    body: 'The Legacy Bank answers questions using only the kinlooms your family has actually created. No invented facts, no impersonation.',
+    points: [
+      'The more you preserve, the more it can answer.',
+      'Every answer names the kinlooms it drew from.',
+    ],
+    href: '/legacy-bank',
+    cta: 'Visit the Legacy Bank',
   },
 ];
 
 export default function HelpPage() {
   return (
     <div className="help-page">
-
-      <div style={{ marginBottom: 48 }}>
-        <p style={{ fontSize: 13, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#556b5b', margin: '0 0 12px' }}>
-          Help
+      <div className="help-page__header">
+        <p className="eyebrow help-page__eyebrow">Getting Started</p>
+        <h1 className="help-page__title">How Kinloom works.</h1>
+        <p className="help-page__lede">
+          Everything the onboarding showed you, kept in one place. Nothing here is required
+          reading — return to whichever part you need.
         </p>
-        <h1 className="help-page__title">
-          How can we help?
-        </h1>
-        <p style={{ fontSize: 18, lineHeight: 1.65, color: 'rgba(26,26,26,0.7)', margin: 0 }}>
-          Answers to the most common questions about Kinloom.
-        </p>
+        <p className="help-page__aside">One kinloom is enough to begin. The rest follows.</p>
       </div>
 
-      {/* FAQ */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 0, marginBottom: 64 }}>
-        {FAQS.map((item, i) => (
-          <div key={i} style={{ padding: '24px 0', borderBottom: '1px solid #d4d2cc' }}>
-            <h3 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 20, margin: '0 0 10px', color: '#1a1a1a' }}>
-              {item.q}
-            </h3>
-            <p style={{ fontSize: 15, lineHeight: 1.65, color: 'rgba(26,26,26,0.7)', margin: 0 }}>
-              {item.a}
-            </p>
-          </div>
+      <div className="help-sections">
+        {SECTIONS.map(s => (
+          <section key={s.num} className="help-section" aria-labelledby={`help-section-${s.num}`}>
+            <div className="help-section__head">
+              <span className="help-section__num" aria-hidden="true">{s.num}</span>
+              <h2 id={`help-section-${s.num}`} className="help-section__title">{s.title}</h2>
+            </div>
+            <p className="help-section__body">{s.body}</p>
+            <ul className="help-section__points">
+              {s.points.map(pt => (
+                <li key={pt} className="help-section__point">
+                  <span className="help-section__dot" aria-hidden="true" />
+                  <span>{pt}</span>
+                </li>
+              ))}
+            </ul>
+            <Link href={s.href} className="help-section__cta">{s.cta}</Link>
+          </section>
         ))}
       </div>
 
-      {/* Contact */}
-      <div style={{ background: 'rgba(85,107,91,0.05)', border: '1px solid rgba(85,107,91,0.15)', borderRadius: 12, padding: '32px 36px' }}>
-        <h2 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 24, margin: '0 0 8px', color: '#1a1a1a' }}>
-          Still have questions?
-        </h2>
-        <p style={{ fontSize: 15, color: 'rgba(26,26,26,0.7)', margin: '0 0 20px' }}>
-          Reach out and we'll get back to you.
-        </p>
-        <a href="mailto:hello@kinloom.com" style={{ display: 'inline-block', background: '#556b5b', color: '#fdfcfa', padding: '12px 24px', borderRadius: 8, fontSize: 14, fontWeight: 500, textDecoration: 'none' }}>
-          Contact support
-        </a>
+      <div className="help-page__foot">
+        <Link href="/welcome" className="help-page__foot-link">See the welcome screen again</Link>
+        <HelpFeedbackLink />
       </div>
-
     </div>
   );
 }

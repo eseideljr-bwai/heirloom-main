@@ -187,6 +187,8 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  /** Starter-prompt override from /create/start (`?prompt=`). */
+  const [promptOverride, setPromptOverride] = useState<string | null>(null);
   const [voiceValue, setVoiceValue] = useState<VoiceRecorderValue | null>(null);
   const [showVoice, setShowVoice] = useState(false);
   const hasVoice = voiceValue !== null;
@@ -314,6 +316,18 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     };
   }, []);
 
+  // Starter prompt from /create/start: prefill the title and swap the
+  // question shown on Step 1. Read via window.location (not useSearchParams)
+  // for the same Suspense/prerender reasons as app/page.tsx.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const t = params.get('title');
+    const p = params.get('prompt');
+    if (t) setTitle(prev => prev || t.slice(0, 255));
+    if (p) setPromptOverride(p.slice(0, 500));
+  }, []);
+
   // One-time handoff from Talk mode: consume a pre-filled draft and jump to Step 3.
   useEffect(() => {
     const HANDOFF_KEY = 'kinloom:draft-handoff';
@@ -347,6 +361,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   }
 
   const resolvedType = typeData ?? fallbackType!;
+  const promptText = promptOverride ?? resolvedType.prompt;
 
   const handlePickPhoto = () => {
     setPhotoError(null);
@@ -737,7 +752,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
           <div className="prompt-block" style={{ marginBottom: 40 }}>
             <p style={{ fontSize: 20, lineHeight: 1.7 }}>
-              &ldquo;{resolvedType.prompt}&rdquo;
+              &ldquo;{promptText}&rdquo;
             </p>
           </div>
 
@@ -891,7 +906,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
             <div style={{ marginTop: 16, background: '#f5f4f1', borderRadius: 10, padding: '16px 16px' }}>
               <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(26,26,26,0.45)' }}>The prompt</p>
               <p style={{ margin: 0, fontSize: 13, fontStyle: 'italic', lineHeight: 1.65, color: 'rgba(26,26,26,0.6)' }}>
-                &ldquo;{resolvedType.prompt}&rdquo;
+                &ldquo;{promptText}&rdquo;
               </p>
             </div>
           </div>
