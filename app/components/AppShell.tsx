@@ -19,6 +19,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { useActiveFamilySpace } from '../../lib/active-family-space';
 import AppNav from './AppNav';
+import AppFooter from './AppFooter';
 import { FeedbackProvider } from './feedback/FeedbackContext';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -69,6 +70,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <div className="app-shell">
         <AppNav user={user} />
         <main className="app-shell__main">{children}</main>
+        <AppFooter />
       </div>
     </FeedbackProvider>
   );

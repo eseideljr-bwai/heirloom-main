@@ -2530,163 +2530,254 @@ button {
   40% { transform: scale(1); opacity: 1; }
 }
 
-/* ─── App shell layout (Epic 2) ─────────────────────────────── */
+/* ─── App shell + top navigation ────────────────────────────────
+   The Federated Containers design puts navigation in a horizontal bar
+   with two rows: row 1 is your own Home, row 2 the active Family Space
+   (rendered only inside /spaces). The bar is sticky rather than fixed,
+   so it occupies flow space and page shells need no top padding to
+   clear it — which is why the old `margin-left: 240px` is gone. */
 .app-shell {
   display: flex;
+  flex-direction: column;
   min-height: 100vh;
   background: var(--background);
 }
 .app-shell__main {
+  /* Takes the space between the nav and the footer, so on a short page
+     the footer sits at the bottom of the viewport rather than a full
+     screen below the fold. */
   flex: 1;
-  margin-left: 240px;
-  min-height: 100vh;
+  /* Stops wide flex/grid children forcing the column open. */
+  min-width: 0;
 }
 
-.app-nav {
-  width: 240px;
-  flex-shrink: 0;
-  position: fixed;
+.topnav {
+  position: sticky;
   top: 0;
-  left: 0;
-  bottom: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--background);
-  border-right: 1px solid var(--border);
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   z-index: 40;
+  background: rgba(253, 252, 250, 0.88);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
 }
-.app-nav__logo { display: block; text-decoration: none; }
-.app-nav__logo img { height: 56px; width: auto; }
-.app-nav__head { padding: 20px 16px 4px; }
-.app-nav__space { padding: 8px 16px 4px; }
-.app-nav__nav { flex: 1; padding: 12px 12px 0; }
-.app-nav__group { display: flex; flex-direction: column; gap: 2px; }
-.app-nav__rule {
-  height: 1px;
-  background: var(--border);
-  margin: 16px 4px;
+.topnav__row {
+  max-width: 1440px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px clamp(10px, 2vw, 28px);
+  padding: clamp(10px, 1.6vw, 18px) clamp(16px, 3vw, 40px);
 }
-.app-nav__foot {
-  padding: 12px 16px 20px;
-  border-top: 1px solid var(--border);
+.topnav__row--scope {
+  padding-top: 0;
+  padding-bottom: 10px;
+  flex-wrap: wrap;
 }
-.app-nav__email {
+
+.topnav__logo { display: inline-flex; text-decoration: none; flex-shrink: 0; }
+.topnav__logo img { height: clamp(36px, 4.6vw, 52px); width: auto; }
+
+.topnav__links {
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 1.6vw, 24px);
+  font-size: 14px;
+  min-width: 0;
+}
+.topnav__link {
+  white-space: nowrap;
+  text-decoration: none;
+  color: var(--fg-4);
+  padding-bottom: 3px;
+  border-bottom: 1px solid transparent;
+  transition: color 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.topnav__link:hover { color: var(--foreground); }
+.topnav__link.is-active {
+  color: var(--foreground);
+  border-bottom-color: var(--primary);
+}
+
+/* Row 2 is subordinate to row 1: same treatment, one step quieter. */
+.topnav__links--scope { font-size: 13px; }
+
+.topnav__right {
+  display: flex;
+  align-items: center;
+  gap: clamp(8px, 1.4vw, 16px);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.topnav__create {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary-foreground);
+  background: var(--primary);
+  padding: 9px 16px;
+  border-radius: 8px;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.topnav__create:hover { transform: scale(1.02); color: var(--primary-foreground); }
+.topnav__vault {
+  font-size: 14px;
+  color: var(--fg-4);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.topnav__vault:hover,
+.topnav__vault.is-active { color: var(--foreground); }
+
+/* My Vault sits in the right-hand cluster beside the account menu,
+   which is where personal settings live. */
+.topnav__account { position: relative; }
+.topnav__account-btn {
+  display: flex;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: var(--radius-full);
+}
+.topnav__avatar {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  filter: saturate(0.95) sepia(0.05);
+  object-fit: cover;
+  background: var(--muted);
+}
+.topnav__avatar--initial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg-3);
+  filter: none;
+}
+.topnav__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(250px, 80vw);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-2xl);
+  overflow: hidden;
+  z-index: 60;
+}
+.topnav__menu-head { padding: 13px 16px; border-bottom: 1px solid var(--muted); }
+.topnav__menu-name {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  color: var(--foreground);
+  line-height: 1.2;
+  margin: 0;
+}
+.topnav__menu-email {
   font-size: 12px;
-  color: rgba(26,26,26,0.5);
-  margin: 0 0 10px;
+  color: var(--fg-4);
+  margin: 3px 0 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.app-nav__signout {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.topnav__menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 11px 16px;
+  font-size: 14px;
+  color: var(--fg-3);
   background: none;
   border: none;
-  padding: 0;
-  font-size: 13px;
-  color: rgba(26,26,26,0.55);
+  border-top: 1px solid var(--muted);
   cursor: pointer;
   font-family: inherit;
+  text-decoration: none;
 }
+.topnav__menu-item:hover { background: var(--secondary); }
+/* Duplicated into the menu for narrow widths only, where the standalone
+   My Vault link is hidden. */
+.topnav__menu-item--vault { display: none; }
+.topnav__menu-item--signout { color: var(--fg-5); }
+.topnav__menu-item--feedback { padding: 0; }
+.topnav__menu-item--feedback .fb-nav-item { width: 100%; padding: 11px 16px; }
 
-/* The mobile-only chrome. Hidden entirely on desktop; the
-   max-width block at the end of this file switches it on. */
-.app-topbar,
-.app-nav__backdrop,
-.app-nav__close {
+/* Mobile-only chrome. The drawer block near the end of this file
+   switches these on. */
+.topnav__menu-btn,
+.app-drawer,
+.app-drawer__backdrop {
   display: none;
 }
 
-/* ─── Family space switcher ─────────────────────────────────── */
+/* ─── Family space switcher ─────────────────────────────────────
+   Lives on nav row 2 and lists Family Spaces only. A person has exactly
+   one Home, reached from row 1, so Homes never appear here. */
 .space-switcher {
   position: relative;
 }
 .space-switcher__trigger {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 12px;
-  background: var(--secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-family: inherit;
-  font-size: 13px;
-  color: var(--fg-1);
+  gap: 9px;
   cursor: pointer;
-  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: var(--radius-full);
+  padding: 6px 13px 6px 12px;
+  font-family: inherit;
 }
-.space-switcher__trigger:hover:not(:disabled) {
-  border-color: var(--primary);
-}
-.space-switcher__trigger:disabled {
-  cursor: default;
-  opacity: 0.85;
-}
-.space-switcher__trigger:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
+.space-switcher__trigger:disabled { cursor: default; }
 .space-switcher__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  font-family: var(--font-serif);
+  font-size: clamp(15px, 1.7vw, 19px);
+  color: var(--foreground);
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
 }
+.space-switcher__trigger svg { color: var(--primary); }
 .space-switcher__menu {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 8px);
   left: 0;
-  right: 0;
+  min-width: 240px;
+  max-width: 80vw;
+  list-style: none;
   margin: 0;
   padding: 4px;
   background: var(--card);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
-  list-style: none;
-  z-index: 50;
-  max-height: 280px;
-  overflow-y: auto;
+  border-radius: 12px;
+  box-shadow: var(--shadow-xl);
+  z-index: 60;
 }
 .space-switcher__item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
-  padding: 8px 10px;
-  background: transparent;
+  padding: 9px 12px;
+  background: none;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
+  font-size: 14px;
   font-family: inherit;
-  font-size: 13px;
   color: var(--fg-2);
   cursor: pointer;
   text-align: left;
 }
-.space-switcher__item:hover,
-.space-switcher__item:focus-visible {
-  background: rgba(85,107,91,0.08);
-  color: var(--primary);
-  outline: none;
-}
-.space-switcher__item.is-active {
-  color: var(--primary);
-  font-weight: 500;
-}
+.space-switcher__item:hover { background: var(--secondary); }
+.space-switcher__item.is-active { color: var(--primary); font-weight: 500; }
 .space-switcher__item-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
-  min-width: 0;
 }
 
 /* ─── Paper texture (optional, toggled via .has-texture) ───── */
@@ -3383,35 +3474,83 @@ body.has-texture::before {
    these overrides win without editing the originals.
    ═══════════════════════════════════════════════════════════════ */
 
-/* ─── Shell + drawer nav ────────────────────────────────────── */
-@media (max-width: 768px) {
-  .app-shell__main {
-    margin-left: 0;
-    /* Clears the fixed top bar. */
-    padding-top: 56px;
-    /* Stops wide flex/grid children forcing the column open. */
-    min-width: 0;
-  }
+/* ─── Drawer nav (narrow widths) ─────────────────────────────────
+   Row 1 collapses into an off-canvas drawer. Create and the account
+   avatar stay in the bar, as the design requires; My Vault moves into
+   the account menu. */
+@media (max-width: 900px) {
+  .topnav__links,
+  .topnav__vault { display: none; }
+  .topnav__menu-item--vault { display: block; }
 
-  .app-topbar {
-    display: flex;
+  .topnav__row { gap: 8px; padding: 8px clamp(12px, 3vw, 20px); }
+  .topnav__row--scope { padding-top: 0; padding-bottom: 8px; }
+  .topnav__logo img { height: 34px; }
+
+  .topnav__menu-btn {
+    display: inline-flex;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    margin-left: -8px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--fg-2);
+    cursor: pointer;
+  }
+  .topnav__menu-btn:active { background: var(--secondary); }
+
+  /* Off-canvas. `visibility` keeps the links out of the tab order and
+     the a11y tree while closed.
+
+     The asymmetric timing is deliberate. Hiding is delayed by the
+     length of the slide so the drawer animates out instead of
+     vanishing. Revealing is immediate (0s, no delay) because a
+     *transitioned* visibility still computes to `hidden` on the first
+     frame, which makes focus() silently fail when the drawer opens. */
+  .app-drawer {
+    display: flex;
+    flex-direction: column;
     position: fixed;
     top: 0;
     left: 0;
-    right: 0;
-    height: 56px;
-    padding: 0 12px;
+    bottom: 0;
+    width: min(280px, 84vw);
     background: var(--background);
-    border-bottom: 1px solid var(--border);
-    z-index: 45;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    z-index: 55;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s linear 240ms;
+    padding-left: env(safe-area-inset-left);
   }
-  .app-topbar__logo { display: inline-flex; text-decoration: none; }
-  .app-topbar__logo img { height: 34px; width: auto; }
+  .app-drawer.is-open {
+    transform: translateX(0);
+    visibility: visible;
+    box-shadow: var(--shadow-xl);
+    transition:
+      transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s linear 0s;
+  }
 
-  .app-topbar__menu,
-  .app-nav__close {
+  .app-drawer__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 8px 4px 16px;
+  }
+  .app-drawer__logo { display: inline-flex; text-decoration: none; }
+  .app-drawer__logo img { height: 44px; width: auto; }
+  .app-drawer__close {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -3425,56 +3564,43 @@ body.has-texture::before {
     color: var(--fg-2);
     cursor: pointer;
   }
-  .app-topbar__menu:active,
-  .app-nav__close:active { background: var(--secondary); }
+  .app-drawer__close:active { background: var(--secondary); }
 
-  .app-nav {
-    /* Off-canvas. `visibility` keeps the links out of the tab order and
-       the a11y tree while closed.
-
-       The asymmetric timing is deliberate. Hiding is delayed by the
-       length of the slide so the drawer animates out instead of
-       vanishing. Revealing is immediate (0s, no delay) because a
-       *transitioned* visibility still computes to `hidden` on the first
-       frame, which makes focus() silently fail when the drawer opens. */
-    width: min(280px, 84vw);
-    transform: translateX(-100%);
-    visibility: hidden;
-    z-index: 55;
-    transition:
-      transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
-      visibility 0s linear 240ms;
-    padding-left: env(safe-area-inset-left);
-  }
-  .app-nav.is-open {
-    transform: translateX(0);
-    visibility: visible;
-    box-shadow: var(--shadow-xl);
-    transition:
-      transform 240ms cubic-bezier(0.16, 1, 0.3, 1),
-      visibility 0s linear 0s;
-  }
-
-  .app-nav__head {
+  .app-drawer__nav {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 8px 8px 4px 16px;
+    flex-direction: column;
+    gap: 2px;
+    padding: 12px;
   }
-  .app-nav__logo img { height: 44px; }
+  .app-drawer__link {
+    padding: 11px 14px;
+    border-radius: 8px;
+    font-size: 15px;
+    color: var(--fg-4);
+    text-decoration: none;
+    border-left: 2px solid transparent;
+  }
+  .app-drawer__link.is-active {
+    color: var(--primary);
+    background: rgba(85, 107, 91, 0.10);
+    border-left-color: var(--primary);
+    font-weight: 500;
+  }
+  .app-drawer__link--sub { padding-left: 26px; font-size: 14px; }
+  .app-drawer__rule { height: 1px; background: var(--border); margin: 12px 4px; }
+  .app-drawer__scope { padding: 4px 14px 10px; }
 
-  .app-nav__backdrop {
+  .app-drawer__backdrop {
     display: block;
     position: fixed;
     inset: 0;
     z-index: 50;
-    background: rgba(26,26,26,0.45);
+    background: rgba(26, 26, 26, 0.45);
     opacity: 0;
     visibility: hidden;
     transition: opacity 240ms ease, visibility 0s linear 240ms;
   }
-  .app-nav__backdrop.is-open {
+  .app-drawer__backdrop.is-open {
     opacity: 1;
     visibility: visible;
     transition: opacity 240ms ease, visibility 0s linear 0s;
@@ -3482,9 +3608,10 @@ body.has-texture::before {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-nav,
-  .app-nav__backdrop { transition: none; }
+  .app-drawer,
+  .app-drawer__backdrop { transition: none; }
 }
+
 
 /* ─── Page padding ──────────────────────────────────────────────
    Every page shell hardcodes `padding: 48px`, which costs 96px of a
@@ -3785,21 +3912,18 @@ body.has-texture::before {
 }
 
 /* ─── Chat flows ────────────────────────────────────────────────
-   The two full-screen conversations live inside AppShell, whose
-   main already has padding-top for the mobile topbar. Filling via
-   flex (not a hardcoded 100dvh) means the composer tracks both the
-   topbar and a keyboard-resized layout viewport.
+   The two full-screen conversations live inside AppShell. The top nav
+   is sticky rather than fixed, so it occupies flow space and main no
+   longer needs padding to clear it — the shell becomes a flex column
+   and main takes the remainder. That keeps the composer tracking a
+   keyboard-resized layout viewport.
 
    viewport-fit=cover is what makes env(safe-area-inset-*) non-zero;
-   the topbar/main padding grows by the inset so the notch doesn't
-   eat the hamburger. Desktop insets are 0, so this is a no-op there. */
+   the nav's own padding grows by the inset so the notch doesn't eat
+   the hamburger. Desktop insets are 0, so this is a no-op there. */
 @media (max-width: 768px) {
-  .app-topbar {
+  .topnav {
     padding-top: env(safe-area-inset-top, 0px);
-    height: calc(56px + env(safe-area-inset-top, 0px));
-  }
-  .app-shell__main {
-    padding-top: calc(56px + env(safe-area-inset-top, 0px));
   }
 
   .app-shell:has(.chat-flow) {
@@ -3807,11 +3931,13 @@ body.has-texture::before {
     height: 100dvh;
     min-height: 0;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
   .app-shell:has(.chat-flow) .app-shell__main {
     display: flex;
     flex-direction: column;
-    height: 100%;
+    flex: 1;
     min-height: 0;
     overflow: hidden;
   }
@@ -4363,3 +4489,243 @@ body.has-texture::before {
 @media (max-width: 640px) {
   .fb-card { padding: 20px 16px; }
 }
+
+/* ─── Screen stubs (temporary) ───────────────────────────────────
+   Scaffolding for routes the new two-level navigation points at
+   before their screens exist. Delete with ScreenStub.tsx once every
+   screen has landed. */
+.stub-page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: clamp(32px, 6vw, 72px) clamp(20px, 4vw, 48px);
+}
+.stub-page__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(32px, 5vw, 46px);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
+  color: var(--foreground);
+  margin: 12px 0 16px;
+}
+.stub-page__blurb {
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--fg-3);
+  margin: 0 0 28px;
+}
+.stub-page__note {
+  font-size: 13px;
+  color: var(--fg-5);
+  border-left: 2px solid var(--primary);
+  padding-left: 14px;
+  margin: 0;
+}
+
+/* ─── App footer ─────────────────────────────────────────────────
+   Names the active container and restates the privacy claim. The
+   prototype pairs this line with an "Edit copy" chip, a device
+   toggle and demo jump links; those are its own state switcher, not
+   product UI, so only the line is built here. */
+.app-footer {
+  padding: clamp(22px, 3vw, 42px) clamp(16px, 3vw, 40px);
+  /* --secondary at 60%, so the page ground reads through it. */
+  background: rgba(245, 244, 241, 0.6);
+  border-top: 1px solid var(--border);
+}
+.app-footer__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px clamp(16px, 3vw, 32px);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+/* Inert for now: the copy-editing mode behind it is not built. Styled
+   as the design draws it rather than greyed, since it is a placeholder
+   for a real control and not a disabled state in the product. */
+.app-footer__chip {
+  font-size: 12px;
+  padding: 7px 14px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  color: var(--fg-3);
+  background: var(--card);
+  border: 1px solid var(--border);
+  font-family: inherit;
+}
+.app-footer__chip:disabled { cursor: default; }
+
+.app-footer__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px clamp(14px, 2.6vw, 34px);
+  font-size: 14px;
+}
+.app-footer__link {
+  text-decoration: none;
+  color: var(--fg-4);
+  white-space: nowrap;
+  transition: color 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.app-footer__link:hover { color: var(--foreground); }
+.app-footer__link.is-active { color: var(--foreground); font-weight: 500; }
+
+.app-footer__line {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg-4);
+  margin: 0;
+  /* Holds the line to a readable measure instead of letting it run the
+     full width of a desktop footer. */
+  max-width: 46ch;
+}
+
+/* The two full-screen conversations own the viewport; a footer under
+   them would push the composer off-screen. */
+.app-shell:has(.chat-flow) .app-footer { display: none; }
+
+/* ─── My Vault ───────────────────────────────────────────────────
+   Everything the signed-in person has written. Values follow the
+   Federated Containers prototype; the container-query units there
+   (cqi) become viewport units here since the page is not rendered
+   inside a fixed preview shell. */
+.vault-page {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(24px, 3.6vw, 56px) clamp(16px, 3vw, 40px) clamp(30px, 4vw, 60px);
+}
+.vault-page__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(28px, 4.6vw, 54px);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  color: var(--foreground);
+  margin: clamp(10px, 1.4vw, 16px) 0 clamp(10px, 1.4vw, 16px);
+}
+.vault-page__intro {
+  font-size: clamp(14px, 1.5vw, 17px);
+  line-height: 1.6;
+  color: var(--fg-3);
+  margin: 0;
+  max-width: 56ch;
+}
+/* Sits where the design's summary sentence did, and carries its rule. */
+.vault-page__range {
+  font-family: var(--font-serif);
+  font-size: clamp(17px, 1.8vw, 21px);
+  line-height: 1.3;
+  color: var(--foreground);
+  margin: clamp(14px, 1.8vw, 22px) 0 0;
+  padding-top: clamp(14px, 1.8vw, 22px);
+  border-top: 1px solid var(--border);
+}
+
+.vault-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: clamp(16px, 2.2vw, 26px);
+}
+.vault-filter {
+  font-size: 13px;
+  padding: 8px 15px;
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+  text-decoration: none;
+  color: var(--fg-3);
+  background: var(--card);
+  border: 1px solid var(--border);
+  transition: background 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.vault-filter:hover { background: var(--secondary); color: var(--foreground); }
+.vault-filter.is-active {
+  color: var(--primary-foreground);
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.vault-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: clamp(14px, 2vw, 26px);
+  margin-top: clamp(18px, 2.4vw, 30px);
+}
+
+.vault-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: clamp(16px, 2vw, 24px);
+}
+.vault-card__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+/* One chip per place the kinloom is published. */
+.vault-chip {
+  font-size: 11px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--primary);
+  border: 1px solid rgba(85, 107, 91, 0.35);
+  background: rgba(85, 107, 91, 0.07);
+  border-radius: var(--radius-full);
+  padding: 4px 10px;
+}
+/* Published nowhere: the absence of a publication, not a place. */
+.vault-chip--private {
+  color: var(--fg-5);
+  border-color: var(--border);
+  background: var(--background);
+}
+.vault-card__type {
+  font-family: var(--font-serif);
+  font-size: 12px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--fg-5);
+  margin: 13px 0 0;
+}
+.vault-card__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(18px, 2vw, 23px);
+  line-height: 1.25;
+  color: var(--foreground);
+  margin: 5px 0 0;
+}
+.vault-card__title a { text-decoration: none; color: inherit; }
+.vault-card__title a:hover { color: var(--primary); }
+.vault-card__foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  /* Pins the row to the bottom so cards of different title lengths
+     still line their dates up. */
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--muted);
+}
+/* Restores the gap the auto margin collapses on short cards. */
+.vault-card__chips + .vault-card__type { margin-top: 13px; }
+.vault-card__title + .vault-card__foot { margin-top: 16px; }
+.vault-card__date {
+  font-size: 12px;
+  color: var(--fg-4);
+}
+.vault-card__action {
+  font-size: 13px;
+  color: var(--primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.vault-card__action:hover { text-decoration: underline; }
