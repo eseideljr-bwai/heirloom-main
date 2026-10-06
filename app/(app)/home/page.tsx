@@ -1,81 +1,112 @@
 import Link from 'next/link';
-import { requireActiveSpaceId } from '../../../lib/server/auth';
-import { getHome, type HomeRecentKinloom, type HomeWhisper } from '../../../lib/server/queries';
-import { KINLOOM_TYPE_MAP } from '../../lib/kinloom-types';
+import { getActiveSpace, requireActiveSpaceId } from '../../../lib/server/auth';
+import {
+  getHome,
+  getManageMembers,
+  type FamilyMember,
+  type HomeRecentKinloom,
+} from '../../../lib/server/queries';
 import { formatKinloomDate } from '../../../lib/kinloom';
 
 export const dynamic = 'force-dynamic';
 
-function TypeBadge({ slug, label }: { slug: string; label?: string }) {
-  const fallback = KINLOOM_TYPE_MAP[slug]?.label;
-  const text = label || fallback;
-  if (!text) return null;
-  return <span className="badge">{text}</span>;
-}
+/**
+ * My Home — the Family Home's own page.
+ *
+ * Several modules here have no backend behind them yet: there is no Home
+ * entity, no featured content, no founding year, no motto, and drafts
+ * carry no readable status. Those are rendered with the copy and imagery
+ * from the Federated Containers design so the page can be reviewed whole,
+ * and every one of them is collected in PLACEHOLDER below — when the
+ * fields exist, that object is the only thing to delete.
+ *
+ * Wired to real data already: the home's name, its member list, the
+ * kinloom count and "Lately in the family".
+ */
+const PLACEHOLDER = {
+  /** No motto/description field on a space today. */
+  moral: 'We lean into the hard things, and we keep walking the path we have been given — together.',
+  /** No founding date on a space today. */
+  since: '2011',
+  /** No "featured" concept: the design hand-picks a film for the hero. */
+  hero: {
+    image: '/design-placeholder/hero-july-fire.jpg',
+    caption: 'The July Fire',
+    sub: 'Filmed by Eli · Ocracoke, July 2022',
+    duration: '2:14',
+  },
+  /** `status` is write-only in the API, so drafts can't be listed. */
+  leftOff: {
+    title: 'The Year We Almost Lost the House',
+    meta: 'Reflection · draft, 340 words · not published yet',
+  },
+  moment: {
+    image: '/design-placeholder/moment-asa.jpg',
+    caption: 'Asa at four, the summer he learned to swim · published to your home',
+  },
+  /** No featured-quote field on a kinloom today. */
+  quote: {
+    eyebrow: 'In her own words',
+    text: 'Asa answers his grandmother in one language and me in another, and does not notice he is doing it.',
+    by: 'Maria',
+    meta: 'Born 1987 · 61 kinlooms in her vault',
+    link: 'From the kinloom “Two Languages at One Table” →',
+  },
+  /** No featured-audio concept; the player is presentational here. */
+  voice: {
+    title: 'Maria, for Asa',
+    meta: 'Maria · recorded 2019 · published to your Family Home',
+    duration: '4:12',
+  },
+  band: {
+    eyebrow: 'Add to your family’s story',
+    head: 'Yours would be the next.',
+    sub: 'Every one you add makes the portrait of this home a little more complete.',
+    strip: [
+      '/design-placeholder/strip-1.jpg',
+      '/design-placeholder/strip-2.jpg',
+      '/design-placeholder/strip-3.jpg',
+      '/design-placeholder/strip-4.jpg',
+    ],
+    note: '38 photographs, 4 recorded voices, 2 films in this home.',
+  },
+};
 
-function AuthorSilhouette({ author, size = 22, idKey }: { author: HomeRecentKinloom['author']; size?: number; idKey: string }) {
-  if (!author) return null;
-  const gender = author.gender || 'n';
-  const tone = author.tone || '#a39376';
-  const bg = tone + '22';
+/** Deterministic stand-in for a real waveform. */
+const WAVE = Array.from({ length: 30 }, (_, j) => ({
+  height: `${20 + Math.round(Math.abs(Math.sin((j + 5) * 1.7)) * 78)}%`,
+  played: j < 9,
+}));
+
+function Silhouette({ member, idKey }: { member: FamilyMember; idKey: string }) {
+  const gender = member.gender || 'n';
+  const tone = member.tone || '#a39376';
   return (
-    <svg viewBox="0 0 80 80" width={size} height={size} aria-label={author.name} style={{ display: 'block', borderRadius: '50%', flexShrink: 0 }}>
-      <defs><clipPath id={`clip-home-${idKey}`}><circle cx="40" cy="40" r="40" /></clipPath></defs>
-      <g clipPath={`url(#clip-home-${idKey})`}>
-        <rect width="80" height="80" fill={bg} />
+    <svg viewBox="0 0 80 80" className="home-person__face" aria-label={member.name}>
+      <defs><clipPath id={`clip-hp-${idKey}`}><rect width="80" height="80" rx="6" /></clipPath></defs>
+      <g clipPath={`url(#clip-hp-${idKey})`}>
+        <rect width="80" height="80" fill={`${tone}22`} />
         <rect y="48" width="80" height="32" fill={tone} opacity="0.10" />
         {gender === 'f' && <ellipse cx="40" cy="34" rx="16" ry="18" fill={tone} opacity="0.38" />}
         <path d="M 8 80 C 8 60, 22 52, 40 52 C 58 52, 72 60, 72 80 Z" fill={tone} opacity="0.55" />
         <ellipse cx="40" cy="32" rx="12" ry={gender === 'f' ? 11 : 10} fill={tone} opacity="0.78" />
         {gender === 'm' && <path d="M 28 28 Q 40 16, 52 28 L 52 32 Q 40 26, 28 32 Z" fill={tone} opacity="0.55" />}
         {gender === 'f' && <path d="M 28 30 Q 28 18, 40 16 Q 52 18, 52 30 L 52 38 Q 50 30, 40 30 Q 30 30, 28 38 Z" fill={tone} opacity="0.45" />}
-        <ellipse cx="34" cy="34" rx="3" ry="4" fill="#fff" opacity="0.10" />
       </g>
     </svg>
   );
 }
 
-function KinloomCard({ k }: { k: HomeRecentKinloom }) {
+function LatelyCard({ k }: { k: HomeRecentKinloom }) {
   return (
-    <Link href={`/library/${k.ulid}`} className="kinloom-card">
-      <div className="kinloom-card__top">
-        <TypeBadge slug={k.type_slug} label={k.type_label} />
-        {k.has_audio && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(26,26,26,0.4)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="22"/></svg>}
-        {k.has_photo && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(26,26,26,0.4)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>}
-      </div>
-      <h3 className="kinloom-card__title">{k.title || 'Untitled'}</h3>
-      {k.excerpt && <p className="kinloom-card__excerpt">{k.excerpt}</p>}
-      {k.author && (
-        <div className="kinloom-card__byline">
-          <AuthorSilhouette author={k.author} size={22} idKey={`${k.ulid}-${k.author.member_id}`} />
-          <span>{k.author.name}</span>
-          <span>·</span>
-          <span>{formatKinloomDate(k.created_at)}</span>
-        </div>
-      )}
-    </Link>
-  );
-}
-
-function WhisperRow({ w, isLast }: { w: HomeWhisper; isLast: boolean }) {
-  // target is normalized to a string ulid (or null) in getHome — never interpolate objects.
-  const href = typeof w.target === 'string' && w.target
-    ? `/library/${w.target}`
-    : '/family/feed';
-  return (
-    <Link href={href} className={`whisper-row${isLast ? ' is-last' : ''}`}>
-      {w.actor ? (
-        <AuthorSilhouette author={w.actor} size={36} idKey={`whisper-${w.id}`} />
-      ) : (
-        <span className="whisper-row__heart" aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
-        </span>
-      )}
-      <div className="whisper-row__body">
-        <p className="whisper-row__line">{w.line}</p>
-        {w.sub && <p className="whisper-row__sub">{w.sub}</p>}
-      </div>
-      {w.when && <span className="whisper-row__when">{w.when}</span>}
+    <Link href={`/library/${k.ulid}`} className="home-lately__card">
+      <span className="home-lately__type">{k.type_label}</span>
+      <span className="home-lately__title">{k.title || 'Untitled'}</span>
+      {k.excerpt && <span className="home-lately__excerpt">{k.excerpt}</span>}
+      <span className="home-lately__by">
+        {k.author?.name}
+        {k.created_at && <> · {formatKinloomDate(k.created_at)}</>}
+      </span>
     </Link>
   );
 }
@@ -83,91 +114,169 @@ function WhisperRow({ w, isLast }: { w: HomeWhisper; isLast: boolean }) {
 export default async function HomePage() {
   const familySpaceId = await requireActiveSpaceId();
 
-  const data = await getHome(familySpaceId);
-  const { recentKinlooms, recentWhispers, legacyBankProgress } = data;
-  const total = legacyBankProgress.total_kinlooms;
-  const target = legacyBankProgress.target || 50;
-  const pct = legacyBankProgress.percent != null
-    ? Math.max(0, Math.min(100, Math.round(legacyBankProgress.percent)))
-    : Math.min(100, Math.round((total / target) * 100));
+  const [data, manage, activeSpace] = await Promise.all([
+    getHome(familySpaceId),
+    getManageMembers(familySpaceId).catch(() => null),
+    getActiveSpace(),
+  ]);
+
+  const homeName = activeSpace?.name?.trim() || 'Your Family Home';
+  const people = manage?.members ?? [];
+  const kinloomTotal = data.legacyBankProgress?.total_kinlooms ?? 0;
+  const lately = data.recentKinlooms.slice(0, 3);
 
   return (
     <div className="home-page">
-      <div className="home-page__header">
-        <p className="eyebrow">Your family space</p>
-        <h1 className="home-page__title">Welcome home.</h1>
-        <p className="home-page__intro">Your legacy is growing, one story at a time.</p>
-      </div>
 
-      <div className="home-actions">
-        {[
-          { label: 'Create a kinloom', desc: 'Capture something worth preserving.', href: '/create', primary: true },
-          { label: 'Your library',      desc: "Review what you've already captured.", href: '/library', primary: false },
-          { label: 'Family space',      desc: 'See what your family has shared.', href: '/family', primary: false },
-        ].map(a => (
-          <Link key={a.href} href={a.href} className={`home-action${a.primary ? ' is-primary' : ''}`}>
-            <h3 className="home-action__title">{a.label}</h3>
-            <p className="home-action__desc">{a.desc}</p>
-          </Link>
-        ))}
-      </div>
+      {/* ── Hero ─────────────────────────────────────────────────── */}
+      <section className="home-hero">
+        <div>
+          <p className="eyebrow">Your Family Home</p>
+          <h1 className="home-hero__title">{homeName}</h1>
+          <p className="home-hero__moral no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 2.1\nAPI — Home.motto, nullable text. Already specified as part of the Home profile.\nUI — render from the Home profile; omit the line entirely when empty."}>{PLACEHOLDER.moral}</p>
 
-      <Link href="/legacy-bank" className="legacy-bank-card">
-        <svg viewBox="0 0 200 100" preserveAspectRatio="xMidYMid slice" className="legacy-bank-card__bg" aria-hidden="true">
-          <path d="M 0 50 Q 50 20, 100 50 T 200 50" fill="none" stroke="#556b5b" strokeWidth="0.6" />
-          <path d="M 0 30 Q 50 60, 100 30 T 200 30" fill="none" stroke="#a39376" strokeWidth="0.6" />
-          <path d="M 0 70 Q 50 40, 100 70 T 200 70" fill="none" stroke="#556b5b" strokeWidth="0.6" />
-          <circle cx="200" cy="50" r="2" fill="#556b5b" /><circle cx="200" cy="30" r="2" fill="#a39376" /><circle cx="200" cy="70" r="2" fill="#556b5b" />
-        </svg>
-        <div className="legacy-bank-card__grid">
-          <div>
-            <div className="legacy-bank-card__pillrow">
-              <span className="legacy-bank-card__pill"><span className="legacy-bank-card__dot" />Quietly building</span>
+          <div className="home-stats">
+            <div className="home-stat">
+              <p className="home-stat__v">{people.length || '—'}</p>
+              <p className="home-stat__l">in your home</p>
             </div>
-            <h3 className="legacy-bank-card__title">Your AI Legacy Bank.</h3>
-            <p className="legacy-bank-card__lede">
-              Every kinloom you keep adds to a voice your family will be able to ask questions of, long after the asking is no longer easy.
-            </p>
-            <div className="legacy-bank-card__progress">
-              <div className="legacy-bank-card__track"><div className="legacy-bank-card__bar" style={{ width: `${pct}%` }} /></div>
-              <p className="legacy-bank-card__count">
-                <strong>{total}</strong>{' kinlooms gathered'}
-              </p>
+            <div className="home-stat">
+              <p className="home-stat__v">{kinloomTotal}</p>
+              <p className="home-stat__l">kinlooms here</p>
             </div>
-            <p className="legacy-bank-card__note">The more you add, the richer the voice becomes.</p>
+            <div className="home-stat no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 2.1\nAPI — Home.established_year, nullable.\nUI — drop the stat when null; never render a dash."}>
+              <p className="home-stat__v">{PLACEHOLDER.since}</p>
+              <p className="home-stat__l">since</p>
+            </div>
           </div>
-          <span className="legacy-bank-card__cta">
-            Learn more
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 12 L10 8 L6 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
-          </span>
         </div>
-      </Link>
 
-      <div className="home-section__head">
-        <h2 className="home-section__title">Your kinlooms</h2>
-        <Link href="/library" className="home-section__link">View all</Link>
-      </div>
-      {recentKinlooms.length > 0 ? (
-        <div className="home-kinloom-grid">
-          {recentKinlooms.slice(0, 4).map(k => <KinloomCard key={k.ulid} k={k} />)}
+        <div className="home-hero__media no-api" data-api-scope="out" data-api-note={"NOT SCOPED\nAPI — featured film per Home: poster, duration, caption, byline, source kinloom. Absent from SOW 5.1.\nUI — play opens the kinloom.\nDECIDE — add featured content as a change order, derive it automatically (most recent film), or cut."}>
+          <div
+            role="img"
+            aria-label={PLACEHOLDER.hero.caption}
+            className="home-hero__img"
+            style={{ backgroundImage: `url(${PLACEHOLDER.hero.image})` }}
+          />
+          <div className="home-hero__overlay">
+            <div className="home-hero__play">
+              <span className="home-hero__play-btn" aria-hidden="true">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3" /></svg>
+              </span>
+              <span className="home-hero__dur">{PLACEHOLDER.hero.duration}</span>
+            </div>
+            <p className="home-hero__cap">{PLACEHOLDER.hero.caption}</p>
+            <p className="home-hero__sub">{PLACEHOLDER.hero.sub}</p>
+          </div>
         </div>
-      ) : (
-        <p className="home-empty">Nothing here yet. <Link href="/create">Create your first kinloom</Link>.</p>
-      )}
+      </section>
 
-      <div className="home-section__head home-section__head--spaced">
-        <h2 className="home-section__title">Family kinlooms</h2>
-        <Link href="/family/feed" className="home-section__link">View all</Link>
-      </div>
-      {recentWhispers.length > 0 ? (
-        <div className="whisper-list">
-          {recentWhispers.slice(0, 3).map((w, i) => (
-            <WhisperRow key={w.id} w={w} isLast={i === Math.min(2, recentWhispers.length - 1)} />
+      {/* ── Your people ──────────────────────────────────────────── */}
+      <section className="home-section">
+        <div className="home-section__head">
+          <p className="home-section__label">Your people</p>
+          <Link href="/spaces" className="home-section__link">Your Family Spaces →</Link>
+        </div>
+        <div className="home-people kmScroll">
+          {people.map(m => (
+            <Link key={m.member_id} href={`/family/${m.member_id}`} className="home-person">
+              <Silhouette member={m} idKey={m.member_id} />
+              <span className="home-person__name">{m.name}</span>
+              <span className="home-person__sub">
+                {m.is_me ? 'You' : m.kin_term || m.role_label || 'Member'}
+              </span>
+            </Link>
           ))}
         </div>
-      ) : (
-        <p className="home-empty">No family activity yet.</p>
+      </section>
+
+      {/* ── Where you left off ───────────────────────────────────── */}
+      <section className="home-section">
+        <div className="home-leftoff no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 4.1\nAPI — expose kinloom.status on the READ model — it is write-only today — plus the author’s latest draft. A word count is needed as well.\nUI — resume straight into the composer at the right type; hide the whole bar when there are no drafts."}>
+          <p className="home-section__label">Where you left off</p>
+          <p className="home-leftoff__title">{PLACEHOLDER.leftOff.title}</p>
+          <p className="home-leftoff__meta">{PLACEHOLDER.leftOff.meta}</p>
+          <Link href="/vault" className="home-section__link">Continue →</Link>
+        </div>
+      </section>
+
+      {/* ── A moment, a belief, a voice ──────────────────────────── */}
+      <section className="home-section home-triptych">
+        <div
+          role="img"
+          aria-label={PLACEHOLDER.moment.caption}
+          className="home-moment no-api" data-api-scope="out" data-api-note={"NOT SCOPED\nAPI — featured photograph per Home: signed media URL and caption. Absent from SOW 5.1.\nUI — link through to its kinloom.\nDECIDE — same call as the hero film."}
+          style={{ backgroundImage: `url(${PLACEHOLDER.moment.image})` }}
+        />
+
+        <blockquote className="home-quote no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 4.1\nAPI — kinloom.featured_quote, plus the author’s birth year and vault total. birth_year already exists on FamilyMember; the total does not.\nUI — link through to the source kinloom; hide the module when no quote is set.\nWATCH OUT — the vault total must be viewer-filtered. A viewer sees only what they can read; the full total appears on a person’s own portrait only."}>
+          <p className="home-section__label">{PLACEHOLDER.quote.eyebrow}</p>
+          <p className="home-quote__text">“{PLACEHOLDER.quote.text}”</p>
+          <footer className="home-quote__foot">
+            <span className="home-quote__by">{PLACEHOLDER.quote.by}</span>
+            <span className="home-quote__meta">{PLACEHOLDER.quote.meta}</span>
+          </footer>
+          <Link href="/library" className="home-section__link">{PLACEHOLDER.quote.link}</Link>
+        </blockquote>
+
+        <div className="home-voice no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 5.1\nAPI — featured recorded voice per Home: signed URL, duration, author, date.\nUI — reuse AudioPlayer.tsx rather than building a second player. The waveform is decorative and may stay static."}>
+          <p className="home-section__label">A voice in the family</p>
+          <p className="home-voice__title">{PLACEHOLDER.voice.title}</p>
+          <p className="home-voice__meta">{PLACEHOLDER.voice.meta}</p>
+          <div className="home-voice__player">
+            <span className="home-voice__play" aria-hidden="true">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3" /></svg>
+            </span>
+            <span className="home-voice__wave" aria-hidden="true">
+              {WAVE.map((w, i) => (
+                <span
+                  key={i}
+                  className={`home-voice__bar${w.played ? ' is-played' : ''}`}
+                  style={{ height: w.height }}
+                />
+              ))}
+            </span>
+            <span className="home-voice__dur">{PLACEHOLDER.voice.duration}</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Lately in the family ─────────────────────────────────── */}
+      {lately.length > 0 && (
+        <section className="home-section">
+          <div className="home-section__head">
+            <h2 className="home-lately__head">Lately in the family</h2>
+            <Link href="/library" className="home-section__link">The whole library →</Link>
+          </div>
+          <div className="home-lately">
+            {lately.map(k => <LatelyCard key={k.ulid} k={k} />)}
+          </div>
+        </section>
       )}
+
+      {/* ── Closing band ─────────────────────────────────────────── */}
+      <section className="home-band">
+        <div className="home-band__inner">
+        <div>
+          <p className="home-band__eyebrow">{PLACEHOLDER.band.eyebrow}</p>
+          <h2 className="home-band__head">
+            {kinloomTotal > 0 ? `${kinloomTotal} kinlooms. ` : ''}{PLACEHOLDER.band.head}
+          </h2>
+          <p className="home-band__sub">{PLACEHOLDER.band.sub}</p>
+          <Link href="/create?from=home" className="home-band__cta">Create a kinloom</Link>
+        </div>
+        <div>
+          <div className="home-band__strip no-api" data-api-scope="out" data-api-note={"NOT SCOPED\nAPI — recent photo media published to this Home. Absent from SOW 5.1.\nUI — signed URLs, each tile linking to its kinloom.\nDECIDE — deriving this from recent Home publications needs no curation screen."}>
+            {PLACEHOLDER.band.strip.map(src => (
+              <span key={src} className="home-band__tile" style={{ backgroundImage: `url(${src})` }} />
+            ))}
+            <Link href="/create?from=home" className="home-band__tile home-band__tile--add" aria-label="Create a kinloom">+</Link>
+          </div>
+          <p className="home-band__note no-api" data-api-scope="out" data-api-note={"NOT SCOPED\nAPI — media tallies per Home: photographs, recorded voices, films. “the Home profile and counts” in SOW 5.1 is ambiguous — confirm before building.\nUI — omit any category that is zero."}>{PLACEHOLDER.band.note}</p>
+        </div>
+        </div>
+      </section>
+
     </div>
   );
 }

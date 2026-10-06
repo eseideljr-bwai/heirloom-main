@@ -523,9 +523,10 @@ export default function BiographerView({ onStartOver }: Props) {
             strokeLinejoin="round"
             aria-hidden="true"
           >
-            <path d="m15 18-6-6 6-6" />
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
           </svg>
-          Import
+          Back to Import
         </button>
 
         <span

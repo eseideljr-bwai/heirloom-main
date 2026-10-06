@@ -9,6 +9,7 @@
  *   'converse' — Biographer conversation (wired in Checkpoint 3)
  */
 
+import Link from 'next/link';
 import { useCallback, useRef, useState } from 'react';
 import {
   extractDocument,
@@ -106,6 +107,12 @@ export default function ImportPage() {
 
   return (
     <div className="import-page">
+      <Link href="/create" className="create-page__back">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+        </svg>
+        Back to Create
+      </Link>
       <p className="eyebrow" style={{ marginBottom: 12 }}>Create · Import</p>
       <h1 className="import-page__title">
         Bring a document in.

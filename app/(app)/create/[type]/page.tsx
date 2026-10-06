@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { KINLOOM_TYPE_MAP } from '../../../lib/kinloom-types';
+import CreateSteps from '../../../components/CreateSteps';
+import { KINLOOM_TYPE_MAP, KINLOOM_TYPES } from '../../../lib/kinloom-types';
 import { useAuth } from '../../../../lib/auth-context';
 import { useActiveFamilySpace } from '../../../../lib/active-family-space';
 import { parseFamilySpaces } from '../../../../lib/auth';
@@ -56,34 +57,6 @@ type VideoItem = {
   error?: string;
   mediaId?: string;
 };
-
-function StepIndicator({ current, total = 3 }: { current: Step; total?: number }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      {Array.from({ length: total }).map((_, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{
-            width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: i + 1 === current ? '#556b5b' : i + 1 < current ? 'rgba(85,107,91,0.20)' : '#f5f4f1',
-            border: `1px solid ${i + 1 === current ? '#556b5b' : i + 1 < current ? 'rgba(85,107,91,0.30)' : '#d4d2cc'}`,
-            fontSize: 11, fontWeight: 500,
-            color: i + 1 === current ? '#fdfcfa' : i + 1 < current ? '#556b5b' : 'rgba(26,26,26,0.4)',
-          }}>
-            {i + 1 < current ? (
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-            ) : i + 1}
-          </div>
-          {i < total - 1 && (
-            <div style={{ width: 24, height: 1, background: i + 1 < current ? 'rgba(85,107,91,0.30)' : '#d4d2cc' }} />
-          )}
-        </div>
-      ))}
-      <span style={{ fontSize: 12, color: 'rgba(26,26,26,0.45)', marginLeft: 4 }}>
-        Step {current} of {total}
-      </span>
-    </div>
-  );
-}
 
 function MediaStatusBadges({ status, error }: { status: MediaUploadStatus; error?: string }) {
   return (
@@ -186,6 +159,11 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState('');
+  // Design fields with no column behind them yet: CreateKinloomPayload has
+  // no `when`/`where`, so these capture input and are not sent. Wire them
+  // up when the backend adds the fields.
+  const [happenedWhen, setHappenedWhen] = useState('');
+  const [happenedWhere, setHappenedWhere] = useState('');
   const [body, setBody] = useState('');
   const [voiceValue, setVoiceValue] = useState<VoiceRecorderValue | null>(null);
   const [showVoice, setShowVoice] = useState(false);
@@ -200,7 +178,9 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const hasVideo = videoItems.length > 0;
   const mediaSlotCount = photoItems.length + videoItems.length;
   const [taggedKin, setTaggedKin] = useState<string[]>([]);
-  const [visibility, setVisibility] = useState<Visibility>('family');
+  // Everything is saved privately to the Vault first; step 3 of the flow
+  // ("Who can see it") decides the audience. The composer no longer sets it.
+  const visibility: Visibility = 'private';
 
   const [typeData, setTypeData] = useState<KinloomType | null>(fallbackType ?? null);
   const [taggableMembers, setTaggableMembers] = useState<TaggableMember[]>([]);
@@ -237,7 +217,6 @@ export default function CreateTypePage({ params }: { params: { type: string } })
         if (cancelled) return;
         setTypeData(ctx.type);
         setTaggableMembers(ctx.taggableMembers);
-        setVisibility(ctx.defaultVisibility);
       } catch (err) {
         if (cancelled) return;
         const msg = err instanceof ApiError ? err.message : 'Could not load this kinloom type.';
@@ -637,7 +616,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
     setPublishedId(createdId);
     void revalidateKinloomData(createdId!);
-    router.push(`/library/${createdId}`);
+    router.push(`/create/publish?k=${createdId}`);
     router.refresh();
   };
 
@@ -649,7 +628,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       await updateKinloom(familySpaceId, savedKinloomId, { status: 'published' });
       setPublishedId(savedKinloomId);
       void revalidateKinloomData(savedKinloomId);
-      router.push(`/library/${savedKinloomId}`);
+      router.push(`/create/publish?k=${savedKinloomId}`);
       router.refresh();
     } catch (err) {
       const msg = err instanceof ApiError
@@ -702,15 +681,16 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   return (
     <div className="compose-page">
 
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid #d4d2cc', paddingBottom: 20, marginBottom: 36 }}>
-        <div className="compose-page__head">
-          <Link href="/create" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(26,26,26,0.6)', textDecoration: 'none' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
-            Create
-          </Link>
-          <StepIndicator current={step} />
-        </div>
+      {/* Chrome: the flow-wide step indicator replaces the composer's
+          own 1-2-3 counter, so there is one progress signal, not two. */}
+      <div className="compose-page__chrome">
+        <Link href="/create" className="create-page__back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+          </svg>
+          Back to Create
+        </Link>
+        <CreateSteps active={1} mode="write" />
       </div>
 
       {noFamilySpace && (
@@ -725,9 +705,20 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       {/* Step 1: Prompt */}
       {step === 1 && (
         <div style={{ maxWidth: 640 }}>
-          <span style={{ display: 'inline-block', padding: '4px 12px', borderRadius: 9999, fontSize: 12, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b', marginBottom: 20 }}>
-            {resolvedType.label}
-          </span>
+          <p className="compose-types__label">What kind of kinloom is this?</p>
+          <div className="compose-types">
+            {KINLOOM_TYPES.map(t => (
+              <Link
+                key={t.slug}
+                href={`/create/${t.slug}`}
+                replace
+                className={`compose-type${t.slug === resolvedType.slug ? ' is-active' : ''}`}
+                aria-current={t.slug === resolvedType.slug ? 'true' : undefined}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </div>
           <h1 className="compose-page__title">
             {resolvedType.definition}
           </h1>
@@ -749,9 +740,6 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               Begin writing
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 12 L10 8 L6 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
-            <Link href="/create" style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 24px', borderRadius: 8, fontSize: 15, textDecoration: 'none' }}>
-              Choose different type
-            </Link>
           </div>
         </div>
       )}
@@ -785,6 +773,31 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               maxLength={65000}
               style={{ width: '100%', padding: '16px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 16, fontFamily: 'var(--font-serif)', lineHeight: 1.75, resize: 'vertical', outline: 'none', color: '#1a1a1a', boxSizing: 'border-box' }}
             />
+
+            <div className="compose-meta">
+              <div className="field">
+                <label htmlFor="kinloom-when">When did this happen?</label>
+                <input
+                  id="kinloom-when"
+                  type="text"
+                  value={happenedWhen}
+                  onChange={e => setHappenedWhen(e.target.value)}
+                  placeholder="A year, a season, or &lsquo;every July&rsquo;"
+                  maxLength={120}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="kinloom-where">Where?</label>
+                <input
+                  id="kinloom-where"
+                  type="text"
+                  value={happenedWhere}
+                  onChange={e => setHappenedWhere(e.target.value)}
+                  placeholder="Optional"
+                  maxLength={120}
+                />
+              </div>
+            </div>
 
             {/* Attachment options */}
             <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
@@ -942,26 +955,6 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               </div>
             </div>
 
-            {/* Visibility */}
-            <div style={{ marginBottom: 36 }}>
-              <p style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a', margin: '0 0 12px' }}>Visibility</p>
-              <div className="compose-visibility">
-                {[
-                  { id: 'family', label: 'Family space', desc: 'All family members can read this.' },
-                  { id: 'private', label: 'Only me', desc: 'Just for your personal record.' },
-                ].map(v => (
-                  <button
-                    key={v.id}
-                    onClick={() => setVisibility(v.id as Visibility)}
-                    style={{ flex: 1, padding: '14px 16px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', border: `1px solid ${visibility === v.id ? 'rgba(85,107,91,0.40)' : '#d4d2cc'}`, background: visibility === v.id ? 'rgba(85,107,91,0.06)' : '#fff' }}
-                  >
-                    <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: visibility === v.id ? '#556b5b' : '#1a1a1a' }}>{v.label}</p>
-                    <p style={{ margin: 0, fontSize: 13, color: 'rgba(26,26,26,0.5)' }}>{v.desc}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {saveError && (
               <p className="create-banner create-banner--error">{saveError}</p>
             )}
@@ -1012,7 +1005,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                     ? 'Retry upload'
                     : savedKinloomId
                       ? 'Continue'
-                      : 'Save kinloom'}
+                      : 'Next: who can see it \u2192'}
                 {!saving && (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 )}
@@ -1096,7 +1089,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               )}
               <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e8e6e1' }}>
                 <p style={{ margin: 0, fontSize: 11, color: 'rgba(26,26,26,0.4)' }}>
-                  {visibility === 'family' ? 'Shared with your family' : 'Private to you'}
+                  Private until you publish
                 </p>
               </div>
             </div>
