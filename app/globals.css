@@ -4363,3 +4363,11 @@ body.has-texture::before {
 @media (max-width: 640px) {
   .fb-card { padding: 20px 16px; }
 }
+
+/* ─── iOS WebView embed (SOW D1) ────────────────────────────── */
+/* No AppNav to clear: the native app supplies its own chrome. Two-class
+   selector so it outranks the breakpoint padding above. */
+.app-shell--embedded .app-shell__main {
+  margin-left: 0;
+  padding-top: 0;
+}

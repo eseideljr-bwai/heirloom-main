@@ -18,8 +18,9 @@
  * On full success it locks and hands off to the Library via onAllPublished.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KINLOOM_TYPE_SLUGS } from '../../../../lib/agent/tools';
+import { reportUnauthorized } from '../../../../lib/embed';
 
 export type ProposedKinloom = {
   working_title: string;
@@ -52,8 +53,11 @@ type Props = {
   toolUseId: string;
   input: BatchInput;
   onKeepRefining: (toolUseId: string) => void;
-  /** Called when the final (or only) batch is fully published — hands off to the Library. */
-  onAllPublished: () => void;
+  /**
+   * Called when the final (or only) batch is fully published — hands off to
+   * the Library. Receives the ulids of the kinlooms this card created.
+   */
+  onAllPublished: (kinloomIds: string[]) => void;
   /**
    * Called when a non-final section (final_batch === false) is fully published.
    * Keeps the conversation open so the Biographer can propose the next section.
@@ -86,6 +90,9 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
 
   const [statuses, setStatuses] = useState<ItemStatus[]>(() => proposed.map(() => 'idle'));
   const [errors, setErrors] = useState<Array<string | null>>(() => proposed.map(() => null));
+  // A ref, not state: a retry pass hands off in the same tick it finishes,
+  // and needs the ulids saved by earlier passes too.
+  const createdIdsRef = useRef<Array<string | null>>(proposed.map(() => null));
   const [publishing, setPublishing] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   // Rate-limit cooldown. Kept separate from `banner` (which reports genuine
@@ -159,6 +166,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
           }),
         });
         if (!res.ok) {
+          reportUnauthorized(res.status);
           const data = (await res.json().catch(() => ({}))) as {
             error?: string;
             retryAfterSeconds?: number;
@@ -180,6 +188,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
         const r = data.results?.[0];
 
         if (r?.ok) {
+          createdIdsRef.current[idx] = r.ulid ?? null;
           setStatuses(prev => prev.map((s, i) => (i === idx ? 'done' : s)));
           setErrors(prev => prev.map((e, i) => (i === idx ? null : e)));
         } else {
@@ -219,7 +228,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
       // Final/only batch → hand off to the Library. A non-final section →
       // keep the conversation open so the next section can be proposed.
       if (isFinalBatch) {
-        onAllPublished();
+        onAllPublished(createdIdsRef.current.filter((id): id is string => !!id));
       } else {
         onSectionPublished(toolUseId, keptCount);
       }

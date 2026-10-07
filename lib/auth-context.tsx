@@ -52,6 +52,8 @@ import {
   IDLE_TIMEOUT_MS,
   touchActivity,
 } from './api';
+import { postToNative } from './embed';
+import { useEmbedded } from './embed-context';
 
 type AuthContextValue = {
   user: AuthUser | null;
@@ -85,6 +87,7 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   const [loading] = useState(false);
   const [authReady, setAuthReady] = useState(false);
   const provisional = user?.provisional === true;
+  const embedded = useEmbedded();
 
   const refresh = useCallback(async () => {
     if (!getSessionStartedAt()) {
@@ -148,6 +151,14 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   // expiry. We push the fresh token to the server so the SSR Bearer
   // cookie stays usable.
   useEffect(() => {
+    // In the iOS WebView the native app installed the session cookies and
+    // the web SDK has no Firebase user of its own. Reading that as a
+    // sign-out would DELETE the session, which also revokes the refresh
+    // tokens the native app is signed in with.
+    if (embedded) {
+      setAuthReady(true);
+      return;
+    }
     const unsub = onIdTokenChanged(firebaseAuth(), async (fbUser) => {
       if (!fbUser) {
         // Firebase is signed out, but stale server cookies may survive
@@ -207,7 +218,7 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
       }
     });
     return unsub;
-  }, []);
+  }, [embedded]);
 
   // ─── Activity tracking (idle 24h) ───────────────────────────────
   const lastWriteRef = useRef(0);
@@ -236,11 +247,20 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   }, [user]);
 
   // ─── Expiry watchdog (idle 24h + absolute 30d) ─────────────────
+  const expiryReportedRef = useRef(false);
   useEffect(() => {
     if (!user) return;
     const tick = () => {
       const status = checkSessionStatus();
       if (status === 'idle_expired' || status === 'absolute_expired') {
+        // Embedded, the native app decides what an expired session means;
+        // logging out here would revoke its tokens too.
+        if (embedded) {
+          if (!expiryReportedRef.current) {
+            expiryReportedRef.current = postToNative({ type: 'sessionExpired' });
+          }
+          if (expiryReportedRef.current) return;
+        }
         logout();
         if (typeof window !== 'undefined') {
           window.location.replace('/?reason=session_expired');
@@ -255,7 +275,7 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [user, logout]);
+  }, [user, logout, embedded]);
 
   // ─── Cross-tab sync via BroadcastChannel ───────────────────────
   useEffect(() => {

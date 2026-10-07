@@ -1,7 +1,13 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import {
+  EMBED_CLIENT_HEADER,
+  EMBED_COOKIE,
+  EMBED_IOS,
+  EMBED_REQUEST_HEADER,
+} from './lib/embed';
 
 /**
- * Edge middleware — does two things:
+ * Edge middleware — does three things:
  *
  *   1. Route protection (Epic 2).
  *      Presence-checks the `kinloom_session` cookie. Protected routes
@@ -18,6 +24,12 @@ import { NextResponse, type NextRequest } from 'next/server';
  *      arbitrary injected ones are blocked. Next.js detects the
  *      nonce on the response and applies it to its own inline
  *      scripts automatically.
+ *
+ *   3. iOS embed mode (SOW D1). `?embed=ios` or `X-Kinloom-Client: ios`
+ *      sets the `kinloom_embed` cookie, which outlives the query param
+ *      across client-side navigations; `?embed=off` clears it. The
+ *      result is forwarded as `x-kinloom-embed` for server components.
+ *      See lib/embed.ts for the bridge contract.
  */
 
 const SESSION_COOKIE = 'kinloom_session';
@@ -83,11 +95,40 @@ function buildCsp(nonce: string, isDev: boolean): string {
   ].join('; ');
 }
 
+type EmbedDecision = { embedded: boolean; cookie: 'set' | 'clear' | null };
+
+function resolveEmbed(req: NextRequest): EmbedDecision {
+  const param = req.nextUrl.searchParams.get('embed');
+  if (param === EMBED_IOS) return { embedded: true, cookie: 'set' };
+  if (param === 'off') return { embedded: false, cookie: 'clear' };
+  if (req.headers.get(EMBED_CLIENT_HEADER) === EMBED_IOS) {
+    return { embedded: true, cookie: 'set' };
+  }
+  return { embedded: req.cookies.get(EMBED_COOKIE)?.value === EMBED_IOS, cookie: null };
+}
+
+function applyEmbedCookie(res: NextResponse, embed: EmbedDecision): NextResponse {
+  if (embed.cookie === null) return res;
+  // No maxAge: a session cookie, so a browser that hits ?embed=ios once
+  // drops the embedded shell when it closes.
+  res.cookies.set(EMBED_COOKIE, embed.cookie === 'set' ? EMBED_IOS : '', {
+    httpOnly: false,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    ...(embed.cookie === 'clear' ? { maxAge: 0 } : {}),
+  });
+  return res;
+}
+
 export function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
   const hasSession = !!req.cookies.get(SESSION_COOKIE)?.value;
+  const embed = resolveEmbed(req);
 
   // ─── Route protection ─────────────────────────────────────────
+  // In the iOS WebView the redirect to `/` is the signal the native
+  // navigation guard treats as an expired session.
   if (!hasSession && isProtected(pathname)) {
     const url = req.nextUrl.clone();
     url.pathname = '/';
@@ -96,13 +137,13 @@ export function middleware(req: NextRequest) {
     } else {
       url.searchParams.delete('next');
     }
-    return NextResponse.redirect(url);
+    return applyEmbedCookie(NextResponse.redirect(url), embed);
   }
   if (hasSession && AUTH_ENTRY_PATHS.has(pathname)) {
     const url = req.nextUrl.clone();
     url.pathname = '/home';
     url.search = '';
-    return NextResponse.redirect(url);
+    return applyEmbedCookie(NextResponse.redirect(url), embed);
   }
 
   // ─── Strict CSP with nonce ────────────────────────────────────
@@ -116,10 +157,13 @@ export function middleware(req: NextRequest) {
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('content-security-policy', csp);
+  // Always overwritten, so a client can't smuggle in its own value.
+  if (embed.embedded) requestHeaders.set(EMBED_REQUEST_HEADER, EMBED_IOS);
+  else requestHeaders.delete(EMBED_REQUEST_HEADER);
 
   const res = NextResponse.next({ request: { headers: requestHeaders } });
   res.headers.set('Content-Security-Policy', csp);
-  return res;
+  return applyEmbedCookie(res, embed);
 }
 
 export const config = {

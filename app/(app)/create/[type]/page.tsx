@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import { KINLOOM_TYPE_MAP } from '../../../lib/kinloom-types';
 import { useAuth } from '../../../../lib/auth-context';
 import { useActiveFamilySpace } from '../../../../lib/active-family-space';
@@ -27,6 +26,8 @@ import {
   type Visibility,
 } from '../../../../lib/kinloom';
 import { ApiError } from '../../../../lib/api';
+import { postToNative } from '../../../../lib/embed';
+import NativeExitLink from '../../../components/NativeExitLink';
 import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
 import { revalidateKinloomData } from '../../../actions';
 
@@ -341,7 +342,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     return (
       <div className="compose-page">
         <p style={{ fontSize: 16, color: 'rgba(26,26,26,0.7)' }}>Unknown kinloom type.</p>
-        <Link href="/create" style={{ color: '#556b5b', fontSize: 14 }}>← Back to create</Link>
+        <NativeExitLink href="/create" message={{ type: 'cancel' }} style={{ color: '#556b5b', fontSize: 14 }}>← Back to create</NativeExitLink>
       </div>
     );
   }
@@ -637,6 +638,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
     setPublishedId(createdId);
     void revalidateKinloomData(createdId!);
+    if (postToNative({ type: 'publishComplete', kinloomIds: [createdId!] })) return;
     router.push(`/library/${createdId}`);
     router.refresh();
   };
@@ -649,6 +651,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       await updateKinloom(familySpaceId, savedKinloomId, { status: 'published' });
       setPublishedId(savedKinloomId);
       void revalidateKinloomData(savedKinloomId);
+      if (postToNative({ type: 'publishComplete', kinloomIds: [savedKinloomId] })) return;
       router.push(`/library/${savedKinloomId}`);
       router.refresh();
     } catch (err) {
@@ -662,7 +665,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
   const handleDiscard = async () => {
     if (!savedKinloomId || !familySpaceId) {
-      router.push('/create');
+      if (!postToNative({ type: 'cancel' })) router.push('/create');
       return;
     }
     setDiscarding(true);
@@ -674,7 +677,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       setSavedKinloomId(null);
       setDiscarding(false);
       void revalidateKinloomData(savedKinloomId);
-      router.push('/create');
+      if (!postToNative({ type: 'cancel' })) router.push('/create');
     }
   };
 
@@ -705,17 +708,17 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       {/* Header */}
       <div style={{ borderBottom: '1px solid #d4d2cc', paddingBottom: 20, marginBottom: 36 }}>
         <div className="compose-page__head">
-          <Link href="/create" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(26,26,26,0.6)', textDecoration: 'none' }}>
+          <NativeExitLink href="/create" message={{ type: 'cancel' }} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(26,26,26,0.6)', textDecoration: 'none' }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
             Create
-          </Link>
+          </NativeExitLink>
           <StepIndicator current={step} />
         </div>
       </div>
 
       {noFamilySpace && (
         <div className="create-banner create-banner--error">
-          You don&apos;t have a family space yet. <Link href="/onboarding/profile" style={{ color: 'inherit', textDecoration: 'underline' }}>Finish setting up your profile</Link> to start writing kinlooms.
+          You don&apos;t have a family space yet. <NativeExitLink href="/onboarding/profile" message={{ type: 'requestClose' }} style={{ color: 'inherit', textDecoration: 'underline' }}>Finish setting up your profile</NativeExitLink> to start writing kinlooms.
         </div>
       )}
       {contextError && (
@@ -749,9 +752,9 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               Begin writing
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 12 L10 8 L6 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
-            <Link href="/create" style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 24px', borderRadius: 8, fontSize: 15, textDecoration: 'none' }}>
+            <NativeExitLink href="/create" message={{ type: 'cancel' }} style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 24px', borderRadius: 8, fontSize: 15, textDecoration: 'none' }}>
               Choose different type
-            </Link>
+            </NativeExitLink>
           </div>
         </div>
       )}

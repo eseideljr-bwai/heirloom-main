@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ContentBlock, MessageParam, ConverseResponse } from '../../../../lib/agent/types';
 import { loadTalkSession, saveTalkSession, clearTalkSession } from '../../../../lib/agent/client-storage';
 import { isEmptyContent, sanitizeStoredMessages } from '../../../../lib/agent/content';
+import { reportUnauthorized } from '../../../../lib/embed';
+import NativeExitLink from '../../../components/NativeExitLink';
 import { ShapingCard, type ProposeDraftInput } from './ShapingCard';
 import { SplitCard, type SplitIntoMultipleInput } from './SplitCard';
 
@@ -204,6 +205,7 @@ export default function ConversationView() {
           body: JSON.stringify({ messages: outgoing }),
         });
         if (!res.ok) {
+          reportUnauthorized(res.status);
           const data = await res.json().catch(() => ({})) as { error?: string };
           throw new Error(data.error ?? `Request failed (${res.status})`);
         }
@@ -349,7 +351,7 @@ export default function ConversationView() {
 
       {/* ── Header ─────────────────────────────────────────────────── */}
       <div className="chat-flow__head">
-        <Link href="/create" style={{
+        <NativeExitLink href="/create" message={{ type: 'cancel' }} style={{
           display: 'inline-flex',
           alignItems: 'center',
           gap: 6,
@@ -361,7 +363,7 @@ export default function ConversationView() {
             <path d="m15 18-6-6 6-6" />
           </svg>
           Create
-        </Link>
+        </NativeExitLink>
 
         <span style={{
           fontSize: 11,
