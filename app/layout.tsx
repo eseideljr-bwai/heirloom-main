@@ -3,7 +3,9 @@ import { Inter, Crimson_Pro } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '../lib/auth-context';
 import { ActiveFamilySpaceProvider } from '../lib/active-family-space';
+import { EmbedProvider } from '../lib/embed-context';
 import { getInitialAuthState } from '../lib/server/auth';
+import { isEmbeddedRequest } from '../lib/server/embed';
 
 // We read cookies during render to hydrate auth state — the root
 // layout must be dynamic.
@@ -42,15 +44,18 @@ export const viewport: Viewport = {
  */
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const { user, activeSpaceId } = await getInitialAuthState();
+  const embedded = isEmbeddedRequest();
 
   return (
     <html lang="en" className={`${inter.variable} ${crimsonPro.variable}`}>
       <body>
-        <AuthProvider initialUser={user}>
-          <ActiveFamilySpaceProvider initialActiveSpaceId={activeSpaceId}>
-            {children}
-          </ActiveFamilySpaceProvider>
-        </AuthProvider>
+        <EmbedProvider embedded={embedded}>
+          <AuthProvider initialUser={user}>
+            <ActiveFamilySpaceProvider initialActiveSpaceId={activeSpaceId}>
+              {children}
+            </ActiveFamilySpaceProvider>
+          </AuthProvider>
+        </EmbedProvider>
       </body>
     </html>
   );

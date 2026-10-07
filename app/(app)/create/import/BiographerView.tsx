@@ -25,6 +25,7 @@ import {
   saveImportMessages,
   clearImportSession,
 } from '../../../../lib/biographer/client-storage';
+import { postToNative, reportUnauthorized } from '../../../../lib/embed';
 import { ShapingCard, type ProposeDraftInput } from '../talk/ShapingCard';
 import { BiographerBatchCard, type BatchInput } from './BiographerBatchCard';
 import { BiographerChoiceCard, type ChoicesInput } from './BiographerChoiceCard';
@@ -356,6 +357,7 @@ export default function BiographerView({ onStartOver }: Props) {
         }),
       });
       if (!res.ok) {
+        reportUnauthorized(res.status);
         const data = await res.json().catch(() => ({})) as { error?: string };
         throw new Error(data.error ?? `Request failed (${res.status})`);
       }
@@ -454,8 +456,9 @@ export default function BiographerView({ onStartOver }: Props) {
     router.push(`/create/${type_slug}`);
   };
 
-  const handleBatchPublished = () => {
+  const handleBatchPublished = (kinloomIds: string[]) => {
     clearImportSession();
+    if (postToNative({ type: 'publishComplete', kinloomIds })) return;
     router.push('/library');
     router.refresh();
   };

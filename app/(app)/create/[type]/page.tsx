@@ -28,6 +28,8 @@ import {
   type Visibility,
 } from '../../../../lib/kinloom';
 import { ApiError } from '../../../../lib/api';
+import { postToNative } from '../../../../lib/embed';
+import NativeExitLink from '../../../components/NativeExitLink';
 import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
 import { revalidateKinloomData } from '../../../actions';
 
@@ -320,7 +322,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     return (
       <div className="compose-page">
         <p style={{ fontSize: 16, color: 'rgba(26,26,26,0.7)' }}>Unknown kinloom type.</p>
-        <Link href="/create" style={{ color: '#556b5b', fontSize: 14 }}>← Back to create</Link>
+        <NativeExitLink href="/create" message={{ type: 'cancel' }} style={{ color: '#556b5b', fontSize: 14 }}>← Back to create</NativeExitLink>
       </div>
     );
   }
@@ -641,7 +643,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
   const handleDiscard = async () => {
     if (!savedKinloomId || !familySpaceId) {
-      router.push('/create');
+      if (!postToNative({ type: 'cancel' })) router.push('/create');
       return;
     }
     setDiscarding(true);
@@ -653,7 +655,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       setSavedKinloomId(null);
       setDiscarding(false);
       void revalidateKinloomData(savedKinloomId);
-      router.push('/create');
+      if (!postToNative({ type: 'cancel' })) router.push('/create');
     }
   };
 
@@ -684,18 +686,18 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       {/* Chrome: the flow-wide step indicator replaces the composer's
           own 1-2-3 counter, so there is one progress signal, not two. */}
       <div className="compose-page__chrome">
-        <Link href="/create" className="create-page__back">
+        <NativeExitLink href="/create" message={{ type: 'cancel' }} className="create-page__back">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
             <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
           </svg>
           Back to Create
-        </Link>
+        </NativeExitLink>
         <CreateSteps active={1} mode="write" />
       </div>
 
       {noFamilySpace && (
         <div className="create-banner create-banner--error">
-          You don&apos;t have a family space yet. <Link href="/onboarding/profile" style={{ color: 'inherit', textDecoration: 'underline' }}>Finish setting up your profile</Link> to start writing kinlooms.
+          You don&apos;t have a family space yet. <NativeExitLink href="/onboarding/profile" message={{ type: 'requestClose' }} style={{ color: 'inherit', textDecoration: 'underline' }}>Finish setting up your profile</NativeExitLink> to start writing kinlooms.
         </div>
       )}
       {contextError && (

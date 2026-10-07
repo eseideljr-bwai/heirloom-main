@@ -79,24 +79,20 @@ function isIdTokenLikelyExpired(token: string): boolean {
 }
 
 /**
- * Mint a Firebase ID token server-side for the currently-signed-in
- * user. Uses Admin SDK to create a custom token, then exchanges it
- * via the Identity Toolkit REST API.
- *
- * Cached per request so multiple SSR fetches share one round-trip.
+ * Mint a fresh Firebase ID token for `uid`. Uses Admin SDK to create a
+ * custom token, then exchanges it via the Identity Toolkit REST API.
+ * The result has a current `auth_time`, which is what
+ * `createSessionCookie` requires.
  */
-const mintIdTokenForCurrentSession = cache(async (): Promise<string | null> => {
-  const session = await verifySession();
-  if (!session) return null;
-
+export async function mintIdTokenForUid(uid: string): Promise<string | null> {
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
   if (!apiKey) {
     throw new Error(
-      'NEXT_PUBLIC_FIREBASE_API_KEY is not set — needed for SSR custom-token exchange.',
+      'NEXT_PUBLIC_FIREBASE_API_KEY is not set — needed for custom-token exchange.',
     );
   }
 
-  const customToken = await adminAuth().createCustomToken(session.uid);
+  const customToken = await adminAuth().createCustomToken(uid);
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${encodeURIComponent(apiKey)}`,
     {
@@ -112,6 +108,16 @@ const mintIdTokenForCurrentSession = cache(async (): Promise<string | null> => {
   }
   const data = (await res.json()) as { idToken?: string };
   return data.idToken ?? null;
+}
+
+/**
+ * ID token for the currently-signed-in user. Cached per request so
+ * multiple SSR fetches share one round-trip.
+ */
+const mintIdTokenForCurrentSession = cache(async (): Promise<string | null> => {
+  const session = await verifySession();
+  if (!session) return null;
+  return mintIdTokenForUid(session.uid);
 });
 
 async function readIdToken(): Promise<string | null> {

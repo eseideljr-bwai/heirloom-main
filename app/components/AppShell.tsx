@@ -18,6 +18,8 @@ import { useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { useActiveFamilySpace } from '../../lib/active-family-space';
+import { postToNative } from '../../lib/embed';
+import { useEmbedded } from '../../lib/embed-context';
 import AppNav from './AppNav';
 import AppFooter from './AppFooter';
 import { FeedbackProvider } from './feedback/FeedbackContext';
@@ -25,6 +27,7 @@ import { FeedbackProvider } from './feedback/FeedbackContext';
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { user, authReady, provisional } = useAuth();
   const { activeSpaceId, spaces } = useActiveFamilySpace();
+  const embedded = useEmbedded();
   const router = useRouter();
   const routerRef = useRef(router);
   useEffect(() => { routerRef.current = router; });
@@ -33,6 +36,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!authReady) return;
     if (!user) {
+      if (postToNative({ type: 'sessionExpired' })) return;
       routerRef.current.replace('/?reason=session_expired');
       return;
     }
@@ -50,6 +54,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       routerRef.current.refresh();
       return;
     }
+    // Onboarding is a native screen in the iOS app.
+    if (postToNative({ type: 'requestClose' })) return;
     routerRef.current.replace('/onboarding/profile');
   }, [authReady, user, spaces, provisional]);
 
@@ -67,10 +73,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     // only on authenticated routes. With its flag off it renders children and
     // nothing else.
     <FeedbackProvider>
-      <div className="app-shell">
-        <AppNav user={user} />
+      <div className={embedded ? 'app-shell app-shell--embedded' : 'app-shell'}>
+        {!embedded && <AppNav user={user} />}
         <main className="app-shell__main">{children}</main>
-        <AppFooter />
+        {/* The native app supplies its own chrome, footer included. */}
+        {!embedded && <AppFooter />}
       </div>
     </FeedbackProvider>
   );

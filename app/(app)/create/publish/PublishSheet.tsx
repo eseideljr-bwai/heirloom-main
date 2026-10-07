@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { updateKinloom } from '../../../../lib/kinloom';
 import { ApiError } from '../../../../lib/api';
+import { postToNative } from '../../../../lib/embed';
 
 export type PublishTarget = {
   id: string;
@@ -65,6 +66,8 @@ export default function PublishSheet({
       await updateKinloom(familySpaceId, kinloomId, {
         visibility: isPrivate ? 'private' : 'family',
       });
+      // Inside the iOS WebView the flow ends here; native closes the view.
+      if (postToNative({ type: 'publishComplete', kinloomIds: [kinloomId] })) return;
       router.push(`/library/${kinloomId}`);
       router.refresh();
     } catch (err) {
