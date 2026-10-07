@@ -7,7 +7,6 @@ import {
   getExport,
   exportDownloadUrl,
   type ExportFormat,
-  type ExportSchedule,
   type ExportStatus,
 } from '../../../../lib/exports';
 import { ApiError } from '../../../../lib/api';
@@ -20,14 +19,14 @@ type Job = {
   format: ExportFormat;
   status: ExportStatus;
   error?: string | null;
+  /** Polling gave up before the job finished; the API emails a link instead. */
+  timedOut?: boolean;
 };
 
 export default function ExportClient() {
   const { activeSpaceId } = useActiveFamilySpace();
   const [job, setJob] = useState<Job | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [schedule, setSchedule] = useState<ExportSchedule | 'off'>('off');
-  const [scheduleSaving, setScheduleSaving] = useState<ExportSchedule | 'off' | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
@@ -59,8 +58,10 @@ export default function ExportClient() {
       polls += 1;
       try {
         const ex = await getExport(spaceId, exportId);
-        setJob(prev => prev ? { ...prev, status: ex.status, error: ex.error_message } : prev);
-        if (ex.status === 'ready' || ex.status === 'failed' || polls >= MAX_POLLS) {
+        const done = ex.status === 'ready' || ex.status === 'failed';
+        const timedOut = !done && polls >= MAX_POLLS;
+        setJob(prev => prev ? { ...prev, status: ex.status, error: ex.error_message, timedOut } : prev);
+        if (done || timedOut) {
           if (pollRef.current) clearInterval(pollRef.current);
           pollRef.current = null;
         }
@@ -73,23 +74,12 @@ export default function ExportClient() {
     }, POLL_INTERVAL_MS);
   }
 
-  async function setScheduleChoice(next: ExportSchedule | 'off') {
-    if (!activeSpaceId) return;
-    setSchedule(next);
-    if (next === 'off') return;
-    setScheduleSaving(next);
-    try {
-      await createExport(activeSpaceId, { format: 'json', schedule: next });
-    } catch {
-      // surface a soft failure inline; the previous schedule stays selected
-    } finally {
-      setScheduleSaving(null);
-    }
-  }
-
   const ready = job?.status === 'ready';
   const failed = job?.status === 'failed';
-  const inFlight = !!job && !ready && !failed;
+  // Once polling times out the buttons come back; clicking again returns the
+  // same in-flight export from the API and resumes polling.
+  const timedOut = !!job?.timedOut && !ready && !failed;
+  const inFlight = !!job && !ready && !failed && !timedOut;
 
   return (
     <div>
@@ -128,6 +118,11 @@ export default function ExportClient() {
                   Preparing your {job.format.toUpperCase()} export… this can take a moment for larger libraries.
                 </p>
               )}
+              {timedOut && (
+                <p>
+                  This is taking a while. We&apos;ll email you a download link when it&apos;s ready.
+                </p>
+              )}
               {ready && job.exportId && (
                 <p>
                   <strong>Ready.</strong>{' '}
@@ -142,27 +137,6 @@ export default function ExportClient() {
               {failed && <p><strong>Export failed.</strong> {job.error || 'Please try again in a moment.'}</p>}
             </div>
           )}
-        </div>
-
-        <div className="card">
-          <h2 className="settings-h2">Automatic backups</h2>
-          <p className="settings-card-text">
-            Schedule automatic exports.
-          </p>
-          <div className="vis-row">
-            {(['monthly', 'off'] as const).map(opt => (
-              <button
-                key={opt}
-                type="button"
-                className={`vis-chip${schedule === opt ? ' is-active' : ''}`}
-                onClick={() => setScheduleChoice(opt)}
-                disabled={scheduleSaving !== null || !activeSpaceId}
-              >
-                {opt === 'monthly' ? 'Monthly' : 'Off'}
-                {scheduleSaving === opt ? ' …' : ''}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     </div>

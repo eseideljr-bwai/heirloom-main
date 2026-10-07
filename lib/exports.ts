@@ -1,5 +1,8 @@
 /**
- * Family-space exports (PDF / JSON archive of all kinlooms).
+ * Personal exports: everything the signed-in user created, across every
+ * family space they belong to. `json` produces a ZIP archive with media,
+ * `pdf` a printable book of their kinlooms. The family space in the URL is
+ * only the route the request goes through.
  *
  *   1. createExport(...)  → 202 with { export_id, status: 'pending' }
  *   2. poll getExport(...) until status === 'ready' (or 'failed')
@@ -30,13 +33,19 @@ export type CreateExportResponse = {
   status: ExportStatus;
 };
 
+export type ExportCounts = Record<string, number>;
+
 export type Export = {
   ulid: string;
   status: ExportStatus;
   format: string;
-  completed_at: string;
+  completed_at: string | null;
   download_url: string | null;
   error_message: string | null;
+  file_name?: string | null;
+  file_size?: number | null;
+  expires_at?: string | null;
+  counts?: ExportCounts | null;
 };
 
 /** POST /family-spaces/{familySpace}/exports */
