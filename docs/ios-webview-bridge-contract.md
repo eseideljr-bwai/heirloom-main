@@ -1,6 +1,6 @@
 # Kinloom iOS WebView bridge contract (version 1)
 
-Status: **Draft for sign-off** (SOW Phase 0, "finalize WebView bridge contract")
+Status: **Approved** by Eric Seidel, Jr. on 14 October 2026 (SOW Phase 0, "finalize WebView bridge contract")
 Covers SOW items: D1 (shell-less mode), D2 (bridge emitter), D3 (session bootstrap), W-Auth, W-Session
 Owner: Jose Couto. Approver: Eric Seidel, Jr.
 Web code: `lib/embed.ts`, `middleware.ts`, `app/api/auth/mobile-session/route.ts`
@@ -169,6 +169,8 @@ Recovery, as the SOW describes:
 
 Native should also re-bootstrap proactively each time it presents the web view. The session lasts one hour, so a flow left open longer will need step 1–3 when the user resumes.
 
+So the user never waits on that round trip, native should start the bootstrap before the web view is shown (for example, when the Create screen appears) and skip it when the cookies it installed are under 50 minutes old.
+
 The 24-hour idle and 30-day absolute limits from the web still exist. In embedded mode they send `sessionExpired` instead of signing the user out.
 
 ## 7. Versioning and change rules
@@ -197,7 +199,7 @@ Run on 7 October 2026 against a local web server and the real Firebase project a
 - A real `WKWebView` on a device. The cookie install, the message handler, the navigation guard and the reload-once recovery are all native-side work that waits for the iOS app.
 - The deployed staging web domain (D10). Cookies are `Secure` in production, so they are only exercised over https there.
 
-## 10. Decisions for Eric to sign off
+## 10. Decisions signed off
 
 1. **Dedicated route.** `POST /api/auth/mobile-session` replaces "allow `/api/auth/session` from native". Reason in section 4.
 2. **1-hour session** for the web view, with re-bootstrap each time the web view is presented.
@@ -207,5 +209,7 @@ Run on 7 October 2026 against a local web server and the real Firebase project a
 
 | | Name | Date |
 |---|---|---|
-| Web (Jose Couto) | | |
-| Kinloom (Eric Seidel, Jr.) | | |
+| Web | Jose Couto | 7 October 2026 |
+| Kinloom | Eric Seidel, Jr. (approved in Slack) | 14 October 2026 |
+
+Eric's direction with the approval: the web and iOS teams may make further decisions in this area without a new sign-off, as long as latency and performance stay good from the user's point of view. A flow that works but feels slow or adds friction is not done.
