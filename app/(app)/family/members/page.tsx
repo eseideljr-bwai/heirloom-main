@@ -22,6 +22,11 @@ export default async function FamilyMembersPage() {
         Family
       </Link>
 
+      <p className="eyebrow">Members</p>
+      <h1 className="mg-page__title">
+        {isOwner ? 'Manage your family space.' : 'Your family space.'}
+      </h1>
+
       <MembersClient
         familySpaceId={familySpaceId}
         members={members}

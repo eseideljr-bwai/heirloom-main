@@ -4,6 +4,7 @@ import { getHome, getLibraryServer } from '../../../lib/server/queries';
 import type { LibraryRow } from '../../../lib/kinloom';
 import { paginate, parsePageParam } from '../../../lib/pagination';
 import Pagination from '../../components/Pagination';
+import { orNull } from '../../../lib/server/safe';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,11 +98,13 @@ type Search = { view?: string; page?: string };
 export default async function VaultPage({ searchParams }: { searchParams?: Search }) {
   const familySpaceId = await requireActiveSpaceId();
 
-  const [{ kinlooms: allKinlooms }, home, activeSpace] = await Promise.all([
-    getLibraryServer(familySpaceId),
-    getHome(familySpaceId),
+  const [library, home, activeSpace] = await Promise.all([
+    orNull(getLibraryServer(familySpaceId)),
+    orNull(getHome(familySpaceId)),
     getActiveSpace(),
   ]);
+
+  const allKinlooms = library?.kinlooms ?? [];
 
   // The Vault is only ever the signed-in person's own writing. The library
   // endpoint returns the whole space and takes no author filter, so scope
@@ -114,14 +117,22 @@ export default async function VaultPage({ searchParams }: { searchParams?: Searc
       .map(v => v.toLowerCase()),
   );
 
-  if (myMemberIds.size === 0) {
+  // Two different failures used to look identical here. They need to be
+  // told apart: one is the space refusing us, the other is not knowing
+  // which member we are — the known gap where /me omits member_id.
+  if (library === null || myMemberIds.size === 0) {
     return (
       <div className="vault-page">
         <p className="eyebrow">My Vault</p>
         <h1 className="vault-page__title">Everything you have written.</h1>
         <div className="empty-card">
           <p className="empty-card__text">
-            We couldn&rsquo;t load your vault right now. Please refresh the page or try again shortly.
+            {library === null
+              ? 'This family space wouldn’t return its kinlooms. The account may not currently be permitted to read it.'
+              : 'We couldn’t work out which member you are in this family space, so there’s no way to pick your own kinlooms out of it.'}
+          </p>
+          <p className="empty-card__sub">
+            Nothing you have written is affected — this is a lookup problem, not a data one.
           </p>
         </div>
       </div>

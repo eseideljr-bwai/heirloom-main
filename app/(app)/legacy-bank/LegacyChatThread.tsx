@@ -1,44 +1,12 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import ReactMarkdown from 'react-markdown';
-import type { LibraryRow } from '../../../lib/kinloom';
 import type { LegacyBankMessage as ApiLegacyBankMessage, LegacyBankSource } from '../../../lib/server/queries';
 import { askLegacyBank, createLegacyBankConversation, normalizeSources } from '../../../lib/legacy-bank';
 
 type Message = { role: 'user' | 'assistant'; body: string; sources: LegacyBankSource[] };
-
-function ListeningOrb({ active = false }: { active?: boolean }) {
-  return (
-    <span className={`listening-orb${active ? ' is-active' : ''}`}>
-      <svg viewBox="0 0 32 32" width="32" height="32">
-        <defs>
-          <radialGradient id="orb-grad" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stopColor="#c9a96e" stopOpacity="0.9" />
-            <stop offset="100%" stopColor="#556b5b" stopOpacity="0.5" />
-          </radialGradient>
-        </defs>
-        {active && <circle cx="16" cy="16" r="14" fill="none" stroke="#556b5b" strokeWidth="0.8" opacity="0.3" />}
-        <circle cx="16" cy="16" r="9" fill="url(#orb-grad)" opacity="0.85" />
-        <circle cx="16" cy="16" r="4" fill="#fdfcfa" opacity="0.7" />
-      </svg>
-    </span>
-  );
-}
-
-function SourceChips({ sources }: { sources: LegacyBankSource[] }) {
-  if (sources.length === 0) return null;
-  return (
-    <p className="chat-msg__sources">
-      {sources.map(s => (
-        <Link key={s.id} href={`/library/${s.id}`} className="chat-source-chip">
-          {s.type ? `${s.type} · ${s.title}` : s.title}
-        </Link>
-      ))}
-    </p>
-  );
-}
 
 export type LegacyChatThreadProps = {
   familySpaceId: string;
@@ -48,10 +16,15 @@ export type LegacyChatThreadProps = {
   /** Used in copy: "Ask {subjectDisplayName} anything." / "Ask {subjectDisplayName} something..." */
   subjectDisplayName: string;
   initialMessages?: ApiLegacyBankMessage[];
-  /** Only passed by the live per-member chat — its presence is what shows the "Responding from" corpus cloud. */
-  corpusKinlooms?: LibraryRow[];
   /** Only passed by the live chat, shown while the thread is still short. */
   suggestedQuestions?: string[];
+  /**
+   * Opening message shown in place of the empty state. The Family Legacy
+   * Bank uses it to say up front what it will and will not read.
+   */
+  intro?: string;
+  /** Overrides the composer placeholder. */
+  placeholder?: string;
 };
 
 export default function LegacyChatThread({
@@ -61,8 +34,9 @@ export default function LegacyChatThread({
   subjectMemberId,
   subjectDisplayName,
   initialMessages,
-  corpusKinlooms,
   suggestedQuestions,
+  intro,
+  placeholder,
 }: LegacyChatThreadProps) {
   const [messages, setMessages] = useState<Message[]>(
     () => (initialMessages || []).map(m => ({ role: m.role, body: m.body, sources: normalizeSources(m.sources) })),
@@ -70,6 +44,14 @@ export default function LegacyChatThread({
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const conversationIdRef = useRef<string | null>(initialConversationId);
+  const logRef = useRef<HTMLDivElement>(null);
+
+  // The log is a fixed-height scroller in this design, so new turns would
+  // otherwise arrive below the fold.
+  useEffect(() => {
+    const el = logRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, sending]);
 
   async function send(text?: string) {
     const q = (text || input).trim();
@@ -110,70 +92,76 @@ export default function LegacyChatThread({
   }
 
   return (
-    <>
-      {corpusKinlooms && corpusKinlooms.length > 0 && (
-        <div className="chat-sources">
-          <span className="chat-sources__label">Responding from:</span>
-          {corpusKinlooms.map(k => (
-            <Link key={k.ulid} href={`/library/${k.ulid}`} className="chat-source-chip">
-              {k.title || 'Untitled'}
-            </Link>
-          ))}
-        </div>
-      )}
-
-      <div className="chat-thread">
+    <div className="lb-chat">
+      <div className="lb-chat__log" ref={logRef}>
         {messages.length === 0 && (
-          <div className="chat-empty">
-            <p className="chat-empty__title">Ask {subjectDisplayName} anything.</p>
-            <p className="chat-empty__sub">Responses are grounded in what was chosen to keep.</p>
-          </div>
+          intro ? (
+            <div className="lb-msg lb-msg--assistant">
+              <div className="lb-msg__bubble lb-msg__bubble--intro">
+                <p className="lb-msg__who">Kinloom</p>
+                <div className="lb-msg__text"><p>{intro}</p></div>
+              </div>
+            </div>
+          ) : (
+            <div className="lb-chat__empty">
+              <p className="lb-chat__empty-title">Ask {subjectDisplayName} anything.</p>
+              <p className="lb-chat__empty-sub">Responses are grounded in what was chosen to keep.</p>
+            </div>
+          )
         )}
+
         {messages.map((m, i) => (
-          <div key={i} className={`chat-msg chat-msg--${m.role}`}>
-            {m.role === 'assistant' && <ListeningOrb />}
-            <div className="chat-msg__bubble">
-              <ReactMarkdown>{m.body}</ReactMarkdown>
-              {m.role === 'assistant' && <SourceChips sources={m.sources} />}
+          <div key={i} className={`lb-msg lb-msg--${m.role}`}>
+            <div className="lb-msg__bubble">
+              <p className="lb-msg__who">{m.role === 'user' ? 'You' : subjectDisplayName}</p>
+              <div className="lb-msg__text">
+                <ReactMarkdown>{m.body}</ReactMarkdown>
+              </div>
+              {m.role === 'assistant' && m.sources.length > 0 && (
+                <div className="lb-msg__sources">
+                  {m.sources.map(s => (
+                    <Link key={s.id} href={`/library/${s.id}`} className="lb-msg__source">
+                      {s.type ? `${s.type} · ${s.title}` : s.title}
+                    </Link>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         ))}
+
         {sending && (
-          <div className="chat-msg chat-msg--assistant chat-msg--typing">
-            <ListeningOrb active />
-            <span className="chat-typing">
-              <span /><span /><span />
-            </span>
-          </div>
+          <p className="lb-chat__busy">Reading {subjectDisplayName}&rsquo;s kinlooms&hellip;</p>
         )}
       </div>
 
       {messages.length <= 2 && suggestedQuestions && suggestedQuestions.length > 0 && (
-        <div className="chat-suggested">
-          <p className="chat-suggested__label">Suggested questions</p>
-          <div className="chat-suggested__row">
-            {suggestedQuestions.map((q, i) => (
-              <button key={i} type="button" onClick={() => send(q)} className="chip-button">{q}</button>
-            ))}
-          </div>
+        <div className="lb-chat__asks">
+          {suggestedQuestions.map((q, i) => (
+            <button key={i} type="button" onClick={() => send(q)} className="lb-chat__ask" disabled={sending}>
+              {q}
+            </button>
+          ))}
         </div>
       )}
 
-      <form onSubmit={onSubmit} className="chat-input">
+      <form onSubmit={onSubmit} className="lb-chat__composer">
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
-          placeholder={`Ask ${subjectDisplayName} something...`}
+          placeholder={placeholder || `Ask ${subjectDisplayName} something…`}
           disabled={sending}
-          className="chat-input__field"
+          className="lb-chat__input"
         />
-        <button type="submit" disabled={sending || !input.trim()} className="btn-primary chat-input__send">
+        <button type="submit" disabled={sending || !input.trim()} className="lb-chat__send">
           Ask
         </button>
       </form>
-      <p className="chat-input__note">
-        Responses are grounded in stored kinloom content only &mdash; no invented facts, no impersonation.
+
+      <p className="lb-chat__note">
+        Grounded responses only. No invented facts. No impersonation.
+        If it is not in a kinloom, Kinloom says so.
       </p>
-    </>
+    </div>
   );
 }

@@ -55,6 +55,12 @@ type NavLink = {
   exact?: boolean;
   /** Rendered only for containers that carry lineage. */
   lineageOnly?: boolean;
+  /**
+   * Highlight on this prefix instead of `href`. The account links point at
+   * `/me` resolvers that redirect to a member id, so the href they are
+   * clicked from is never the path they land on.
+   */
+  match?: string;
 };
 
 const HOME_NAV: NavLink[] = [
@@ -62,6 +68,12 @@ const HOME_NAV: NavLink[] = [
   { href: '/spaces',      label: 'Family Spaces' },
   { href: '/library',     label: 'Our Library' },
   { href: '/home/manage', label: 'Manage Home' },
+];
+
+const ACCOUNT_NAV: NavLink[] = [
+  { href: '/vault',          label: 'My Vault' },
+  { href: '/portrait/me',    label: 'My Portrait',    match: '/portrait' },
+  { href: '/legacy-bank/me', label: 'My Legacy Bank', match: '/legacy-bank' },
 ];
 
 const SPACE_NAV: NavLink[] = [
@@ -186,8 +198,11 @@ export default function AppNav({ user }: { user: AuthUser }) {
 
   const inSpaces = pathname === '/spaces' || pathname.startsWith('/spaces/');
 
-  const isActive = (l: NavLink) =>
-    l.exact ? pathname === l.href : pathname === l.href || pathname.startsWith(`${l.href}/`);
+  const isActive = (l: NavLink) => {
+    const base = l.match ?? l.href;
+    if (l.exact) return pathname === base;
+    return pathname === base || pathname.startsWith(`${base}/`);
+  };
 
   // Navigating is the most common way out of the drawer.
   useEffect(() => { setDrawer(false); setMenu(false); }, [pathname]);
@@ -307,13 +322,6 @@ export default function AppNav({ user }: { user: AuthUser }) {
 
           <div className="topnav__right">
             <Link href="/create" className="topnav__create">Create a Kinloom</Link>
-            <Link
-              href="/vault"
-              className={`topnav__vault${pathname.startsWith('/vault') ? ' is-active' : ''}`}
-            >
-              My Vault
-            </Link>
-
             <div className="topnav__account" ref={menuRef}>
               <button
                 type="button"
@@ -334,9 +342,20 @@ export default function AppNav({ user }: { user: AuthUser }) {
                     </p>
                     <p className="topnav__menu-email">{user.email}</p>
                   </div>
-                  <Link href="/vault" role="menuitem" className="topnav__menu-item topnav__menu-item--vault">
-                    My Vault
-                  </Link>
+                  {ACCOUNT_NAV.map(l => (
+                    <Link
+                      key={l.href}
+                      href={l.href}
+                      role="menuitem"
+                      className={`topnav__menu-item${isActive(l) ? ' is-active' : ''}`}
+                      aria-current={isActive(l) ? 'page' : undefined}
+                    >
+                      {l.label}
+                    </Link>
+                  ))}
+
+                  <div className="topnav__menu-rule" role="separator" />
+
                   <Link href="/settings" role="menuitem" className="topnav__menu-item">Settings</Link>
                   <Link href="/help" role="menuitem" className="topnav__menu-item">Help</Link>
                   {feedback.enabled && (

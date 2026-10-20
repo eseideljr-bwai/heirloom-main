@@ -47,111 +47,96 @@ export default function MembersClient({ familySpaceId, members, pending, isOwner
 
   return (
     <>
-      <div className="manage-page__header">
-        <div>
-          <p className="eyebrow manage-page__eyebrow">Members</p>
-          <h1 className="manage-page__title">
-            {isOwner ? 'Manage your family space.' : 'Your family space.'}
-          </h1>
-          {!isOwner && (
-            <p className="settings-card-text">
-              Only owners can invite, add, or remove members.
-            </p>
+      <div className="mg-card">
+        <div className="mg-card__head">
+          <span className="mg-card__title">Members ({members.length})</span>
+          <span className="mg-card__spacer" />
+          {isOwner ? (
+            <>
+              <button type="button" className="mg-card__action" onClick={() => setModal({ kind: 'add-member' })}>
+                + Add member
+              </button>
+              <button type="button" className="mg-card__action" onClick={() => setModal({ kind: 'invite' })}>
+                + Invite
+              </button>
+            </>
+          ) : (
+            <span className="mg-card__note">Only owners can invite or remove.</span>
           )}
         </div>
-        {isOwner && (
-          <div className="manage-page__actions">
-            <button type="button" className="btn-outline" onClick={() => setModal({ kind: 'add-member' })}>
-              + Add member
-            </button>
-            <button type="button" className="btn-primary" onClick={() => setModal({ kind: 'invite' })}>
-              + Invite member
-            </button>
-          </div>
-        )}
-      </div>
 
-      <h2 className="manage-page__h2">Members ({members.length})</h2>
-      {members.length === 0 ? (
-        <div className="empty-card">
-          <p className="empty-card__text">No family members yet.</p>
-          <p className="empty-card__sub">Your family space is invite-only. Invite the people you want to include.</p>
-        </div>
-      ) : (
-        <ul className="manage-list">
-          {members.map(m => (
-            <li key={m.member_id} className="manage-list__row">
-              <span className="manage-list__avatar" style={{ background: (m.tone || '#a39376') + '28', color: m.tone || '#556b5b' }}>
+        {members.length === 0 ? (
+          <p className="mg-card__empty">
+            Nobody here yet. This home is invite-only — invite the people you want to include.
+          </p>
+        ) : (
+          members.map(m => (
+            <div key={m.member_id} className="mg-row">
+              <span
+                className="mg-row__avatar"
+                style={{ background: `${m.tone || '#a39376'}28`, color: m.tone || '#556b5b' }}
+                aria-hidden="true"
+              >
                 {m.initials || m.name?.charAt(0) || '?'}
               </span>
-              <div className="manage-list__body">
-                <p className="manage-list__name">{m.name}{m.is_me ? ' · You' : ''}</p>
-                <p className="manage-list__sub">
-                  {m.role_label || m.kin_term || ''}
+              <div className="mg-row__body">
+                <p className="mg-row__name">{m.name}{m.is_me ? ' · You' : ''}</p>
+                <p className="mg-row__sub">
+                  {m.role_label || m.kin_term || 'Member'}
                   {m.deceased ? ' · Passed' : ''}
                 </p>
               </div>
-              <div className="manage-list__row-actions">
-                <Link href={`/family/${m.member_id}`} className="manage-list__link">View</Link>
+              <div className="mg-row__actions">
+                <Link href={`/portrait/${m.member_id}`} className="mg-btn">View</Link>
                 {isOwner && (
-                  <button
-                    type="button"
-                    className="manage-list__icon-btn"
-                    onClick={() => setModal({ kind: 'edit-member', member: m })}
-                    aria-label="Edit member"
-                    title="Edit"
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                  <button type="button" className="mg-btn" onClick={() => setModal({ kind: 'edit-member', member: m })}>
+                    Edit
                   </button>
                 )}
                 {isOwner && !m.is_me && (
                   <button
                     type="button"
-                    className="manage-list__icon-btn manage-list__icon-btn--danger"
+                    className="mg-btn mg-btn--danger"
                     onClick={() => setModal({ kind: 'remove-member', member: m })}
-                    aria-label="Remove member"
-                    title="Remove"
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+                    Remove
                   </button>
                 )}
               </div>
-            </li>
-          ))}
-        </ul>
-      )}
+            </div>
+          ))
+        )}
+      </div>
 
       {pending.length > 0 && (
-        <>
-          <h2 className="manage-page__h2 manage-page__h2--spaced">Pending invitations ({pending.length})</h2>
-          <ul className="manage-list">
-            {pending.map(inv => (
-              <li key={inv.ulid} className="manage-list__row">
-                <span className="manage-list__avatar manage-list__avatar--pending">@</span>
-                <div className="manage-list__body">
-                  <p className="manage-list__name">{inv.email}</p>
-                  <p className="manage-list__sub">
-                    {inv.role_label || 'Invited'}
-                    {inv.invited_at ? ` · sent ${inv.invited_at}` : ''}
-                  </p>
+        <div className="mg-card mg-card--spaced">
+          <div className="mg-card__head">
+            <span className="mg-card__title">Pending invitations ({pending.length})</span>
+          </div>
+          {pending.map(inv => (
+            <div key={inv.ulid} className="mg-row">
+              <span className="mg-row__avatar mg-row__avatar--pending" aria-hidden="true">@</span>
+              <div className="mg-row__body">
+                <p className="mg-row__name">{inv.email}</p>
+                <p className="mg-row__sub">
+                  {inv.role_label || 'Invited'}
+                  {inv.invited_at ? ` · sent ${inv.invited_at}` : ''}
+                </p>
+              </div>
+              {isOwner && (
+                <div className="mg-row__actions">
+                  <button
+                    type="button"
+                    className="mg-btn mg-btn--danger"
+                    onClick={() => setModal({ kind: 'revoke-invite', invitation: inv })}
+                  >
+                    Revoke
+                  </button>
                 </div>
-                {isOwner && (
-                  <div className="manage-list__row-actions">
-                    <button
-                      type="button"
-                      className="manage-list__icon-btn manage-list__icon-btn--danger"
-                      onClick={() => setModal({ kind: 'revoke-invite', invitation: inv })}
-                      aria-label="Revoke invitation"
-                      title="Revoke"
-                    >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    </button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-        </>
+              )}
+            </div>
+          ))}
+        </div>
       )}
 
       {modal?.kind === 'invite' && (

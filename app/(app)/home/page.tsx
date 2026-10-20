@@ -7,6 +7,8 @@ import {
   type HomeRecentKinloom,
 } from '../../../lib/server/queries';
 import { formatKinloomDate } from '../../../lib/kinloom';
+import { orNull } from '../../../lib/server/safe';
+import DataNotice from '../../components/DataNotice';
 
 export const dynamic = 'force-dynamic';
 
@@ -115,25 +117,31 @@ export default async function HomePage() {
   const familySpaceId = await requireActiveSpaceId();
 
   const [data, manage, activeSpace] = await Promise.all([
-    getHome(familySpaceId),
+    orNull(getHome(familySpaceId)),
     getManageMembers(familySpaceId).catch(() => null),
     getActiveSpace(),
   ]);
 
   const homeName = activeSpace?.name?.trim() || 'Your Family Home';
   const people = manage?.members ?? [];
-  const kinloomTotal = data.legacyBankProgress?.total_kinlooms ?? 0;
-  const lately = data.recentKinlooms.slice(0, 3);
+  const kinloomTotal = data?.legacyBankProgress?.total_kinlooms ?? 0;
+  const lately = (data?.recentKinlooms ?? []).slice(0, 3);
 
   return (
     <div className="home-page">
+
+      {data === null && (
+        <section className="home-section">
+          <DataNotice what="this home’s recent activity" />
+        </section>
+      )}
 
       {/* ── Hero ─────────────────────────────────────────────────── */}
       <section className="home-hero">
         <div>
           <p className="eyebrow">Your Family Home</p>
           <h1 className="home-hero__title">{homeName}</h1>
-          <p className="home-hero__moral no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 2.1\nAPI — Home.motto, nullable text. Already specified as part of the Home profile.\nUI — render from the Home profile; omit the line entirely when empty."}>{PLACEHOLDER.moral}</p>
+          <p className="home-hero__moral no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ motto · string | null\nHome id: GET /me → home.id. Omit the line entirely when null."}>{PLACEHOLDER.moral}</p>
 
           <div className="home-stats">
             <div className="home-stat">
@@ -144,14 +152,14 @@ export default async function HomePage() {
               <p className="home-stat__v">{kinloomTotal}</p>
               <p className="home-stat__l">kinlooms here</p>
             </div>
-            <div className="home-stat no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 2.1\nAPI — Home.established_year, nullable.\nUI — drop the stat when null; never render a dash."}>
+            <div className="home-stat no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ established_year · integer | null  (also stats.established_year)\nDrop the whole stat when null rather than rendering a dash."}>
               <p className="home-stat__v">{PLACEHOLDER.since}</p>
               <p className="home-stat__l">since</p>
             </div>
           </div>
         </div>
 
-        <div className="home-hero__media no-api" data-api-scope="out" data-api-note={"NOT SCOPED\nAPI — featured film per Home: poster, duration, caption, byline, source kinloom. Absent from SOW 5.1.\nUI — play opens the kinloom.\nDECIDE — add featured content as a change order, derive it automatically (most recent film), or cut."}>
+        <div className="home-hero__media no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ featured.hero · HomeFeaturedMediaCard | null\nImage/film: hero.media.url (signed — watch media.expires_at). Duration: media.duration_seconds. Caption: title. Byline: author."}>
           <div
             role="img"
             aria-label={PLACEHOLDER.hero.caption}
@@ -192,7 +200,7 @@ export default async function HomePage() {
 
       {/* ── Where you left off ───────────────────────────────────── */}
       <section className="home-section">
-        <div className="home-leftoff no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 4.1\nAPI — expose kinloom.status on the READ model — it is write-only today — plus the author’s latest draft. A word count is needed as well.\nUI — resume straight into the composer at the right type; hide the whole bar when there are no drafts."}>
+        <div className="home-leftoff no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ where_you_left_off · KinloomCard | null\nResume at /kinlooms/{id}. Hide the whole bar when null. No word count in the payload."}>
           <p className="home-section__label">Where you left off</p>
           <p className="home-leftoff__title">{PLACEHOLDER.leftOff.title}</p>
           <p className="home-leftoff__meta">{PLACEHOLDER.leftOff.meta}</p>
@@ -205,11 +213,11 @@ export default async function HomePage() {
         <div
           role="img"
           aria-label={PLACEHOLDER.moment.caption}
-          className="home-moment no-api" data-api-scope="out" data-api-note={"NOT SCOPED\nAPI — featured photograph per Home: signed media URL and caption. Absent from SOW 5.1.\nUI — link through to its kinloom.\nDECIDE — same call as the hero film."}
+          className="home-moment no-api" data-api-scope="out" data-api-note={"No field for this.\nfeatured carries hero, quote, voice and lately only — there is no dedicated “moment” slot.\nEither source it from featured.lately (first card with has_photo) or cut the module. A product decision, not a wiring one."}
           style={{ backgroundImage: `url(${PLACEHOLDER.moment.image})` }}
         />
 
-        <blockquote className="home-quote no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 4.1\nAPI — kinloom.featured_quote, plus the author’s birth year and vault total. birth_year already exists on FamilyMember; the total does not.\nUI — link through to the source kinloom; hide the module when no quote is set.\nWATCH OUT — the vault total must be viewer-filtered. A viewer sees only what they can read; the full total appears on a person’s own portrait only."}>
+        <blockquote className="home-quote no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ featured.quote · KinloomQuoteCard | null\nText: quote.featured_quote. Attribution: quote.author. Source link: /kinlooms/{quote.id}."}>
           <p className="home-section__label">{PLACEHOLDER.quote.eyebrow}</p>
           <p className="home-quote__text">“{PLACEHOLDER.quote.text}”</p>
           <footer className="home-quote__foot">
@@ -219,7 +227,7 @@ export default async function HomePage() {
           <Link href="/library" className="home-section__link">{PLACEHOLDER.quote.link}</Link>
         </blockquote>
 
-        <div className="home-voice no-api" data-api-scope="in" data-api-note={"IN SCOPE · SOW 5.1\nAPI — featured recorded voice per Home: signed URL, duration, author, date.\nUI — reuse AudioPlayer.tsx rather than building a second player. The waveform is decorative and may stay static."}>
+        <div className="home-voice no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ featured.voice · HomeFeaturedMediaCard | null\nAudio: voice.media.url. Length: media.duration_seconds. The waveform stays decorative — the payload carries no samples."}>
           <p className="home-section__label">A voice in the family</p>
           <p className="home-voice__title">{PLACEHOLDER.voice.title}</p>
           <p className="home-voice__meta">{PLACEHOLDER.voice.meta}</p>
@@ -266,13 +274,13 @@ export default async function HomePage() {
           <Link href="/create?from=home" className="home-band__cta">Create a kinloom</Link>
         </div>
         <div>
-          <div className="home-band__strip no-api" data-api-scope="out" data-api-note={"NOT SCOPED\nAPI — recent photo media published to this Home. Absent from SOW 5.1.\nUI — signed URLs, each tile linking to its kinloom.\nDECIDE — deriving this from recent Home publications needs no curation screen."}>
+          <div className="home-band__strip no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ featured.lately · array<KinloomCard>\nCaution: KinloomCard has has_photo but no media url. Resolve each tile via GET /media/{id}/url, or render the cards without images."}>
             {PLACEHOLDER.band.strip.map(src => (
               <span key={src} className="home-band__tile" style={{ backgroundImage: `url(${src})` }} />
             ))}
             <Link href="/create?from=home" className="home-band__tile home-band__tile--add" aria-label="Create a kinloom">+</Link>
           </div>
-          <p className="home-band__note no-api" data-api-scope="out" data-api-note={"NOT SCOPED\nAPI — media tallies per Home: photographs, recorded voices, films. “the Home profile and counts” in SOW 5.1 is ambiguous — confirm before building.\nUI — omit any category that is zero."}>{PLACEHOLDER.band.note}</p>
+          <p className="home-band__note no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ media_counts · photos, recorded_voices, films\nOmit any category that is zero."}>{PLACEHOLDER.band.note}</p>
         </div>
         </div>
       </section>
