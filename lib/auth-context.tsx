@@ -32,13 +32,11 @@ import {
 import { onIdTokenChanged } from 'firebase/auth';
 import {
   AuthUser,
-  FamilySpaceRef,
   RegisterPayload,
   clearServerSession,
   getMe,
   login as apiLogin,
   logout as apiLogout,
-  parseFamilySpaces,
   register as apiRegister,
   syncSessionEstablish,
   syncSessionRefresh,
@@ -46,7 +44,6 @@ import {
 import { firebaseAuth } from './firebase-client';
 import {
   ABSOLUTE_TIMEOUT_MS,
-  ApiError,
   checkSessionStatus,
   getSessionStartedAt,
   IDLE_TIMEOUT_MS,
@@ -59,19 +56,10 @@ type AuthContextValue = {
   user: AuthUser | null;
   loading: boolean;
   authReady: boolean;
-  /**
-   * True when `user` was synthesized from the Firebase record because /me
-   * couldn't be read, rather than returned by the API. Its `family_spaces`
-   * is an empty placeholder, not a fact — don't make routing decisions
-   * from it.
-   */
-  provisional: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
   register: (payload: RegisterPayload) => Promise<AuthUser>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
-  /** Optimistically add a family space (e.g. right after accepting an invite). */
-  upsertFamilySpace: (space: FamilySpaceRef) => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -86,7 +74,6 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   const [user, setUser] = useState<AuthUser | null>(initialUser);
   const [loading] = useState(false);
   const [authReady, setAuthReady] = useState(false);
-  const provisional = user?.provisional === true;
   const embedded = useEmbedded();
 
   const refresh = useCallback(async () => {
@@ -102,17 +89,6 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
       // /me 401 after invite-accept used to wipe state and leave AppShell
       // permanently blank on /home.
     }
-  }, []);
-
-  const upsertFamilySpace = useCallback((space: FamilySpaceRef) => {
-    setUser(prev => {
-      if (!prev) return prev;
-      const existing = parseFamilySpaces(prev.family_spaces);
-      if (existing.some(s => s.ulid === space.ulid)) {
-        return { ...prev, family_spaces: existing };
-      }
-      return { ...prev, family_spaces: [...existing, space] };
-    });
   }, []);
 
   const broadcast = useCallback((msg: 'login' | 'logout') => {
@@ -185,34 +161,11 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
         }
         const me = await getMe();
         setUser(me);
-      } catch (err) {
-        const authErr =
-          err instanceof ApiError && (err.status === 401 || err.status === 403);
-        if (authErr) {
-          // /me 401s until the Laravel row is provisioned (onboarding) and
-          // the email is verified. A not-yet-onboarded user is
-          // indistinguishable from a deleted one client-side, so don't
-          // sign them out — synthesize a minimal user from the Firebase
-          // record and let the app route them (→ /verify-email if
-          // unverified, → /onboarding/profile when they have no space).
-          //
-          // The empty `family_spaces` below is a placeholder, so flag the
-          // result provisional: consumers that would route on it must defer
-          // to the server instead of assuming the user has no space.
-          setUser(prev => prev ?? {
-            ulid: fbUser.uid,
-            email: fbUser.email ?? '',
-            name: fbUser.displayName ?? '',
-            display_name: fbUser.displayName ?? null,
-            avatar_url: null,
-            phone: null,
-            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-            family_spaces: [],
-            onboarding_state: 'pending',
-            provisional: true,
-          });
-        }
-        // Anything else (network blip): keep initialUser as-is.
+      } catch {
+        // A failed /me or session sync (network blip, API restart): keep
+        // whatever the server rendered. The API provisions an account on
+        // its first request, so there is no "signed in but unknown" state
+        // to paper over any more.
       } finally {
         setAuthReady(true);
       }
@@ -289,7 +242,7 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
   }, [refresh]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, authReady, provisional, login, register, logout, refresh, upsertFamilySpace }}>
+    <AuthContext.Provider value={{ user, loading, authReady, login, register, logout, refresh }}>
       {children}
     </AuthContext.Provider>
   );

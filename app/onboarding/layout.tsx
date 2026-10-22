@@ -12,14 +12,11 @@ export default async function OnboardingLayout({ children }: { children: React.R
     redirect('/verify-email');
   }
 
-  // Nothing used to stop a finished user from landing back here, so a stray
-  // redirect left them staring at the wizard with no way out but the nav.
-  // Only `complete` is checked: step 3 (first kinloom) runs *after* the
-  // family space exists, so `ready` alone would skip it.
+  // A finished person has nothing left to do here, so a stray redirect
+  // must not leave them in the wizard. `complete` never goes back to
+  // `profile_pending`.
   const state = await getUserState();
-  if (state.status === 'ready' && state.user.onboarding_state === 'complete') {
-    redirect('/home');
-  }
+  if (state.status === 'ready' || state.status === 'memorialized') redirect('/home');
 
   return <OnboardingChrome>{children}</OnboardingChrome>;
 }

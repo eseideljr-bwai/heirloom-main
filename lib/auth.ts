@@ -30,12 +30,29 @@ import {
 } from 'firebase/auth';
 import { firebaseAuth } from './firebase-client';
 import { apiFetch, ApiError } from './api';
+import { kinloomApi } from './kinloom-api';
+import type { components } from './api-schema/typed';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
 /**
- * One family space the current user belongs to.
- * Returned by Laravel as part of /me.
+ * What `GET /me` returns (Phase 3 contract §3.1): the account, its one
+ * Family Home, the Family Spaces that Home is active in, and readiness.
+ * Generated from the OpenAPI contract, so it cannot drift from the API.
+ */
+export type Me = components['schemas']['Me'];
+export type HomeSummary = components['schemas']['HomeSummary'];
+export type SpaceSummary = components['schemas']['SpaceSummary'];
+
+export type AuthUser = Me;
+
+/**
+ * The container the pre-Phase-3 screens still ask for: `ulid` and `name`
+ * are what their API calls take. It is now always the person's Family
+ * Home. Kept only so screens can be rewired one at a time; new code uses
+ * `user.home` and `user.spaces` directly.
+ *
+ * @deprecated Use `HomeSummary` / `SpaceSummary`.
  */
 export type FamilySpaceRef = {
   ulid: string;
@@ -44,122 +61,33 @@ export type FamilySpaceRef = {
   role?: 'owner' | 'member';
 };
 
-export type AuthUser = {
-  ulid: string;
-  email: string;
-  name: string;
-  display_name: string | null;
-  avatar_url: string | null;
-  phone: string | null;
-  timezone: string;
-  /** Present on /me, absent on register response (which we don't trust anyway). */
-  created_at?: string;
-  /**
-   * The OpenAPI spec types this as `string`, but the real payload is a JSON
-   * array (or string-encoded JSON array) of `FamilySpaceRef`. We accept any
-   * of those and normalize via `parseFamilySpaces`.
-   */
-  family_spaces?: FamilySpaceRef[] | string | null;
-  onboarding_state?: 'complete' | 'profile_set' | 'pending';
-  /**
-   * Set only by the client-side fallbacks that synthesize a user from the
-   * Firebase credential when /me can't be read. Never sent by the API.
-   * `family_spaces` on such a record is an empty placeholder rather than a
-   * fact, so it must not be used to decide that a user needs onboarding.
-   */
-  provisional?: true;
-};
-
-/**
- * Normalize the `family_spaces` field into a real array. The backend
- * spec types it as `string` but in practice we see:
- *   - an array of refs (preferred)
- *   - a JSON-encoded array string
- *   - a JSON-encoded single object string
- *   - a single ulid string
- *   - a CSV of ulids
- */
-function normalizeSpaceRef(raw: unknown): FamilySpaceRef | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const o = raw as Record<string, unknown>;
-  // API usually sends `ulid`; some payloads use `id`. Numbers count too —
-  // dropping a numeric id left the user with zero spaces from an otherwise
-  // healthy 200, which reads downstream as "hasn't onboarded".
-  const candidate = o.ulid ?? o.id ?? o.family_space_id;
-  const ulid =
-    typeof candidate === 'string'
-      ? candidate
-      : typeof candidate === 'number'
-        ? String(candidate)
-        : '';
-  if (!ulid) return null;
+/** The Home as the legacy container ref. @deprecated see `FamilySpaceRef`. */
+export function homeAsLegacyRef(user: AuthUser): FamilySpaceRef {
   return {
-    ulid,
-    name: typeof o.name === 'string' ? o.name : '',
-    member_id: typeof o.member_id === 'string' ? o.member_id : undefined,
-    role: o.role === 'owner' || o.role === 'member' ? o.role : undefined,
+    ulid: user.home.id,
+    name: user.home.name,
+    member_id: user.person_id,
+    role: user.home.role === 'member' ? 'member' : 'owner',
   };
 }
 
-export function parseFamilySpaces(
-  raw: AuthUser['family_spaces'],
-): FamilySpaceRef[] {
-  if (!raw) return [];
-  if (Array.isArray(raw)) {
-    return raw.map(normalizeSpaceRef).filter((s): s is FamilySpaceRef => s != null);
-  }
-  if (typeof raw !== 'string') return [];
-  const trimmed = raw.trim();
-  if (!trimmed) return [];
-  if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
-    try {
-      const v = JSON.parse(trimmed);
-      if (Array.isArray(v)) {
-        return v.map(normalizeSpaceRef).filter((s): s is FamilySpaceRef => s != null);
-      }
-      const one = normalizeSpaceRef(v);
-      if (one) return [one];
-    } catch {
-      // fall through
-    }
-  }
-  return trimmed.split(',').map(s => s.trim()).filter(Boolean).map(ulid => ({ ulid, name: '' }));
+/** True when the user owns or co-owns their Family Home. */
+export function canManageHome(user: AuthUser | null): boolean {
+  return user?.home.role === 'owner' || user?.home.role === 'co_owner';
 }
 
 /**
- * True when `family_spaces` carried something the user is supposed to be a
- * member of, regardless of whether we managed to parse it. Lets callers tell
- * "this account has no spaces" apart from "we failed to read the spaces it
- * has" — the two need opposite handling and used to be indistinguishable.
+ * True if the user manages the Home with this id.
+ *
+ * @deprecated The container id is the Home id now; prefer `canManageHome`.
  */
-export function hasFamilySpacePayload(raw: AuthUser['family_spaces']): boolean {
-  if (!raw) return false;
-  if (Array.isArray(raw)) return raw.length > 0;
-  if (typeof raw !== 'string') return false;
-  const trimmed = raw.trim();
-  return trimmed !== '' && trimmed !== '[]' && trimmed !== '{}' && trimmed !== 'null';
-}
-
-/** Returns the currently-active family space ulid (first one), or null. */
-export function getActiveFamilySpaceId(user: AuthUser | null): string | null {
-  if (!user) return null;
-  const spaces = parseFamilySpaces(user.family_spaces);
-  return spaces[0]?.ulid ?? null;
-}
-
-/** Returns the user's role in the given space, or null if they aren't a member of it. */
-export function getRoleInSpace(
-  user: AuthUser | null,
-  spaceId: string | null,
-): 'owner' | 'member' | null {
-  if (!user || !spaceId) return null;
-  const space = parseFamilySpaces(user.family_spaces).find(s => s.ulid === spaceId);
-  return (space?.role as 'owner' | 'member' | undefined) ?? null;
-}
-
-/** True if the user is the owner of the given space. */
 export function isOwnerOfSpace(user: AuthUser | null, spaceId: string | null): boolean {
-  return getRoleInSpace(user, spaceId) === 'owner';
+  return !!user && !!spaceId && user.home.id === spaceId && canManageHome(user);
+}
+
+/** Memorialized accounts (CO-1 C2) read /me and nothing else. */
+export function isMemorialized(user: AuthUser | null): boolean {
+  return !!user?.memorialized_at;
 }
 
 // ─── Server-side session sync ───────────────────────────────────────
@@ -291,32 +219,9 @@ export async function login(email: string, password: string): Promise<AuthUser> 
   }
   const idToken = await cred.user.getIdToken();
   await syncSession(idToken, 'establish');
-  try {
-    return await getMe();
-  } catch (err) {
-    // Firebase accepted the password but the backend rejects /me with
-    // 401/403. The backend only provisions the Laravel row during
-    // onboarding, so a legitimate not-yet-onboarded user (and a not-yet-
-    // verified one) 401s here — indistinguishable from a deleted account
-    // client-side. Don't dead-end: hand back a minimal user built from
-    // the Firebase credential and let the app route them (→ /verify-email
-    // if unverified, → /onboarding/profile when they have no space).
-    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-      return {
-        ulid: cred.user.uid,
-        email: cred.user.email ?? email,
-        name: cred.user.displayName ?? '',
-        display_name: cred.user.displayName ?? null,
-        avatar_url: null,
-        phone: null,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        family_spaces: [],
-        onboarding_state: 'pending',
-        provisional: true,
-      };
-    }
-    throw err;
-  }
+  // The API provisions the account on its first authenticated request,
+  // so a signed-in person always has a /me.
+  return getMe();
 }
 
 export type RegisterPayload = {
@@ -354,30 +259,9 @@ export async function register(payload: RegisterPayload): Promise<AuthUser> {
   }
   const idToken = await cred.user.getIdToken(/* forceRefresh */ true);
   await syncSession(idToken, 'establish');
-  try {
-    return await getMe();
-  } catch (err) {
-    // Laravel returns 401 on /me until the email is verified (and the
-    // user row is provisioned via onboarding). That's the expected state
-    // right after signup — synthesize a minimal user from the Firebase
-    // credential so the UI can route to /verify-email instead of showing
-    // a spurious "Request failed (401)".
-    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-      return {
-        ulid: cred.user.uid,
-        email: cred.user.email ?? payload.email,
-        name: payload.name,
-        display_name: payload.name || null,
-        avatar_url: null,
-        phone: null,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-        family_spaces: [],
-        onboarding_state: 'pending',
-        provisional: true,
-      };
-    }
-    throw err;
-  }
+  // First request provisions the account; the new person lands on
+  // `onboarding_state: 'profile_pending'`.
+  return getMe();
 }
 
 // ─── Email flows (Firebase-native send + Firebase action-link apply) ─
@@ -505,32 +389,17 @@ export async function logout(): Promise<void> {
 
 /** GET /me — current Laravel profile, attached via Bearer. */
 export async function getMe(): Promise<AuthUser> {
-  const res = await apiFetch<{ data: AuthUser }>('/me');
-  return res.data;
+  return kinloomApi.get('/me');
 }
 
 // ─── Settings: profile / password / account ───────────────────────
 
-export type UpdateProfilePayload = {
-  display_name?: string;
-  avatar_url?: string | null;
-};
+export type UpdateProfilePayload = components['schemas']['ProfileChanges'];
+export type Profile = components['schemas']['Profile'];
 
-export type ProfileResponse = {
-  profile: {
-    display_name: string | null;
-    avatar_url: string | null;
-  };
-};
-
-export async function updateProfile(
-  payload: UpdateProfilePayload,
-): Promise<ProfileResponse['profile']> {
-  const res = await apiFetch<ProfileResponse>('/me/profile', {
-    method: 'PATCH',
-    body: payload,
-  });
-  return res.profile;
+/** PATCH /me/profile — send only the fields that changed. */
+export async function updateProfile(payload: UpdateProfilePayload): Promise<Profile> {
+  return kinloomApi.patch('/me/profile', { body: payload });
 }
 
 export type ChangePasswordPayload = {
@@ -633,25 +502,16 @@ export async function updateNotificationSettings(
 
 // ─── Onboarding ───────────────────────────────────────────────────
 
-export type OnboardingProfilePayload = {
-  first_name: string;
-  family_name?: string | null;
-  role?: string | null;
-  gender?: 'f' | 'm' | 'n' | null;
-};
+export type OnboardingProfilePayload = components['schemas']['OnboardingProfileBody'];
+export type OnboardingProfileResponse = components['schemas']['OnboardingProfileResult'];
 
-export type OnboardingProfileResponse = {
-  user: { ulid: string; display_name: string | null; name: string };
-  family_space: { ulid: string; name: string };
-  member: { member_id: string; name: string; role_label: string | null };
-};
-
-/** POST /onboarding/profile — creates the user's profile + first family space. */
+/**
+ * POST /onboarding/profile — names the account, renames a default-named
+ * Home to "The {family_name} Home" and completes onboarding. It creates
+ * nothing and never creates a Family Space. Refetch /me afterwards.
+ */
 export async function onboardingProfile(
   payload: OnboardingProfilePayload,
 ): Promise<OnboardingProfileResponse> {
-  return apiFetch<OnboardingProfileResponse>('/onboarding/profile', {
-    method: 'POST',
-    body: payload,
-  });
+  return kinloomApi.post('/onboarding/profile', { body: payload });
 }

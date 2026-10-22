@@ -4,49 +4,33 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { onboardingProfile } from '../../../lib/auth';
 import { useAuth } from '../../../lib/auth-context';
-import { useActiveFamilySpace } from '../../../lib/active-family-space';
 import { revalidateAllData } from '../../actions';
 import { ApiError } from '../../../lib/api';
 
-const ROLES = ['Parent', 'Grandparent', 'Sibling', 'Child', 'Spouse', 'Other'];
-
 export default function OnboardingProfileForm() {
   const router = useRouter();
-  const { refresh, upsertFamilySpace } = useAuth();
-  const { setActiveSpaceId } = useActiveFamilySpace();
+  const { refresh } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [familyName, setFamilyName] = useState('');
-  const [role, setRole] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!firstName.trim()) return;
+    if (!firstName.trim() || !familyName.trim()) return;
     setSaving(true);
     setError(null);
     try {
-      const res = await onboardingProfile({
+      // Names the account and your Home ("The {family name} Home") and
+      // completes onboarding. It creates no Family Space: a Home already
+      // exists, and Spaces are something you join or start later.
+      await onboardingProfile({
         first_name: firstName.trim(),
-        family_name: familyName.trim() || null,
-        role: role || null,
+        family_name: familyName.trim(),
       });
-      // Seed the space from the response before leaning on /me. `refresh()`
-      // swallows its own failures, so relying on it alone meant a hiccup here
-      // left the user with no space — and the next step, plus every guard,
-      // read that as "still needs onboarding".
-      if (res?.family_space?.ulid) {
-        upsertFamilySpace({
-          ulid: res.family_space.ulid,
-          name: res.family_space.name,
-          member_id: res.member?.member_id,
-          role: 'owner',
-        });
-        await setActiveSpaceId(res.family_space.ulid);
-      }
       await refresh();
       void revalidateAllData();
-      router.push('/onboarding/first-kinloom');
+      router.push('/home');
     } catch (err) {
       const msg = err instanceof ApiError ? (err.firstFieldError() || err.message) : 'Could not save your profile.';
       setError(msg);
@@ -64,7 +48,7 @@ export default function OnboardingProfileForm() {
         Tell us a little about yourself.
       </h1>
       <p style={{ fontSize: 16, lineHeight: 1.65, color: 'rgba(26,26,26,0.7)', margin: '0 0 40px' }}>
-        This helps your family understand who you are in the space.
+        This is how your family will know you, and what your Family Home is called.
       </p>
 
       <div style={{ background: '#fff', border: '1px solid #d4d2cc', borderRadius: 16, padding: 32, boxShadow: '0 4px 12px -2px rgba(0,0,0,0.06)' }}>
@@ -85,30 +69,10 @@ export default function OnboardingProfileForm() {
               <input
                 value={familyName}
                 onChange={e => setFamilyName(e.target.value)}
+                required
                 placeholder="Your family name"
                 className="auth-input"
               />
-            </div>
-          </div>
-
-          <div>
-            <label className="auth-label auth-label--roomy">Your role in the family</label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {ROLES.map(r => (
-                <button
-                  key={r}
-                  type="button"
-                  onClick={() => setRole(r)}
-                  style={{
-                    padding: '8px 16px', borderRadius: 9999, fontSize: 14, cursor: 'pointer', fontFamily: 'inherit',
-                    background: role === r ? '#556b5b' : '#f5f4f1',
-                    color: role === r ? '#fdfcfa' : 'rgba(26,26,26,0.7)',
-                    border: role === r ? '1px solid #556b5b' : '1px solid transparent',
-                  }}
-                >
-                  {r}
-                </button>
-              ))}
             </div>
           </div>
 
@@ -118,9 +82,9 @@ export default function OnboardingProfileForm() {
 
           <button
             type="submit"
-            disabled={saving || !firstName.trim()}
+            disabled={saving || !firstName.trim() || !familyName.trim()}
             className="btn-disabled-soft"
-            style={{ background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '14px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: (saving || !firstName.trim()) ? 'not-allowed' : 'pointer', marginTop: 8 }}
+            style={{ background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '14px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: (saving || !firstName.trim() || !familyName.trim()) ? 'not-allowed' : 'pointer', marginTop: 8 }}
           >
             {saving ? 'Saving…' : 'Continue'}
           </button>

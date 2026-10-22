@@ -6,14 +6,16 @@
  *
  *   1. Verifies the Firebase session cookie via the Admin SDK. No
  *      network round-trip — Admin SDK validates signatures locally.
- *   2. Calls Laravel /me with the (short-lived) ID-token cookie as
- *      Bearer to fetch the profile + family-space metadata.
- *   3. Classifies the result into exactly one of unauthenticated /
- *      onboarding / ready, throwing on anything ambiguous.
+ *   2. Calls the API's /me with the (short-lived) ID-token cookie as
+ *      Bearer: the account, its one Family Home, and its Family Spaces.
+ *      The API provisions an account on a person's first request, so
+ *      every signed-in person has a /me (Phase 3 contract §2.1).
+ *   3. Classifies the result into exactly one state, throwing on
+ *      anything ambiguous.
  *
- * Step 3 is load-bearing: `getActiveSpaceId` returning a bare `null`
- * previously meant every protected page redirected to onboarding whenever
- * /me hiccuped, however far through onboarding the user actually was.
+ * Step 3 is load-bearing: a bare `null` used to mean every protected page
+ * redirected to onboarding whenever /me hiccuped, however far through
+ * onboarding the user actually was.
  */
 
 import 'server-only';
@@ -21,13 +23,8 @@ import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { ApiError } from '../api';
-import {
-  type AuthUser,
-  hasFamilySpacePayload,
-  parseFamilySpaces,
-  type FamilySpaceRef,
-} from '../auth';
-import { serverApiFetch } from './api';
+import { type AuthUser, type FamilySpaceRef, type SpaceSummary, homeAsLegacyRef } from '../auth';
+import { serverKinloomApi } from './kinloom-api';
 import { COOKIES } from './cookies';
 import { adminAuth } from './firebase-admin';
 
@@ -81,107 +78,109 @@ export const verifySession = cache(async (): Promise<{
 });
 
 /**
- * Why this exists: a single `AuthUser | null` return can't distinguish
- * "nobody is signed in" from "the backend rejected us", and callers that
- * turned that `null` into an empty family-space list could only respond by
- * sending the user to onboarding. A transient /me failure was therefore
- * indistinguishable from a brand-new account, and dropped fully-onboarded
- * users on step 2 of the wizard.
+ * The states are mutually exclusive, and anything we can't classify throws
+ * rather than defaulting to the onboarding branch (a transient /me failure
+ * must never look like a brand-new account).
  *
- * These three states are mutually exclusive, and anything we can't classify
- * throws rather than defaulting to the onboarding branch.
+ * Readiness follows the contract (§3.1): gate on `onboarding_state`, never
+ * on `spaces`. A person with no Family Space is the normal case.
  */
 export type UserState =
   | { status: 'unauthenticated' }
-  | { status: 'onboarding'; user: AuthUser | null }
-  | { status: 'ready'; user: AuthUser; spaces: FamilySpaceRef[] };
+  /** `profile_pending`: send to the onboarding profile step. */
+  | { status: 'onboarding'; user: AuthUser }
+  /** Memorialized (CO-1 C2): /me answers, every other route is 403. */
+  | { status: 'memorialized'; user: AuthUser }
+  | { status: 'ready'; user: AuthUser; home: AuthUser['home']; spaces: SpaceSummary[] };
 
 export const getUserState = cache(async (): Promise<UserState> => {
   const session = await verifySession();
   if (!session) return { status: 'unauthenticated' };
 
-  let user: AuthUser;
-  try {
-    const res = await serverApiFetch<{ data: AuthUser }>('/me');
-    user = res.data;
-  } catch (err) {
-    // 401/403 with a verified session cookie and a successfully attached
-    // Bearer means Laravel has no row for this uid yet — a genuinely
-    // un-onboarded account. serverApiFetch now throws rather than sending
-    // an anonymous request, so "no Bearer available" lands below instead
-    // of masquerading as this case.
-    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-      return { status: 'onboarding', user: null };
-    }
-    throw err;
-  }
+  // A 401/403 here is not "not onboarded yet" any more: the API provisions
+  // on first request. It means the token was rejected (wrong Firebase
+  // project, revoked), which is a fault to surface, not a state to route on.
+  const user: AuthUser = await serverKinloomApi.get('/me');
 
-  const spaces = parseFamilySpaces(user.family_spaces);
-  if (spaces.length > 0) return { status: 'ready', user, spaces };
-
-  // /me listed spaces we couldn't parse — a payload-shape mismatch, not an
-  // un-onboarded user. Onboarding can't fix it and would quietly create a
-  // duplicate space, so fail loudly. An account that genuinely has no spaces
-  // (new, or removed from its last one) sends an empty payload and falls
-  // through to onboarding below.
-  if (hasFamilySpacePayload(user.family_spaces)) {
-    throw new Error(
-      `User ${user.ulid} has a non-empty family_spaces payload that yielded no ` +
-        `parseable space: ${JSON.stringify(user.family_spaces)}`,
-    );
-  }
-
-  return { status: 'onboarding', user };
+  if (user.memorialized_at) return { status: 'memorialized', user };
+  if (user.onboarding_state === 'profile_pending') return { status: 'onboarding', user };
+  return { status: 'ready', user, home: user.home, spaces: user.spaces };
 });
 
 /**
- * Active family space ulid for a protected page, or a redirect to wherever
- * the user actually needs to go. Prefer this over `getActiveSpaceId` in
- * server components — it can't confuse an auth failure for onboarding.
+ * The person's Family Home, or a redirect to wherever they need to go.
+ * Use this in server components rendering a protected page: it can't
+ * confuse an auth failure for onboarding.
  */
-export async function requireActiveSpaceId(): Promise<string> {
+export async function requireHome(): Promise<{ homeId: string; home: AuthUser['home']; user: AuthUser }> {
   const state = await getUserState();
   if (state.status === 'unauthenticated') redirect('/?reason=session_expired');
   if (state.status === 'onboarding') redirect('/onboarding/profile');
-
-  const stored = cookies().get(COOKIES.activeFamilySpace)?.value || null;
-  if (stored && state.spaces.some(s => s.ulid === stored)) return stored;
-  return state.spaces[0].ulid;
+  if (state.status === 'memorialized') redirect('/home');
+  return { homeId: state.home.id, home: state.home, user: state.user };
 }
 
 /**
- * Fetch the current Laravel profile, or null when there's no usable
- * session. Derived from `getUserState` so both share one /me round-trip.
+ * The Family Space this person is looking at (the `/spaces/*` area), or
+ * null when their Home is in none. Comes from the active-space cookie,
+ * checked against /me on every call, so a Space the Home has left is
+ * ignored; falls back to the first Space.
+ */
+export async function getActiveFamilySpaceId(): Promise<string | null> {
+  const state = await getUserState();
+  if (state.status !== 'ready') return null;
+  return resolveFamilySpaceId(state.spaces);
+}
+
+function resolveFamilySpaceId(spaces: SpaceSummary[]): string | null {
+  if (spaces.length === 0) return null;
+  const stored = cookies().get(COOKIES.activeFamilySpace)?.value || null;
+  if (stored && spaces.some(s => s.id === stored)) return stored;
+  return spaces[0].id;
+}
+
+/**
+ * Fetch the current profile, or null when there's no usable session.
+ * Derived from `getUserState` so both share one /me round-trip.
  *
  * Callers can't tell "signed out" from "not onboarded yet" through this
  * signature — if that distinction matters (i.e. you're about to redirect),
- * use `getUserState` or `requireActiveSpaceId`.
+ * use `getUserState` or `requireHome`.
  */
 export async function getCurrentUser(): Promise<AuthUser | null> {
   const state = await getUserState();
   return state.status === 'unauthenticated' ? null : state.user;
 }
 
+// ─── Pre-Phase-3 names ──────────────────────────────────────────────
+//
+// Fifty-odd screens still ask for "the active space" and pass its id to
+// the old `/family-spaces/{id}/…` routes. The container those routes meant
+// is the person's Family Home now, so these return the Home. Each screen
+// moves to `requireHome()` when it is rewired; the real Family Space is
+// `getActiveFamilySpaceId()`.
+
 /**
- * Active family space ulid, or null. Kept for callers that must not
- * redirect (the root layout, route handlers). Server components rendering
- * a protected page should use `requireActiveSpaceId` instead.
+ * @deprecated Returns the Home id. Use `requireHome()`; for a Family
+ * Space use `getActiveFamilySpaceId()`.
  */
+export async function requireActiveSpaceId(): Promise<string> {
+  return (await requireHome()).homeId;
+}
+
+/** @deprecated Returns the Home id, or null. See `requireActiveSpaceId`. */
 export async function getActiveSpaceId(): Promise<string | null> {
   const state = await getUserState();
-  if (state.status !== 'ready') return null;
-  const stored = cookies().get(COOKIES.activeFamilySpace)?.value || null;
-  if (stored && state.spaces.some(s => s.ulid === stored)) return stored;
-  return state.spaces[0].ulid;
+  return state.status === 'ready' ? state.home.id : null;
 }
 
 export type ActiveSpaceResult =
   | {
       ok: true;
+      /** The Home id (see the note above). */
       spaceId: string;
-      /** The chosen space as /me described it — carries member_id and role. */
+      /** The Home as the legacy container ref; `member_id` is the person id. */
       space: FamilySpaceRef | null;
-      /** Every space /me listed, so a caller can log what else was available. */
       allSpaces: FamilySpaceRef[];
     }
   | {
@@ -196,41 +195,34 @@ export type ActiveSpaceResult =
     };
 
 /**
- * Resolve the active space for an API route, turning an upstream failure into
+ * Resolve the container for an API route, turning an upstream failure into
  * a structured result instead of letting it escape the handler.
  *
- * `getActiveSpaceId` reaches Laravel for `/me`, so it can fail for reasons
- * that have nothing to do with the caller's session — a throttle, an outage,
- * a middleware 404. Called bare as a route's first statement, any of those
- * escaped the handler and Next emitted a naked 500: no JSON body, nothing in
- * the network tab to act on, and on the batch publish it destroyed the
- * per-item result envelope the client needs to retry only what failed.
+ * Reaching /me can fail for reasons that have nothing to do with the
+ * caller's session — a throttle, an outage. Called bare as a route's first
+ * statement, any of those escaped the handler and Next emitted a naked 500:
+ * no JSON body, nothing in the network tab to act on, and on the batch
+ * publish it destroyed the per-item result envelope the client needs to
+ * retry only what failed.
  *
- * `routeLabel` is used for the log line so a failure names the route it came
- * from without having to read a stack.
+ * `routeLabel` is used for the log line so a failure names the route it
+ * came from without having to read a stack.
+ *
+ * @deprecated `spaceId` is the Home id. Prefer `requireHome()`.
  */
 export async function resolveActiveSpaceForRoute(
   routeLabel: string,
 ): Promise<ActiveSpaceResult> {
   try {
-    const spaceId = await getActiveSpaceId();
-    if (!spaceId) return { ok: false, status: 401, error: 'Not authenticated.' };
-    // getUserState is request-cached, so this is free — getActiveSpaceId just
-    // called it. Carrying the refs out lets a caller log what /me claimed
-    // about membership when a downstream call disagrees.
     const state = await getUserState();
-    const allSpaces = state.status === 'ready' ? state.spaces : [];
-    return {
-      ok: true,
-      spaceId,
-      space: allSpaces.find(s => s.ulid === spaceId) ?? null,
-      allSpaces,
-    };
+    if (state.status !== 'ready') return { ok: false, status: 401, error: 'Not authenticated.' };
+    const ref = homeAsLegacyRef(state.user);
+    return { ok: true, spaceId: ref.ulid, space: ref, allSpaces: [ref] };
   } catch (err) {
     if (err instanceof ApiError && err.status === 429) {
       const wait = err.retryAfterSeconds;
       console.error(
-        `[${routeLabel}] rate limited resolving active space; retry_after=${wait ?? 'n/a'}`,
+        `[${routeLabel}] rate limited resolving the Home; retry_after=${wait ?? 'n/a'}`,
       );
       return {
         ok: false,
@@ -241,25 +233,25 @@ export async function resolveActiveSpaceForRoute(
         retryAfterSeconds: wait,
       };
     }
-    console.error(`[${routeLabel}] could not resolve active space:`, err);
+    console.error(`[${routeLabel}] could not resolve the Home:`, err);
     return {
       ok: false,
       status: 502,
-      error: 'Could not reach your family space. Please try again in a moment.',
+      error: 'Could not reach your family home. Please try again in a moment.',
     };
   }
 }
 
+/** @deprecated The Home as a legacy ref. Use `requireHome()`. */
 export async function getActiveSpace(): Promise<FamilySpaceRef | null> {
   const state = await getUserState();
-  if (state.status !== 'ready') return null;
-  const id = await getActiveSpaceId();
-  return state.spaces.find(s => s.ulid === id) ?? null;
+  return state.status === 'ready' ? homeAsLegacyRef(state.user) : null;
 }
 
+/** @deprecated A one-item list: the Home. Real Spaces are `state.spaces`. */
 export async function getFamilySpaces(): Promise<FamilySpaceRef[]> {
   const state = await getUserState();
-  return state.status === 'ready' ? state.spaces : [];
+  return state.status === 'ready' ? [homeAsLegacyRef(state.user)] : [];
 }
 
 /**
@@ -269,24 +261,22 @@ export async function getFamilySpaces(): Promise<FamilySpaceRef[]> {
  * above is global-error — a full-page crash for what may be a blip.
  *
  * Degrading to nulls is safe: the page rendered inside still runs its own
- * `requireActiveSpaceId` guard and will redirect or throw as appropriate.
+ * guard and will redirect or throw as appropriate.
  */
 export async function getInitialAuthState(): Promise<{
   user: AuthUser | null;
-  activeSpaceId: string | null;
+  activeFamilySpaceId: string | null;
 }> {
   try {
     const state = await getUserState();
-    if (state.status !== 'ready') {
-      return { user: state.status === 'onboarding' ? state.user : null, activeSpaceId: null };
-    }
-    const stored = cookies().get(COOKIES.activeFamilySpace)?.value || null;
-    const activeSpaceId =
-      stored && state.spaces.some(s => s.ulid === stored) ? stored : state.spaces[0].ulid;
-    return { user: state.user, activeSpaceId };
+    if (state.status === 'unauthenticated') return { user: null, activeFamilySpaceId: null };
+    return {
+      user: state.user,
+      activeFamilySpaceId: state.status === 'ready' ? resolveFamilySpaceId(state.spaces) : null,
+    };
   } catch (err) {
     console.error('[auth] Could not resolve initial auth state for hydration:', err);
-    return { user: null, activeSpaceId: null };
+    return { user: null, activeFamilySpaceId: null };
   }
 }
 

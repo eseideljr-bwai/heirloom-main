@@ -7,7 +7,6 @@ import CreateSteps from '../../../components/CreateSteps';
 import { KINLOOM_TYPE_MAP, KINLOOM_TYPES } from '../../../lib/kinloom-types';
 import { useAuth } from '../../../../lib/auth-context';
 import { useActiveFamilySpace } from '../../../../lib/active-family-space';
-import { parseFamilySpaces } from '../../../../lib/auth';
 import {
   createKinloom,
   deleteKinloom,
@@ -664,14 +663,11 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   };
 
   const otherMembers = useMemo(() => {
-    // Tag-from-me list should hide ME in the *currently active* space, not
-    // whichever space happens to be first. Falls back to the first space's
-    // member_id when no active id is set (parity with old behaviour).
-    const spaces = parseFamilySpaces(user?.family_spaces);
-    const mine = spaces.find(s => s.ulid === familySpaceId) ?? spaces[0];
-    const myMemberId = mine?.member_id ?? null;
+    // Tag-from-me list hides the signed-in person. `person_id` is the id
+    // on their own person card, which is what the tag list carries.
+    const myMemberId = user?.person_id ?? null;
     return taggableMembers.filter(m => m.member_id !== myMemberId);
-  }, [taggableMembers, user, familySpaceId]);
+  }, [taggableMembers, user]);
 
   const taggedKinObjects = useMemo(
     () => taggedKin

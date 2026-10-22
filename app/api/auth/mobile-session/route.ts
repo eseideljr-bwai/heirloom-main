@@ -124,8 +124,9 @@ export async function POST(req: NextRequest) {
     cookieOptions({ httpOnly: true, maxAge: ID_TOKEN_COOKIE_MAX_AGE_SECONDS }),
   );
   if (activeFamilySpaceId) {
-    // Checked against /me on every server render (requireActiveSpaceId),
-    // so a space the user doesn't belong to is ignored there.
+    // A Family Space id, advisory only: every server render checks it
+    // against /me (getActiveFamilySpaceId), so a Space the person's Home
+    // is not in is ignored there.
     res.cookies.set(
       COOKIES.activeFamilySpace,
       activeFamilySpaceId,
