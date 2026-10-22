@@ -25,7 +25,7 @@ import { verifySession } from './auth';
 export const SERVER_API_BASE = (
   process.env.KINLOOM_API_URL ||
   process.env.BACKEND_API_URL ||
-  'https://kinloom-api-laravel-fz0wpjzb.on-forge.com/api'
+  'https://kinloom-api-laravel-vycjbweb.on-forge.com/api'
 ).replace(/\/$/, '');
 
 /**
