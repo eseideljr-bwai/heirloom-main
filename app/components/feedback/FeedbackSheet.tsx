@@ -38,6 +38,7 @@ import { ConversationView } from './ConversationView';
 import { FallbackForm } from './FallbackForm';
 import { ScreenshotField } from './ScreenshotField';
 import { SentPanel } from './SentPanel';
+import { useOnboarding } from '../../../lib/onboarding-context';
 
 export type SheetView = 'composer' | 'conversation' | 'fallback' | 'sent';
 
@@ -83,6 +84,7 @@ export function FeedbackSheet({
 }) {
   // Reading sessionStorage in an initializer is safe here: the sheet is
   // rendered only after an open click, never during SSR or hydration.
+  const { markTask: markOnboardingTask } = useOnboarding();
   const [conversation, setConversation] = useState<FeedbackConversation | null>(
     () => loadConversation(),
   );
@@ -202,6 +204,8 @@ export function FeedbackSheet({
     setConversation(null);
     setReceipt(next);
     setView('sent');
+    // Onboarding checklist: "Leave feedback".
+    markOnboardingTask('feedback');
   };
 
   const handleSendAnother = () => {

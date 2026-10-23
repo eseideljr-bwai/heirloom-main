@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../lib/auth-context';
+import { syncSessionEstablish } from '../lib/auth';
+import { firebaseAuth } from '../lib/firebase-client';
 import { ApiError } from '../lib/api';
 
 function safeNext(value: string | null | undefined): string {
@@ -19,14 +21,16 @@ function safeNext(value: string | null | undefined): string {
  * boundary or block this page from being statically prerendered — and
  * trips Next.js's pages-router error-fallback prerender during build.
  */
-function useNextParam(): string {
+function useNextParam(): { next: string; sessionExpired: boolean } {
   const [next, setNext] = useState('/home');
+  const [sessionExpired, setSessionExpired] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search);
     setNext(safeNext(params.get('next')));
+    setSessionExpired(params.get('reason') === 'session_expired');
   }, []);
-  return next;
+  return { next, sessionExpired };
 }
 
 export default function Login() {
@@ -35,12 +39,35 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
-  const next = useNextParam();
-  const { user, loading: authLoading, login } = useAuth();
+  const { next, sessionExpired } = useNextParam();
+  const { user, loading: authLoading, login, logout } = useAuth();
+  const recovering = useRef(false);
 
   useEffect(() => {
-    if (!authLoading && user) router.replace(next);
-  }, [authLoading, user, router, next]);
+    if (authLoading || !user) return;
+    if (!sessionExpired) {
+      router.replace(next);
+      return;
+    }
+    // A server layout rejected our `kinloom_session` cookie while Firebase
+    // still has us signed in. Pushing back to /home with the same cookie
+    // would just bounce here again, so re-mint the cookie first; if that
+    // fails, sign out fully and let the form take over.
+    if (recovering.current) return;
+    recovering.current = true;
+    (async () => {
+      try {
+        const fbUser = firebaseAuth().currentUser;
+        if (!fbUser) throw new Error('no firebase user');
+        await syncSessionEstablish(await fbUser.getIdToken(true));
+        // Hard navigation so the request carries the fresh cookie.
+        window.location.replace(next);
+      } catch {
+        await logout();
+        recovering.current = false;
+      }
+    })();
+  }, [authLoading, user, router, next, sessionExpired, logout]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

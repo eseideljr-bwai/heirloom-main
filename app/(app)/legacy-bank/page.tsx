@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { requireActiveSpaceId } from '../../../lib/server/auth';
 import { getLegacyBank } from '../../../lib/server/queries';
+import { MarkOnboardingTask } from '../../../lib/onboarding-context';
 import ConversationRow from './ConversationRow';
 
 export const dynamic = 'force-dynamic';
@@ -66,6 +67,7 @@ export default async function LegacyBankPage() {
 
   return (
     <div className="lb-page">
+      <MarkOnboardingTask task="legacy" />
       <p className="eyebrow lb-page__eyebrow">AI Legacy Bank</p>
       <h1 className="lb-page__title">A vault for your Legacy to carry on.</h1>
       <p className="lb-page__lede">

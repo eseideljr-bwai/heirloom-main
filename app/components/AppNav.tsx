@@ -8,6 +8,8 @@ import { useActiveFamilySpace } from '../../lib/active-family-space';
 import type { AuthUser } from '../../lib/auth';
 import { useFeedback } from './feedback/FeedbackContext';
 import { FeedbackNavItem } from './feedback/FeedbackTrigger';
+import { useOnboarding } from '../../lib/onboarding-context';
+import { ONBOARDING_TASK_TOTAL } from '../../lib/onboarding';
 
 // ─── Icons ────────────────────────────────────────────────────────────
 
@@ -198,6 +200,31 @@ function NavItem({ href, label, icon, active }: { href: string; label: string; i
   );
 }
 
+// ─── Getting started (collapsed checklist) ────────────────────────────
+
+function GettingStartedButton() {
+  const { flags, setChecklistHidden } = useOnboarding();
+  const router = useRouter();
+  const pathname = usePathname();
+  if (!flags.checklistHidden) return null;
+
+  const done = flags.progressDone;
+  const label = typeof done === 'number'
+    ? `Getting started · ${done} of ${ONBOARDING_TASK_TOTAL} complete`
+    : 'Getting started';
+
+  const show = () => {
+    setChecklistHidden(false);
+    if (pathname !== '/home') router.push('/home');
+  };
+
+  return (
+    <button type="button" className="app-nav__getting-started" onClick={show}>
+      {label}
+    </button>
+  );
+}
+
 // ─── AppNav ───────────────────────────────────────────────────────────
 
 export default function AppNav({ user }: { user: AuthUser }) {
@@ -349,6 +376,8 @@ export default function AppNav({ user }: { user: AuthUser }) {
             ))}
             {feedback.enabled && <FeedbackNavItem onOpen={feedback.openSheet} />}
           </div>
+
+          <GettingStartedButton />
         </nav>
 
         <div className="app-nav__foot">
