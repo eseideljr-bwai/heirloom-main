@@ -13,10 +13,18 @@
 import 'server-only';
 import { cache } from 'react';
 import { serverApiFetch } from './api';
+import { serverKinloomApi } from './kinloom-api';
 import { normalizeList, type KinloomAuthor, type LibraryRow, type LibraryResponse } from '../kinloom';
 import type { MeSettings } from '../auth';
 
-// ─── Home ────────────────────────────────────────────────────────────
+// ─── Family Home (Phase 3) ───────────────────────────────────────────
+
+/** GET /family-homes/{id}: profile, people, stats, featured, where you left off. */
+export const getFamilyHome = cache(async (homeId: string) =>
+  serverKinloomApi.get('/family-homes/{familyHome}', { path: { familyHome: homeId } }),
+);
+
+// ─── Home (old API, until Portrait and Legacy Bank move) ─────────────
 
 export type HomeUserSummary = {
   ulid: string;
