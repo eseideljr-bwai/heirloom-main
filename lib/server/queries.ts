@@ -13,7 +13,7 @@
 import 'server-only';
 import { cache } from 'react';
 import { serverApiFetch } from './api';
-import { normalizeList, type Kinloom, type KinloomAuthor, type LibraryRow, type LibraryResponse } from '../kinloom';
+import { normalizeList, type KinloomAuthor, type LibraryRow, type LibraryResponse } from '../kinloom';
 import type { MeSettings } from '../auth';
 
 // ─── Home ────────────────────────────────────────────────────────────
@@ -124,17 +124,6 @@ export const getLibraryServer = cache(async (familySpaceId: string): Promise<{
     kinlooms: normalizeList<LibraryRow>(res.kinlooms),
     nextCursor: res.next_cursor ?? null,
   };
-});
-
-// ─── Kinloom detail ──────────────────────────────────────────────────
-
-export const getKinloomServer = cache(async (
-  familySpaceId: string,
-  kinloomId: string,
-): Promise<Kinloom> => {
-  return serverApiFetch<Kinloom>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}`,
-  );
 });
 
 // ─── Family ──────────────────────────────────────────────────────────

@@ -1,81 +1,144 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { updateKinloom } from '../../../../lib/kinloom';
+import {
+  getReach,
+  setKinloomPublications,
+  updateKinloom,
+  type KinloomStatus,
+  type PublicationRoom,
+  type PublicationTarget,
+} from '../../../../lib/kinloom';
 import { ApiError } from '../../../../lib/api';
 import { postToNative } from '../../../../lib/embed';
+import { revalidateKinloomData } from '../../../actions';
 
-export type PublishTarget = {
-  id: string;
-  name: string;
-  meta: string;
-  /** False while onward publishing has no endpoint behind it. */
-  available: boolean;
-};
+const roomKey = (r: { type: string; id: string }) => `${r.type}:${r.id}`;
+
+const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`;
 
 /**
- * Step 3 of the create flow — "Who can see it".
+ * Step 3 of the create flow: "Who can see it".
  *
- * The design gives a kinloom a *set* of publication targets: its Home,
- * and any Family Spaces that Home belongs to. The API still carries a
- * single `visibility: 'family' | 'private'`, so only the Home row can
- * actually be committed today; Family Space rows render as the design
- * draws them but are inert.
+ * A kinloom has a *set* of publication targets: the author's Family Home and
+ * any Family Space that Home is active in. The API returns every room the
+ * author may publish to, with who can read it and where it is published now.
+ * Clients never infer readers; the numbers shown come from the API.
  *
- * When the publications endpoints land (backend Workstream 4.2),
- * `commit()` is the only thing that has to change.
+ * A draft is finalized and published in one request. A final kinloom
+ * replaces its publication set (which can also retract it).
  */
 export default function PublishSheet({
   kinloomId,
-  familySpaceId,
+  status,
   typeLabel,
   title,
-  homeName,
-  homeMemberCount,
-  spaces,
+  rooms,
+  defaultTarget,
 }: {
   kinloomId: string;
-  familySpaceId: string;
+  status: KinloomStatus;
   typeLabel: string;
   title: string;
-  homeName: string;
-  homeMemberCount: number | null;
-  spaces: PublishTarget[];
+  rooms: PublicationRoom[];
+  defaultTarget: 'home' | 'private';
 }) {
   const router = useRouter();
-  // Home preselected, nothing else — as the design specifies.
-  const [toHome, setToHome] = useState(true);
-  const [toSpaces, setToSpaces] = useState<string[]>([]);
+  const isDraft = status === 'draft';
+
+  const home = rooms.find((r) => r.type === 'home') ?? null;
+  const spaces = rooms.filter((r) => r.type === 'space');
+
+  // Where it is published now (final), or the author's default (draft: Home
+  // preselected, nothing else, as the design specifies).
+  const initialSelected = useMemo(() => {
+    const set = new Set<string>();
+    if (isDraft) {
+      if (home && !home.read_only && defaultTarget === 'home') set.add(roomKey(home));
+    } else {
+      for (const r of rooms) if (r.when !== null) set.add(roomKey(r));
+    }
+    return set;
+  }, [rooms, isDraft, home, defaultTarget]);
+
+  const [selected, setSelected] = useState<Set<string>>(initialSelected);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isPrivate = !toHome && toSpaces.length === 0;
-  const reach = (toHome ? homeMemberCount ?? 0 : 0);
+  const isPrivate = selected.size === 0;
+
+  // Reach: a single room's count comes with the room; two or more need the
+  // API to de-duplicate people who sit in both, so ask it (latest wins).
+  const [combined, setCombined] = useState<{ key: string; accounts: number } | null>(null);
+  const selectedRooms = rooms.filter((r) => selected.has(roomKey(r)));
+  const selectionKey = selectedRooms.map(roomKey).join(',');
+  const requestRef = useRef(0);
+
+  useEffect(() => {
+    if (selectedRooms.length < 2) return;
+    const id = ++requestRef.current;
+    getReach(selectedRooms)
+      .then((res) => {
+        if (id === requestRef.current) setCombined({ key: selectionKey, accounts: res.accounts });
+      })
+      .catch(() => {
+        if (id === requestRef.current) setCombined(null);
+      });
+    // selectionKey captures the selected rooms.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionKey]);
+
+  const reach: number | null =
+    selectedRooms.length === 0
+      ? 0
+      : selectedRooms.length === 1
+        ? selectedRooms[0].accounts
+        : combined?.key === selectionKey
+          ? combined.accounts
+          : null;
 
   const summary = isPrivate
     ? 'Private. Only you can read it.'
-    : homeMemberCount == null
-      ? 'Your Family Home will be able to read this.'
-      : `${reach} ${reach === 1 ? 'person' : 'people'} will be able to read this.`;
+    : reach == null
+      ? 'Counting who can read this…'
+      : reach === 0
+        ? 'No one else can read this yet.'
+        : `${people(reach)} will be able to read this.`;
+
+  const toggle = (r: PublicationRoom) => {
+    const key = roomKey(r);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const commit = async () => {
     setSaving(true);
     setError(null);
     try {
-      await updateKinloom(familySpaceId, kinloomId, {
-        visibility: isPrivate ? 'private' : 'family',
-      });
+      // `when` is kept for rooms already published; new ones go out now.
+      const targets: PublicationTarget[] = selectedRooms.map((r) => ({
+        type: r.type,
+        id: r.id,
+        when: r.when ?? 'now',
+      }));
+
+      if (isDraft) {
+        await updateKinloom(kinloomId, { status: 'final', publish: targets });
+      } else if (!sameSet(initialSelected, selected)) {
+        await setKinloomPublications(kinloomId, targets);
+      }
+
+      void revalidateKinloomData(kinloomId);
       // Inside the iOS WebView the flow ends here; native closes the view.
       if (postToNative({ type: 'publishComplete', kinloomIds: [kinloomId] })) return;
       router.push(`/library/${kinloomId}`);
-      router.refresh();
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.firstFieldError() || err.message
-          : 'Could not save where this is published.',
-      );
+      setError(publishErrorMessage(err));
       setSaving(false);
     }
   };
@@ -108,6 +171,14 @@ export default function PublishSheet({
     </button>
   );
 
+  const roomMeta = (r: PublicationRoom, kind: string) => {
+    const parts = [kind];
+    if (r.read_only) parts.push('read-only');
+    else parts.push(`${people(r.accounts)} can read`);
+    if (r.when === 'on_passing') parts.push('after I pass');
+    return parts.join(' · ');
+  };
+
   return (
     <div className="pub-sheet">
       <p className="pub-sheet__type">{typeLabel}</p>
@@ -120,46 +191,42 @@ export default function PublishSheet({
             name="Keep private"
             meta="Only you. It stays in your Vault."
             on={isPrivate}
-            onToggle={() => { setToHome(false); setToSpaces([]); }}
+            onToggle={() => setSelected(new Set())}
           />
         </div>
       </div>
 
-      <div className="pub-group">
-        <p className="pub-group__label">Family Home</p>
-        <div className="pub-group__opts">
-          <Option
-            name={`Publish to ${homeName}`}
-            meta={
-              homeMemberCount == null
-                ? 'Your Family Home'
-                : `Your Family Home · ${homeMemberCount} ${homeMemberCount === 1 ? 'person' : 'people'}`
-            }
-            on={toHome}
-            onToggle={() => setToHome(v => !v)}
-          />
+      {home && (
+        <div className="pub-group">
+          <p className="pub-group__label">Family Home</p>
+          <div className="pub-group__opts">
+            <Option
+              name={`Publish to ${home.name}`}
+              meta={roomMeta(home, 'Your Family Home')}
+              on={selected.has(roomKey(home))}
+              disabled={home.read_only}
+              onToggle={() => toggle(home)}
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="pub-group">
         <p className="pub-group__label">Family Spaces</p>
         <div className="pub-group__opts">
           {spaces.length === 0 ? (
             <p className="pub-group__empty">
-              Publishing onward to a Family Space isn&rsquo;t available yet.
-              Anything you publish here stays in your Family Home.
+              Your Family Home isn&rsquo;t in a Family Space yet. Anything you publish here stays in your Family Home.
             </p>
           ) : (
-            spaces.map(s => (
+            spaces.map((s) => (
               <Option
                 key={s.id}
                 name={`Publish to ${s.name}`}
-                meta={s.meta}
-                on={toSpaces.includes(s.id)}
-                disabled={!s.available}
-                onToggle={() =>
-                  setToSpaces(v => (v.includes(s.id) ? v.filter(x => x !== s.id) : [...v, s.id]))
-                }
+                meta={roomMeta(s, 'Family Space')}
+                on={selected.has(roomKey(s))}
+                disabled={s.read_only}
+                onToggle={() => toggle(s)}
               />
             ))
           )}
@@ -171,9 +238,27 @@ export default function PublishSheet({
       <div className="pub-sheet__foot">
         <span className="pub-sheet__summary">{summary}</span>
         <button type="button" className="pub-sheet__go" disabled={saving} onClick={commit}>
-          {saving ? 'Saving…' : isPrivate ? 'Keep in my Vault' : 'Publish'}
+          {saving
+            ? 'Saving…'
+            : isPrivate
+              ? (isDraft ? 'Keep in my Vault' : 'Make private')
+              : 'Publish'}
         </button>
       </div>
     </div>
   );
+}
+
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  return Array.from(a).every((v) => b.has(v));
+}
+
+function publishErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 423) return 'One of those rooms is read-only right now, so nothing new can be published to it.';
+    if (err.status === 404) return 'That room is no longer available. Refresh and try again.';
+    return err.firstFieldError() || err.message;
+  }
+  return 'Could not save where this is published.';
 }
