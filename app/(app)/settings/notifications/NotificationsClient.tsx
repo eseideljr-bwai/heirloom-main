@@ -1,74 +1,75 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
-import {
-  updateNotificationSettings,
-  type NotificationSettings,
-} from '../../../../lib/auth';
-import { ApiError } from '../../../../lib/api';
-import { useActiveFamilySpace } from '../../../../lib/active-family-space';
+import { useRef, useState } from 'react';
+import { errorText, patchSettings, type Settings } from '../../../../lib/settings';
 import { revalidateSettingsData } from '../../../actions';
 
-const ITEMS: { key: keyof NotificationSettings; label: string; description: string }[] = [
-  { key: 'family_activity',       label: 'Family activity',          description: 'When a family member creates or shares a kinloom.' },
-  { key: 'new_members',           label: 'New family members',       description: 'When someone joins your family space.' },
-  { key: 'create_reminders',      label: 'Reminders to create',      description: 'Periodic prompts to capture something new.' },
-  { key: 'legacy_bank_responses', label: 'AI Legacy Bank responses', description: 'When a response is generated in the Legacy Bank.' },
+type Key = 'notify_family_activity' | 'notify_new_members' | 'notify_create_reminders' | 'notify_legacy_bank_responses';
+
+const ITEMS: { key: Key; label: string; description: string }[] = [
+  { key: 'notify_family_activity',       label: 'Family activity',          description: 'When someone in your home writes or shares a kinloom.' },
+  { key: 'notify_new_members',           label: 'New people in your home',  description: 'When someone joins your Family Home.' },
+  { key: 'notify_create_reminders',      label: 'Reminders to create',      description: 'A gentle prompt to capture something new.' },
+  { key: 'notify_legacy_bank_responses', label: 'Legacy Bank answers',      description: 'When an answer is ready in the Legacy Bank.' },
 ];
 
-export default function NotificationsClient({
-  initial,
-}: {
-  initial: NotificationSettings;
-}) {
-  const router = useRouter();
-  const { activeSpaceId } = useActiveFamilySpace();
-  const [state, setState] = useState<NotificationSettings>(initial);
-  const [pending, setPending] = useState<keyof NotificationSettings | null>(null);
+export default function NotificationsClient({ initial }: { initial: Settings }) {
+  const [state, setState] = useState<Settings>(initial);
+  const [pending, setPending] = useState<Set<Key>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  // Latest intent per key, so quick double taps on different rows can't clobber each other.
+  const inflight = useRef<Set<Key>>(new Set());
 
-  async function toggle(key: keyof NotificationSettings) {
-    if (pending) return;
-    const next = !state[key];
-    const prev = state[key];
-    setState(s => ({ ...s, [key]: next }));
-    setPending(key);
+  async function toggle(key: Key) {
+    if (inflight.current.has(key)) return;
+    inflight.current.add(key);
+    const before = state[key];
+    setState(s => ({ ...s, [key]: !before }));
+    setPending(new Set(inflight.current));
     setError(null);
     try {
-      await updateNotificationSettings({ [key]: next } as Partial<NotificationSettings>, activeSpaceId);
+      const next = await patchSettings({ [key]: !before });
+      // Keep the other rows as the person sees them; take only this key from the answer.
+      setState(s => ({ ...s, [key]: next[key] }));
       void revalidateSettingsData();
-      router.refresh();
     } catch (err) {
-      setState(s => ({ ...s, [key]: prev }));
-      const msg = err instanceof ApiError ? err.message : 'Could not update.';
-      setError(msg);
+      setState(s => ({ ...s, [key]: before }));
+      setError(errorText(err, 'Could not save that change.'));
     } finally {
-      setPending(null);
+      inflight.current.delete(key);
+      setPending(new Set(inflight.current));
     }
   }
 
   return (
     <div>
       <h1 className="settings-h1">Notifications</h1>
-      <p className="settings-card-text">Choose what you want to be notified about.</p>
+      <p className="settings-card-text">Choose what you’d like to hear about.</p>
 
-      {error && <p className="form-status form-status--error">{error}</p>}
+      <div className="privacy-note privacy-note--top">
+        <p>
+          Kinloom doesn’t send notifications yet. Your choices are saved now and will apply the
+          moment it does.
+        </p>
+      </div>
+
+      {error && <p className="form-status form-status--error" role="alert">{error}</p>}
 
       <div className="card">
         {ITEMS.map((item, i) => (
           <div key={item.key} className={`notif-row${i < ITEMS.length - 1 ? ' notif-row--bordered' : ''}`}>
             <div className="notif-row__body">
-              <p className="notif-row__label">{item.label}</p>
+              <p className="notif-row__label" id={`${item.key}-label`}>{item.label}</p>
               <p className="notif-row__desc">{item.description}</p>
             </div>
             <button
               type="button"
-              className={`toggle${state[item.key] ? ' is-on' : ''}${pending === item.key ? ' is-disabled' : ''}`}
+              role="switch"
+              aria-checked={state[item.key]}
+              aria-labelledby={`${item.key}-label`}
+              className={`toggle${state[item.key] ? ' is-on' : ''}${pending.has(item.key) ? ' is-disabled' : ''}`}
               onClick={() => toggle(item.key)}
-              aria-pressed={state[item.key]}
-              aria-label={item.label}
-              disabled={pending !== null}
+              disabled={pending.has(item.key)}
             >
               <span className="toggle__knob" />
             </button>

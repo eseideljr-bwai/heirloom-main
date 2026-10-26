@@ -92,6 +92,12 @@ async function handle(
     const v = upstream.headers.get(h);
     if (v) respHeaders.set(h, v);
   }
+  // A redirect (the export download answers 302 to a signed file URL) is only
+  // useful to the browser if it can see where to go.
+  if (upstream.status >= 300 && upstream.status < 400) {
+    const loc = upstream.headers.get('location');
+    if (loc) respHeaders.set('location', loc);
+  }
   if (nullBody) {
     // Drain upstream so the connection can be reused, then return no body.
     await upstream.arrayBuffer();

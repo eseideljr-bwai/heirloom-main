@@ -1,168 +1,238 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useActiveFamilySpace } from '../../../../lib/active-family-space';
-import {
-  createExport,
-  getExport,
-  exportDownloadUrl,
-  type ExportFormat,
-  type ExportSchedule,
-  type ExportStatus,
-} from '../../../../lib/exports';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../../../lib/api';
+import {
+  exportDownloadUrl,
+  formatBytes,
+  getExport,
+  recallExport,
+  rememberExport,
+  startExport,
+  type ExportFormat,
+  type VaultExport,
+} from '../../../../lib/exports';
 
-const POLL_INTERVAL_MS = 2500;
-const MAX_POLLS = 60; // ~150s
+const POLL_MS = 2500;
+/** After this many polls (~10 minutes) we stop watching; the id is kept, so coming back resumes. */
+const MAX_POLLS = 240;
 
-type Job = {
-  exportId: string;
-  format: ExportFormat;
-  status: ExportStatus;
-  error?: string | null;
-};
+const FORMATS: { format: ExportFormat; title: string; text: string; primary?: boolean }[] = [
+  {
+    format: 'json',
+    title: 'Everything (ZIP)',
+    text: 'Your kinlooms as a printable book, plus your data and every photo, recording and film.',
+    primary: true,
+  },
+  {
+    format: 'pdf',
+    title: 'Just the book (PDF)',
+    text: 'Your kinlooms as a printable book. No photos, recordings or films.',
+  },
+];
+
+function formatLabel(format: ExportFormat) {
+  return format === 'json' ? 'archive' : 'book';
+}
+
+function untilText(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ''
+    : d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+}
 
 export default function ExportClient() {
-  const { activeSpaceId } = useActiveFamilySpace();
-  const [job, setJob] = useState<Job | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [schedule, setSchedule] = useState<ExportSchedule | 'off'>('off');
-  const [scheduleSaving, setScheduleSaving] = useState<ExportSchedule | 'off' | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [job, setJob] = useState<VaultExport | null>(null);
+  const [starting, setStarting] = useState<ExportFormat | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [gaveUp, setGaveUp] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alive = useRef(true);
 
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
+  const stop = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
   }, []);
 
-  async function start(format: ExportFormat) {
-    if (!activeSpaceId) return;
-    setSubmitting(true);
-    setJob({ exportId: '', format, status: 'pending' });
-    try {
-      const res = await createExport(activeSpaceId, { format, schedule: 'once' });
-      setJob({ exportId: res.export_id, format, status: res.status });
-      pollExport(activeSpaceId, res.export_id);
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Could not start the export.';
-      setJob({ exportId: '', format, status: 'failed', error: msg });
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function pollExport(spaceId: string, exportId: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-    let polls = 0;
-    pollRef.current = setInterval(async () => {
-      polls += 1;
+  /** Poll one export until it settles. A reload resumes from the remembered id. */
+  const watch = useCallback((id: string, polls = 0) => {
+    setGaveUp(false);
+    const tick = async () => {
+      if (!alive.current) return;
       try {
-        const ex = await getExport(spaceId, exportId);
-        setJob(prev => prev ? { ...prev, status: ex.status, error: ex.error_message } : prev);
-        if (ex.status === 'ready' || ex.status === 'failed' || polls >= MAX_POLLS) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
+        const ex = await getExport(id);
+        if (!alive.current) return;
+        setJob(ex);
+        if (ex.status === 'ready' || ex.status === 'failed' || ex.status === 'expired') {
+          stop();
+          return;
         }
+        if (polls + 1 >= MAX_POLLS) {
+          stop();
+          setGaveUp(true);
+          return;
+        }
+        timer.current = setTimeout(() => watch(id, polls + 1), POLL_MS);
       } catch (err) {
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = null;
-        const msg = err instanceof ApiError ? err.message : 'Lost contact with the export job.';
-        setJob(prev => prev ? { ...prev, status: 'failed', error: msg } : prev);
+        if (!alive.current) return;
+        stop();
+        if (err instanceof ApiError && err.status === 404) {
+          // It was cleaned up (expired a while ago): forget it.
+          rememberExport(null);
+          setJob(null);
+        } else {
+          setError('We lost contact with your export. Reload the page to check on it.');
+        }
       }
-    }, POLL_INTERVAL_MS);
-  }
+    };
+    void tick();
+  }, [stop]);
 
-  async function setScheduleChoice(next: ExportSchedule | 'off') {
-    if (!activeSpaceId) return;
-    setSchedule(next);
-    if (next === 'off') return;
-    setScheduleSaving(next);
+  useEffect(() => {
+    alive.current = true;
+    const remembered = recallExport();
+    if (remembered) watch(remembered.id);
+    return () => {
+      alive.current = false;
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [watch]);
+
+  async function begin(format: ExportFormat) {
+    setStarting(format);
+    setError(null);
+    setGaveUp(false);
     try {
-      await createExport(activeSpaceId, { format: 'json', schedule: next });
-    } catch {
-      // surface a soft failure inline; the previous schedule stays selected
+      const ex = await startExport(format);
+      rememberExport({ id: ex.id, format: ex.format });
+      setJob(ex);
+      if (ex.status === 'ready' || ex.status === 'failed' || ex.status === 'expired') stop();
+      else watch(ex.id);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 429) {
+        const wait = err.retryAfterSeconds;
+        setError(
+          wait
+            ? `You can start two exports an hour. Try again in ${Math.max(1, Math.ceil(wait / 60))} minutes.`
+            : 'You can start two exports an hour. Try again a little later.',
+        );
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Could not start the export.');
+      }
     } finally {
-      setScheduleSaving(null);
+      setStarting(null);
     }
   }
 
-  const ready = job?.status === 'ready';
-  const failed = job?.status === 'failed';
-  const inFlight = !!job && !ready && !failed;
+  const running = !!job && (job.status === 'pending' || job.status === 'processing');
+  const busy = starting !== null || running;
+  const finished = !!job && !running;
 
   return (
     <div>
-      <h1 className="settings-h1">Export & backup</h1>
-      <p className="settings-card-text">Your kinlooms belong to you. Export or download them at any time.</p>
+      <h1 className="settings-h1">Export &amp; backup</h1>
+      <p className="settings-card-text">
+        Your kinlooms belong to you. Download a copy of everything you’ve written, drafts and private
+        kinlooms included, any time.
+      </p>
 
       <div className="settings-stack">
         <div className="card">
-          <h2 className="settings-h2">Export all kinlooms</h2>
-          <p className="settings-card-text">
-            Download all your kinlooms as a single archive. Includes full text and metadata.
-          </p>
-          <div className="vis-row">
-            <button
-              type="button"
-              className="btn-save"
-              onClick={() => start('pdf')}
-              disabled={submitting || inFlight || !activeSpaceId}
-            >
-              Export as PDF
-            </button>
-            <button
-              type="button"
-              className="btn-outline"
-              onClick={() => start('json')}
-              disabled={submitting || inFlight || !activeSpaceId}
-            >
-              Export as JSON
-            </button>
+          <h2 className="settings-h2">Download your kinlooms</h2>
+
+          <div className="export-choices">
+            {FORMATS.map(f => (
+              <div key={f.format} className="export-choice">
+                <div className="export-choice__body">
+                  <p className="notif-row__label">{f.title}</p>
+                  <p className="notif-row__desc">{f.text}</p>
+                </div>
+                <button
+                  type="button"
+                  className={f.primary ? 'btn-save' : 'btn-outline'}
+                  onClick={() => begin(f.format)}
+                  disabled={busy}
+                >
+                  {starting === f.format ? 'Starting…' : 'Export'}
+                </button>
+              </div>
+            ))}
           </div>
 
-          {job && (
-            <div className={`export-status${failed ? ' export-status--error' : ''}`}>
-              {inFlight && (
-                <p>
-                  Preparing your {job.format.toUpperCase()} export… this can take a moment for larger libraries.
+          {error && <p className="export-status export-status--error" role="alert">{error}</p>}
+
+          {running && job && (
+            <div className="export-status" role="status" aria-live="polite">
+              <p>
+                <strong>Preparing your {formatLabel(job.format)}…</strong>{' '}
+                {job.format === 'json'
+                  ? 'With photos and recordings this can take a few minutes.'
+                  : 'This usually takes a moment.'}{' '}
+                You can leave this page: it keeps working, and your download will be here when you
+                come back.
+              </p>
+            </div>
+          )}
+
+          {gaveUp && job && (
+            <div className="export-status" role="status">
+              <p>
+                Still working on it. Come back to this page in a little while, and your download will be
+                here.
+              </p>
+            </div>
+          )}
+
+          {finished && job?.status === 'ready' && (
+            <div className="export-status export-status--ready" role="status" aria-live="polite">
+              <p>
+                <strong>Your {formatLabel(job.format)} is ready.</strong>
+                {job.file_size != null && <> {formatBytes(job.file_size)}.</>}
+                {job.counts && (
+                  <> {job.counts.kinlooms} {job.counts.kinlooms === 1 ? 'kinloom' : 'kinlooms'}
+                    {job.counts.drafts > 0 && <>, {job.counts.drafts} {job.counts.drafts === 1 ? 'draft' : 'drafts'}</>}.</>
+                )}
+                {job.expires_at && <> Available until {untilText(job.expires_at)}.</>}
+              </p>
+              <p>
+                <a className="btn-save export-status__download" href={exportDownloadUrl(job.id)} download={job.file_name ?? undefined}>
+                  Download{job.file_name ? ` ${job.file_name}` : ''}
+                </a>
+              </p>
+              {job.counts && job.counts.missing_files > 0 && (
+                <p className="export-status__fine">
+                  {job.counts.missing_files} {job.counts.missing_files === 1 ? 'file' : 'files'} couldn’t be
+                  read from storage and {job.counts.missing_files === 1 ? 'is' : 'are'} listed in the archive’s
+                  manifest.
                 </p>
               )}
-              {ready && job.exportId && (
-                <p>
-                  <strong>Ready.</strong>{' '}
-                  <a
-                    href={exportDownloadUrl(activeSpaceId!, job.exportId)}
-                    download
-                  >
-                    Download {job.format.toUpperCase()}
-                  </a>
-                </p>
-              )}
-              {failed && <p><strong>Export failed.</strong> {job.error || 'Please try again in a moment.'}</p>}
+            </div>
+          )}
+
+          {finished && job?.status === 'failed' && (
+            <div className="export-status export-status--error" role="alert">
+              <p>
+                <strong>The export didn’t finish.</strong>{' '}
+                {job.error_message || 'Please start a new one in a few minutes.'}
+              </p>
+            </div>
+          )}
+
+          {finished && job?.status === 'expired' && (
+            <div className="export-status" role="status">
+              <p>Your last export has expired, as downloads last seven days. Start a new one above.</p>
             </div>
           )}
         </div>
 
-        <div className="card">
-          <h2 className="settings-h2">Automatic backups</h2>
-          <p className="settings-card-text">
-            Schedule automatic exports.
+        <div className="privacy-note">
+          <p>
+            An export holds only what you wrote, along with your settings and the people you named.
+            Other people’s comments on your kinlooms are counted, never copied. Downloads are kept for
+            seven days, and you can start two exports an hour.
           </p>
-          <div className="vis-row">
-            {(['monthly', 'off'] as const).map(opt => (
-              <button
-                key={opt}
-                type="button"
-                className={`vis-chip${schedule === opt ? ' is-active' : ''}`}
-                onClick={() => setScheduleChoice(opt)}
-                disabled={scheduleSaving !== null || !activeSpaceId}
-              >
-                {opt === 'monthly' ? 'Monthly' : 'Off'}
-                {scheduleSaving === opt ? ' …' : ''}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
     </div>
