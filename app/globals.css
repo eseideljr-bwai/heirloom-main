@@ -3101,6 +3101,27 @@ body.has-texture::before {
   font-size: 15px;
   line-height: 1.55;
 }
+/* Invitation: what accepting changes, and the "publish what I've written" picker */
+.invite-page--wide { max-width: 560px; }
+.invite-page__notes {
+  margin: 0 0 20px; padding: 0 0 0 18px;
+  text-align: left; font-size: 14px; line-height: 1.55; color: var(--fg-2);
+}
+.invite-page__notes li + li { margin-top: 6px; }
+.invite-page__quiet { margin: 16px 0 0; font-size: 13px; color: var(--fg-3); }
+.invite-picker {
+  margin: 0 0 20px; text-align: left;
+  border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;
+}
+.invite-picker__title { margin: 0 0 4px; font-size: 14px; font-weight: 600; color: var(--fg-1); }
+.invite-picker__sub { margin: 0 0 10px; font-size: 13px; color: var(--fg-3); line-height: 1.5; }
+.invite-picker__rooms { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 10px; }
+.invite-picker__list {
+  max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  padding-top: 10px; border-top: 1px solid var(--border);
+}
+.invite-picker__type { color: var(--fg-3); font-size: 12px; }
+
 .checkbox-row {
   display: flex; align-items: center; gap: 10px;
   font-size: 14px; color: var(--fg-2);

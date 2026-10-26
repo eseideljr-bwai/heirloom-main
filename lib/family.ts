@@ -52,16 +52,6 @@ export async function revokeInvitation(
   );
 }
 
-/** POST /invitations/accept (no familySpace — token is global). */
-export async function acceptInvitation(
-  token: string,
-): Promise<{ family_space: { ulid: string; name: string } }> {
-  return apiFetch<{ family_space: { ulid: string; name: string } }>(
-    '/invitations/accept',
-    { method: 'POST', body: { token } },
-  );
-}
-
 // ─── Members ────────────────────────────────────────────────────────
 
 export type Gender = 'f' | 'm' | 'n';
