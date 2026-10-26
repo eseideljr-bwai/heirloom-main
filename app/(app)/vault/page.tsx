@@ -1,93 +1,83 @@
 import Link from 'next/link';
-import { getActiveSpace, requireActiveSpaceId } from '../../../lib/server/auth';
-import { getHome, getLibraryServer } from '../../../lib/server/queries';
-import type { LibraryRow } from '../../../lib/kinloom';
-import { paginate, parsePageParam } from '../../../lib/pagination';
+import { redirect } from 'next/navigation';
+import { ApiError } from '../../../lib/api';
+import { requireHome } from '../../../lib/server/auth';
+import { serverKinloomApi } from '../../../lib/server/kinloom-api';
+import type { components } from '../../../lib/api-schema/typed';
+import { parsePageParam } from '../../../lib/pagination';
 import Pagination from '../../components/Pagination';
-import { orNull } from '../../../lib/server/safe';
 
 export const dynamic = 'force-dynamic';
 
 /** The Vault pages at 20, not the app-wide default of 10. */
 const VAULT_PAGE_SIZE = 20;
 
-const VIEWS = [
+type VaultItem = components['schemas']['VaultItem'];
+type Audience = 'everything' | 'private' | 'home' | 'space';
+
+/**
+ * The four filters the design draws. `audience` is a server-side filter on
+ * `GET /vault`, so each one is a real query and the counts and pages come
+ * back correct. (The API also has `after_passing`, for kinlooms waiting to
+ * be released after the author passes; it has no chip in the design yet.)
+ */
+const VIEWS: { key: '' | Exclude<Audience, 'everything'>; label: string }[] = [
   { key: '',        label: 'Everything' },
   { key: 'private', label: 'Private' },
   { key: 'home',    label: 'In your Family Home' },
   { key: 'space',   label: 'In a Family Space' },
-] as const;
+];
 
 type ViewKey = (typeof VIEWS)[number]['key'];
 
-type Audience = { label: string; kind: 'home' | 'space' };
-
-/**
- * Where a kinloom is published.
- *
- * The model this screen is designed for gives every kinloom a *list* of
- * publication targets — its Home, and any Family Spaces it was published
- * onward to. The API still carries a single `visibility: 'family' |
- * 'private'`, so that list is at most one entry long today and the
- * "In a Family Space" view can never match.
- *
- * Every assumption about that shape lives in this one function. When the
- * publications endpoint lands (backend Workstream 4.2) this is the only
- * thing that has to change — the filter, the chips and the counts all
- * read from it.
- */
-function audiencesFor(row: LibraryRow, homeLabel: string): Audience[] {
-  if (row.visibility === 'private') return [];
-  // `visibility` is optional on LibraryRow and may be absent from the list
-  // payload altogether. 'family' is the create-time default, so an absent
-  // value is read as published to the Home rather than silently dropped
-  // out of every view. See the note in the page body about verifying
-  // whether the endpoint returns private kinlooms at all.
-  return [{ label: homeLabel, kind: 'home' }];
-}
-
-function matchesView(audiences: Audience[], view: ViewKey): boolean {
-  if (view === 'private') return audiences.length === 0;
-  if (view === 'home') return audiences.some(a => a.kind === 'home');
-  if (view === 'space') return audiences.some(a => a.kind === 'space');
-  return true;
-}
-
-function publicationYear(row: LibraryRow): string {
-  // The design labels each card with its publication date. Nothing in the
-  // payload carries one — there is no `published_at` on the row or in the
-  // API spec — so this falls back to when the kinloom was created.
-  if (!row.created_at) return '';
-  const d = new Date(row.created_at);
+function publicationYear(item: VaultItem): string {
+  // The card shows a publication date in the design, but the Vault item
+  // carries only `created_at`, so that is what the year comes from.
+  const d = new Date(item.created_at);
   return Number.isNaN(d.getTime()) ? '' : String(d.getFullYear());
 }
 
-function VaultCard({ row, audiences }: { row: LibraryRow; audiences: Audience[] }) {
-  const year = publicationYear(row);
-  const href = `/library/${row.ulid}`;
+/** One chip per room the kinloom is published to, pending ones marked. */
+function chipsFor(item: VaultItem): { key: string; label: string; muted?: boolean }[] {
+  const rooms = item.publications.map(p => ({
+    key: `${p.type}-${p.id}-${p.when}`,
+    label: p.when === 'on_passing' ? `${p.name} · after I pass` : p.name,
+  }));
+  if (item.status === 'draft') {
+    return [{ key: 'draft', label: 'Draft', muted: true }, ...rooms];
+  }
+  // Final and published nowhere: the absence of a publication, not a place.
+  if (rooms.length === 0) return [{ key: 'private', label: 'Private', muted: true }];
+  return rooms;
+}
+
+function VaultCard({ item }: { item: VaultItem }) {
+  const year = publicationYear(item);
+  const href = `/library/${item.id}`;
+  const published = item.publications.length > 0;
   return (
     <article className="vault-card">
       <div className="vault-card__chips">
-        {audiences.length > 0 ? (
-          audiences.map(a => (
-            <span key={`${a.kind}-${a.label}`} className="vault-chip">{a.label}</span>
-          ))
-        ) : (
-          <span className="vault-chip vault-chip--private">Private</span>
-        )}
+        {chipsFor(item).map(c => (
+          <span key={c.key} className={`vault-chip${c.muted ? ' vault-chip--private' : ''}`}>
+            {c.label}
+          </span>
+        ))}
       </div>
 
-      {row.type_label && <p className="vault-card__type">{row.type_label}</p>}
+      <p className="vault-card__type">{item.type.label}</p>
 
       <h2 className="vault-card__title">
-        <Link href={href}>{row.title || 'Untitled'}</Link>
+        <Link href={href}>{item.title || 'Untitled'}</Link>
       </h2>
 
       <div className="vault-card__foot">
         {year && <span className="vault-card__date">{year}</span>}
-        <Link href={href} className="vault-card__action">
-          {audiences.length > 0 ? 'Publish elsewhere…' : 'Publish…'}
-        </Link>
+        {item.status === 'final' && (
+          <Link href={`/create/publish?k=${item.id}`} className="vault-card__action">
+            {published ? 'Publish elsewhere…' : 'Publish…'}
+          </Link>
+        )}
       </div>
     </article>
   );
@@ -96,73 +86,60 @@ function VaultCard({ row, audiences }: { row: LibraryRow; audiences: Audience[] 
 type Search = { view?: string; page?: string };
 
 export default async function VaultPage({ searchParams }: { searchParams?: Search }) {
-  const familySpaceId = await requireActiveSpaceId();
+  const requested = (searchParams?.view || '') as ViewKey;
+  const view: ViewKey = VIEWS.some(v => v.key === requested) ? requested : '';
+  const requestedPage = parsePageParam(searchParams?.page);
 
-  const [library, home, activeSpace] = await Promise.all([
-    orNull(getLibraryServer(familySpaceId)),
-    orNull(getHome(familySpaceId)),
-    getActiveSpace(),
-  ]);
+  // `GET /vault` is the signed-in person's own, so it needs nothing from the
+  // Home check below. Start it first and let the two run side by side: the
+  // page waits for the slower of the two instead of for both in turn. The
+  // result is captured as a value so a redirect from the guard can't leave
+  // this promise rejecting unhandled.
+  const vaultRequest = serverKinloomApi
+    .get('/vault', {
+      query: { audience: view || 'everything', page: requestedPage, per_page: VAULT_PAGE_SIZE },
+    })
+    .then(
+      (data) => ({ data }),
+      (error: unknown) => ({ error }),
+    );
 
-  const allKinlooms = library?.kinlooms ?? [];
+  // Redirects unauthenticated and not-yet-onboarded visitors.
+  await requireHome();
 
-  // The Vault is only ever the signed-in person's own writing. The library
-  // endpoint returns the whole space and takes no author filter, so scope
-  // it here. /home's user_summary.member_id is authoritative for the
-  // current member; family_spaces[].member_id is optional and often absent
-  // on /me. The API is inconsistent about ULID casing, so compare lowercased.
-  const myMemberIds = new Set(
-    [home.userSummary?.member_id, activeSpace?.member_id]
-      .filter((v): v is string => typeof v === 'string' && v.length > 0)
-      .map(v => v.toLowerCase()),
-  );
-
-  // Two different failures used to look identical here. They need to be
-  // told apart: one is the space refusing us, the other is not knowing
-  // which member we are — the known gap where /me omits member_id.
-  if (library === null || myMemberIds.size === 0) {
+  const result = await vaultRequest;
+  if ('error' in result) {
+    if (!(result.error instanceof ApiError)) throw result.error;
     return (
       <div className="vault-page">
         <p className="eyebrow">My Vault</p>
         <h1 className="vault-page__title">Everything you have written.</h1>
         <div className="empty-card">
-          <p className="empty-card__text">
-            {library === null
-              ? 'This family space wouldn’t return its kinlooms. The account may not currently be permitted to read it.'
-              : 'We couldn’t work out which member you are in this family space, so there’s no way to pick your own kinlooms out of it.'}
-          </p>
+          <p className="empty-card__text">We couldn’t load your Vault just now.</p>
           <p className="empty-card__sub">
-            Nothing you have written is affected — this is a lookup problem, not a data one.
+            Nothing you have written is affected. Please try again in a moment.
           </p>
         </div>
       </div>
     );
   }
+  const vault = result.data;
 
-  const mine = allKinlooms.filter(
-    r => r.author?.member_id && myMemberIds.has(String(r.author.member_id).toLowerCase()),
-  );
+  const { data: items, meta, counts } = vault;
 
-  // Today's single container becomes the Family Home, so its name is the
-  // label on a "published to your Home" chip.
-  const homeLabel = activeSpace?.name?.trim() || 'Your Family Home';
+  // A `?page=` left over from a wider filter points past the end, which the
+  // API answers with an empty page. Land on the last real one instead.
+  if (items.length === 0 && meta.total > 0 && requestedPage > meta.last_page) {
+    const params = new URLSearchParams();
+    if (view) params.set('view', view);
+    if (meta.last_page > 1) params.set('page', String(meta.last_page));
+    const query = params.toString();
+    redirect(`/vault${query ? `?${query}` : ''}`);
+  }
 
-  const rows = mine.map(row => ({ row, audiences: audiencesFor(row, homeLabel) }));
-
-  const requested = (searchParams?.view || '') as ViewKey;
-  const view: ViewKey = VIEWS.some(v => v.key === requested) ? requested : '';
-
-  const filtered = rows.filter(r => matchesView(r.audiences, view));
-  const total = filtered.length;
-
-  const { items, page, totalPages } = paginate(
-    filtered,
-    parsePageParam(searchParams?.page),
-    VAULT_PAGE_SIZE,
-  );
-
-  const first = total === 0 ? 0 : (page - 1) * VAULT_PAGE_SIZE + 1;
-  const last = Math.min(page * VAULT_PAGE_SIZE, total);
+  const total = meta.total;
+  const first = total === 0 ? 0 : (meta.page - 1) * meta.per_page + 1;
+  const last = Math.min(meta.page * meta.per_page, total);
 
   const viewHref = (key: ViewKey) => (key ? `/vault?view=${key}` : '/vault');
 
@@ -194,29 +171,33 @@ export default async function VaultPage({ searchParams }: { searchParams?: Searc
         ))}
       </nav>
 
-      {rows.length === 0 ? (
+      {counts.summary.everything === 0 ? (
         <div className="empty-card">
           <p className="empty-card__text">Your vault is empty.</p>
           <Link href="/create" className="empty-card__cta">Write your first kinloom →</Link>
         </div>
       ) : total === 0 ? (
         <div className="empty-card">
-          <p className="empty-card__text">Nothing is published there yet.</p>
+          <p className="empty-card__text">
+            {view === 'private'
+              ? 'Everything you have written is published somewhere.'
+              : 'Nothing is published there yet.'}
+          </p>
         </div>
       ) : (
         <>
           <div className="vault-grid">
-            {items.map(({ row, audiences }) => (
-              <VaultCard key={row.ulid} row={row} audiences={audiences} />
+            {items.map(item => (
+              <VaultCard key={item.id} item={item} />
             ))}
           </div>
           <Pagination
-            page={page}
-            totalPages={totalPages}
+            page={meta.page}
+            totalPages={meta.last_page}
             basePath="/vault"
             params={{ view: view || undefined }}
             totalItems={total}
-            pageSize={VAULT_PAGE_SIZE}
+            pageSize={meta.per_page}
             label="Vault pages"
           />
         </>
