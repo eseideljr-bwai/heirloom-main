@@ -1,140 +1,149 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { getActiveSpace, requireActiveSpaceId } from '../../../../lib/server/auth';
-import { suggestedQuestions } from '../../../../lib/legacy-bank';
-import { getHome, getMemberProfile } from '../../../../lib/server/queries';
 import { ApiError } from '../../../../lib/api';
+import { starterQuestions } from '../../../../lib/legacy-bank';
+import { requireHome } from '../../../../lib/server/auth';
+import { serverKinloomApi } from '../../../../lib/server/kinloom-api';
+import { orNull } from '../../../../lib/server/safe';
+import ConversationRow from '../ConversationRow';
 import LegacyChatThread from '../LegacyChatThread';
 
 export const dynamic = 'force-dynamic';
 
-/** How many corpus chips to name before collapsing the rest into a count. */
-const REFS_SHOWN = 8;
-
+/**
+ * A person's Legacy Bank (`memberId` is the person id). The scope says what
+ * the bank would answer *you* from, so nothing here is guessed: the count,
+ * the rows, whether the bank is on, and the voice and tense are all the API's.
+ */
 export default async function LegacyBankChatPage({ params }: { params: { memberId: string } }) {
-  const familySpaceId = await requireActiveSpaceId();
+  await requireHome();
 
-  let data;
-  try {
-    data = await getMemberProfile(familySpaceId, params.memberId);
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) notFound();
-    throw err;
-  }
-
-  const [home, activeSpace] = await Promise.all([
-    getHome(familySpaceId).catch(() => null),
-    getActiveSpace(),
+  const [scope, earlier] = await Promise.all([
+    serverKinloomApi
+      .get('/people/{member}/legacy-bank/scope', { path: { member: params.memberId } })
+      .catch((err: unknown) => {
+        // Someone you can't see is the same answer as someone who doesn't exist.
+        if (err instanceof ApiError && err.status === 404) notFound();
+        throw err;
+      }),
+    orNull(serverKinloomApi.get('/legacy-bank/conversations', { query: { person: params.memberId, per_page: 3 } })),
   ]);
 
-  const { member, kinlooms, kinloomCount } = data;
-  const firstName = member.name?.split(' ')[0] || 'them';
-  const myMemberId = home?.userSummary?.member_id || activeSpace?.member_id || null;
-  const isMe = myMemberId != null
-    && String(myMemberId).toLowerCase() === String(member.member_id).toLowerCase();
-
-  const refs = kinlooms.slice(0, REFS_SHOWN);
-  const refsMore = kinlooms.length - refs.length;
+  const subject = scope.subject;
+  if (!subject) notFound();
+  const isMe = subject.is_you;
+  const firstName = subject.name.split(' ')[0] || 'them';
+  const past = scope.tense === 'past';
+  const prior = (earlier?.data ?? []).filter(c => c.last_message_at);
 
   return (
     <div className="lb-page2">
-      <Link href={`/portrait/${member.member_id}`} className="create-page__back">
+      <Link href={`/portrait/${subject.id}`} className="create-page__back">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
         </svg>
-        {isMe ? 'My Legacy Portrait' : `${member.name}’s Legacy Portrait`}
+        {isMe ? 'My Legacy Portrait' : `${subject.name}’s Legacy Portrait`}
       </Link>
 
       <div className="lb-head">
         <span
           className="lb-head__avatar"
-          style={{ background: `${member.tone || '#a39376'}28`, color: member.tone || '#556b5b' }}
+          style={{ background: `${subject.tone || '#a39376'}28`, color: subject.tone || '#556b5b' }}
           aria-hidden="true"
         >
-          {member.initials || member.name?.charAt(0) || '?'}
+          {subject.initials || subject.name.charAt(0)}
         </span>
         <div className="lb-head__text">
           <p className="eyebrow">AI Legacy Bank</p>
           <h1 className="lb-head__title">
-            {isMe ? 'Your own record' : `${member.name}’s Legacy`}
+            {isMe ? 'Your own record' : `${subject.name}’s Legacy`}
           </h1>
         </div>
       </div>
 
       <p className="lb-lead">
         {isMe
-          ? 'Answers come only from the kinlooms you created. No invented facts. No impersonation.'
-          : `Answers come only from what ${firstName} chose to keep. Nothing is inferred, and nothing speaks in ${firstName}’s voice.`}
+          ? 'Answers come only from the kinlooms you created, private ones included. No invented facts. No impersonation.'
+          : scope.voice === 'first_person'
+            ? `${firstName} chose to have answers spoken in their own words, drawn only from what they kept. Nothing is made up.`
+            : `Answers come only from what ${firstName} ${past ? 'kept' : 'chose to keep'}. Nothing is inferred, and nothing speaks in ${firstName}’s voice.`}
       </p>
 
-      {refs.length > 0 && (
-        <div className="lb-refs">
-          <span className="lb-refs__label">Responding from:</span>
-          {refs.map(k => (
-            <Link
-              key={k.ulid}
-              href={`/library/${k.ulid}`}
-              className="lb-ref"
-              title={k.type_label ? `${k.type_label} · ${k.title}` : k.title}
-            >
-              {k.title || 'Untitled'}
-            </Link>
-          ))}
-          {refsMore > 0 && (
-            <Link href={`/portrait/${member.member_id}`} className="lb-refs__more">
-              +{refsMore} more →
-            </Link>
-          )}
-        </div>
-      )}
-
       <div className="lb-grid">
-        <LegacyChatThread
-          familySpaceId={familySpaceId}
-          conversationId={null}
-          mode={member.deceased ? 'sealed' : 'living'}
-          subjectMemberId={member.member_id}
-          subjectDisplayName={firstName}
-          suggestedQuestions={suggestedQuestions(member, kinlooms)}
-        />
+        {scope.enabled ? (
+          <LegacyChatThread
+            target={{ scope: 'person', personId: subject.id }}
+            conversationId={null}
+            subjectName={isMe ? 'you' : firstName}
+            isYou={isMe}
+            voice={scope.voice}
+            suggestedQuestions={scope.kinlooms > 0 ? starterQuestions(firstName, isMe) : undefined}
+            intro={
+              scope.kinlooms === 0
+                ? isMe
+                  ? 'You haven’t written anything yet. Create a kinloom, and your record starts here.'
+                  : `There’s nothing of ${firstName}’s that you can read yet, so there’s nothing to draw on.`
+                : undefined
+            }
+          />
+        ) : (
+          <div className="lb-chat">
+            <div className="lb-chat__empty">
+              <p className="lb-chat__empty-title">{firstName} has switched their Legacy Bank off.</p>
+              <p className="lb-chat__empty-sub">
+                It can’t answer questions about them right now. You can still read what they’ve published.
+              </p>
+            </div>
+          </div>
+        )}
 
         <aside className="lb-ground">
           <p className="lb-ground__label">What it is grounded in</p>
           <p className="lb-ground__count">
-            {kinloomCount} kinloom{kinloomCount === 1 ? '' : 's'}
+            {scope.kinlooms} kinloom{scope.kinlooms === 1 ? '' : 's'}
           </p>
-          <p
-            className="lb-ground__sub no-api"
-            data-api-scope="in"
-            data-api-note={"GET /people/{personId}/legacy-bank/scope → LegacyBankScope\n→ kinlooms · integer, the whole grounding set\n→ rows[] · { kind: home | spaces | vault | space, label, kinlooms }\n→ enabled · false when this person has switched their Bank off — hide the panel\nThe chat itself: POST /legacy-bank/conversations with { subject_member_id } for a person, then POST .../{id}/ask with { question }. `mode: living|sealed` is gone."}
-          >
+          <p className="lb-ground__sub">
             {isMe
               ? 'Everything in your vault, including what nobody else can read.'
               : `Only the kinlooms ${firstName} published where you can read them.`}
           </p>
 
-          {kinlooms.length > 0 && (
+          {scope.rows.length > 0 && (
             <div className="lb-ground__list">
-              {kinlooms.slice(0, 6).map(k => (
-                <Link key={k.ulid} href={`/library/${k.ulid}`} className="lb-ground__item">
-                  <span className="lb-ground__type">{k.type_label}</span>
-                  <span className="lb-ground__title">{k.title || 'Untitled'}</span>
-                </Link>
+              {scope.rows.map(r => (
+                <div key={r.kind} className="lb-ground__item">
+                  <span className="lb-ground__type">{r.kinlooms}</span>
+                  <span className="lb-ground__title">{r.label}</span>
+                </div>
               ))}
             </div>
           )}
 
           <div className="lb-ground__links">
-            <Link href={`/legacy-bank/${member.member_id}/scope`}>
-              {isMe ? 'See your own scope →' : `See what you can read →`}
+            <Link href={`/legacy-bank/${subject.id}/scope`}>
+              {isMe ? 'See your own scope →' : 'See what you can read →'}
             </Link>
-            <Link href={`/portrait/${member.member_id}`}>
+            <Link href={`/portrait/${subject.id}`}>
               {isMe ? 'My Legacy Portrait →' : `${firstName}’s Legacy Portrait →`}
             </Link>
             {isMe && <Link href="/vault">Everything in My Vault →</Link>}
           </div>
         </aside>
       </div>
+
+      {prior.length > 0 && (
+        <div className="lb-section lb-section--after">
+          <div className="lb-section__head">
+            <p className="eyebrow">Earlier conversations</p>
+            <Link href="/legacy-bank/history" className="lb-section__hint lb-section__hint--link">View all →</Link>
+          </div>
+          <div className="lb-history-list">
+            {prior.map(c => (
+              <ConversationRow key={c.id} conversation={c} href={`/legacy-bank/history/${c.id}`} showMessageCount />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

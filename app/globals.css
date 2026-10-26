@@ -7436,3 +7436,32 @@ body.has-texture::before {
   .notif-row { padding: 16px; }
   .notif-row__desc--pad, .settings-h2--pad { padding: 0 16px; }
 }
+
+/* Legacy Bank: plain-text answers, earlier pages, and the thread notices. */
+.lb-msg__plain { margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lb-msg__plain:last-child { margin-bottom: 0; }
+.lb-msg__redacted { margin: 0; font-style: italic; color: var(--fg-4); }
+.lb-chat__older { display: flex; justify-content: center; padding: 4px 0 16px; }
+.lb-chat__older-btn {
+  background: none;
+  border: 1px solid var(--muted);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.lb-chat__older-btn:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); }
+.lb-chat__older-btn:disabled { opacity: 0.6; cursor: default; }
+.lb-chat__notice {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg-3);
+  background: var(--muted);
+  border-radius: 10px;
+}
+.lb-chat-try__lede--quiet { margin-top: 16px; font-size: 14px; }
+.lb-subject-card__avatar--space { background: var(--muted); color: var(--fg-3); }

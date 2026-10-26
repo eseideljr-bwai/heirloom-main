@@ -1,20 +1,31 @@
 import Link from 'next/link';
-import { requireActiveSpaceId } from '../../../../lib/server/auth';
-import { getLegacyBank, getLegacyBankConversations } from '../../../../lib/server/queries';
+import { redirect } from 'next/navigation';
+import { requireHome } from '../../../../lib/server/auth';
+import { serverKinloomApi } from '../../../../lib/server/kinloom-api';
+import { parsePageParam } from '../../../../lib/pagination';
+import Pagination from '../../../components/Pagination';
 import ConversationRow from '../ConversationRow';
 
 export const dynamic = 'force-dynamic';
 
-export default async function LegacyBankHistoryPage() {
-  const familySpaceId = await requireActiveSpaceId();
+const PAGE_SIZE = 20;
 
-  const [conversations, { subjects }] = await Promise.all([
-    getLegacyBankConversations(familySpaceId),
-    getLegacyBank(familySpaceId),
-  ]);
-  const subjectsById = Object.fromEntries(
-    subjects.map(s => [s.member_id, { tone: s.tone, initials: s.initials }]),
-  );
+export default async function LegacyBankHistoryPage({
+  searchParams,
+}: {
+  searchParams: { page?: string };
+}) {
+  await requireHome();
+  const requested = parsePageParam(searchParams.page);
+
+  const res = await serverKinloomApi.get('/legacy-bank/conversations', {
+    query: { page: requested, per_page: PAGE_SIZE },
+  });
+  // A page past the end (a stale link, or conversations since removed) goes to the last one.
+  if (res.data.length === 0 && requested > 1) {
+    redirect(res.meta.last_page > 1 ? `/legacy-bank/history?page=${res.meta.last_page}` : '/legacy-bank/history');
+  }
+  const conversations = res.data;
 
   return (
     <div className="lb-chat-try">
@@ -26,26 +37,30 @@ export default async function LegacyBankHistoryPage() {
       </div>
 
       <p className="eyebrow lb-chat-try__eyebrow">Legacy Bank</p>
-      <h1 className="lb-chat-try__title">Every conversation you&rsquo;ve kept.</h1>
+      <h1 className="lb-chat-try__title">Every conversation you’ve kept.</h1>
 
       {conversations.length === 0 ? (
         <div className="empty-card">
           <p className="empty-card__text">Nothing kept here yet.</p>
-          <p className="empty-card__sub">Start a conversation with any family member and it will appear here.</p>
+          <p className="empty-card__sub">Start a conversation with a family member and it will appear here. Only you can see your conversations.</p>
           <Link href="/legacy-bank/chat" className="btn-primary btn-primary--lg">Try a conversation</Link>
         </div>
       ) : (
-        <div className="lb-history-list">
-          {conversations.map(c => (
-            <ConversationRow
-              key={c.ulid}
-              conversation={c}
-              href={`/legacy-bank/history/${c.ulid}`}
-              subjectsById={subjectsById}
-              showMessageCount
-            />
-          ))}
-        </div>
+        <>
+          <div className="lb-history-list">
+            {conversations.map(c => (
+              <ConversationRow key={c.id} conversation={c} href={`/legacy-bank/history/${c.id}`} showMessageCount />
+            ))}
+          </div>
+          <Pagination
+            page={res.meta.page}
+            totalPages={res.meta.last_page}
+            basePath="/legacy-bank/history"
+            totalItems={res.meta.total}
+            pageSize={PAGE_SIZE}
+            label="Conversations"
+          />
+        </>
       )}
     </div>
   );
