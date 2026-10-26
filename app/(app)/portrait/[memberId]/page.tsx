@@ -84,7 +84,7 @@ export default async function PortraitPage({
   const shared = counts.private == null ? null : counts.kinlooms - counts.private;
   const questions = starterQuestions(firstName, isMe);
   const line = [
-    isMe ? null : person.label,
+    isMe ? 'You' : person.label,
     person.birth_year ? `Born ${person.birth_year}` : null,
     passed && portrait.date_of_death ? `Died ${portrait.date_of_death}` : null,
   ].filter(Boolean).join(' · ');
@@ -126,7 +126,7 @@ export default async function PortraitPage({
             )}
           </div>
 
-          <h1 className="portrait__name">{isMe ? `${person.name} (you)` : person.name}</h1>
+          <h1 className="portrait__name">{person.name}</h1>
           {line && <p className="portrait__line">{line}</p>}
           {home && <p className="portrait__line portrait__line--home">{home.name}</p>}
           {portrait.description && <p className="portrait__about">{portrait.description}</p>}

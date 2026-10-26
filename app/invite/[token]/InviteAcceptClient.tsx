@@ -82,9 +82,31 @@ export default function InviteAcceptClient({ token, preview, dead, session, vaul
   const [error, setError] = useState<string | null>(null);
   const [deadNow, setDeadNow] = useState<DeadReason | null>(dead);
   const [accepted, setAccepted] = useState<InvitationAccepted | null>(null);
+  // Kept from the preview: once accepted, the link is used up, so a re-render has no preview.
+  const [spaceName, setSpaceName] = useState('');
 
   const next = encodeURIComponent(`/invite/${token}`);
   const goHome = () => router.replace('/home');
+
+  // ─── Done ────────────────────────────────────────────────────
+  if (accepted) {
+    const connected = accepted.mode === 'connect';
+    return (
+      <div className="invite-page">
+        <h1 className="invite-page__title">
+          {connected ? `${spaceName || 'This Family Space'} is connected.` : `Welcome to ${accepted.home.name}.`}
+        </h1>
+        <p className="invite-page__lede">
+          {connected
+            ? 'Your Family Home is now part of this Family Space. Each person chooses what to publish there.'
+            : 'You’re part of this home now. Their kinlooms are waiting for you.'}
+        </p>
+        <div className="vis-row vis-row--center">
+          <button type="button" className="btn-save" onClick={goHome}>Go to home</button>
+        </div>
+      </div>
+    );
+  }
 
   // ─── Dead links ──────────────────────────────────────────────
   if (deadNow || !preview) {
@@ -99,26 +121,6 @@ export default function InviteAcceptClient({ token, preview, dead, session, vaul
           ) : (
             <Link href={session ? '/home' : '/'} className="btn-save">{session ? 'Go to home' : 'Sign in'}</Link>
           )}
-        </div>
-      </div>
-    );
-  }
-
-  // ─── Done ────────────────────────────────────────────────────
-  if (accepted) {
-    const connected = accepted.mode === 'connect';
-    return (
-      <div className="invite-page">
-        <h1 className="invite-page__title">
-          {connected ? `${preview.container_name} is connected.` : `Welcome to ${accepted.home.name}.`}
-        </h1>
-        <p className="invite-page__lede">
-          {connected
-            ? 'Your Family Home is now part of this Family Space. Each person chooses what to publish there.'
-            : 'You’re part of this home now. Their kinlooms are waiting for you.'}
-        </p>
-        <div className="vis-row vis-row--center">
-          <button type="button" className="btn-save" onClick={goHome}>Go to home</button>
         </div>
       </div>
     );
@@ -210,6 +212,7 @@ export default function InviteAcceptClient({ token, preview, dead, session, vaul
         setError(null);
         try {
           const res = await acceptHomeOrSpaceInvitation(token, publish);
+          setSpaceName(preview?.container_name ?? '');
           setAccepted(res);
           // Accepting changes what /me says: a new Home, Spaces, maybe a new person id.
           await refresh();
