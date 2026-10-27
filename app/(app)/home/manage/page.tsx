@@ -3,7 +3,9 @@ import { ApiError } from '../../../../lib/api';
 import { requireHome } from '../../../../lib/server/auth';
 import { serverKinloomApi } from '../../../../lib/server/kinloom-api';
 import ManageTabs from '../../../components/ManageTabs';
+import { getFamilyHome } from '../../../../lib/server/queries';
 import ManageFamilyClient from './ManageFamilyClient';
+import LeaveHomeCard from './LeaveHomeCard';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,16 +21,20 @@ export default async function ManageFamilyPage() {
   const { homeId, home } = await requireHome();
   const homeName = home.name?.trim() || 'Your Family Home';
 
-  let manage = null;
-  let forbidden = false;
-  try {
-    manage = await serverKinloomApi.get('/family-homes/{familyHome}/manage', {
-      path: { familyHome: homeId },
-    });
-  } catch (err) {
-    if (!(err instanceof ApiError)) throw err;
-    forbidden = err.status === 403;
-  }
+  // Manage Family answers 403 to a plain member, so it can't carry the leave
+  // flag for them. The Home does, for every role. Both go out together.
+  const [manageResult, familyHome] = await Promise.all([
+    serverKinloomApi
+      .get('/family-homes/{familyHome}/manage', { path: { familyHome: homeId } })
+      .then(data => ({ data, forbidden: false }))
+      .catch((err: unknown) => {
+        if (!(err instanceof ApiError)) throw err;
+        return { data: null, forbidden: err.status === 403 };
+      }),
+    getFamilyHome(homeId).catch(() => null),
+  ]);
+  const manage = manageResult.data;
+  const forbidden = manageResult.forbidden;
 
   const meter = (used: number, max: number) => (max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0);
 
@@ -96,6 +102,15 @@ export default async function ManageFamilyPage() {
           )}
         </aside>
       </div>
+
+      {familyHome && (
+        <LeaveHomeCard
+          homeId={homeId}
+          homeName={homeName}
+          role={familyHome.viewer.role}
+          canLeave={familyHome.viewer.can_leave}
+        />
+      )}
 
       <p className="mg-page__foot">
         Looking for the wider family? <Link href="/spaces">Your Family Spaces →</Link>

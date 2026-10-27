@@ -7513,3 +7513,22 @@ img.portrait-kin__img { object-fit: cover; }
   background: var(--muted);
   filter: saturate(0.96) sepia(0.05);
 }
+
+/* ─── Manage Family: leave this home ────────────────────────────── */
+.mg-leave { max-width: 720px; }
+.mg-leave__body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 24px;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(14px, 1.8vw, 22px) clamp(16px, 2.2vw, 26px);
+}
+.mg-leave__text {
+  flex: 1 1 320px;
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-4);
+}
+.mg-modal__alt { margin-top: 16px; }
