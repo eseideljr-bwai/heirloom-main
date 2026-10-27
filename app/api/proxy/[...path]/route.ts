@@ -21,7 +21,7 @@
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { SERVER_API_BASE, resolveBearerForProxy } from '../../../../lib/server/api';
+import { serverApiBase, resolveBearerForProxy } from '../../../../lib/server/api';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -40,7 +40,7 @@ async function handle(
 
   const pathSegments = params.path?.map(encodeURIComponent).join('/') ?? '';
   const search = req.nextUrl.search;
-  const target = `${SERVER_API_BASE}/${pathSegments}${search}`;
+  const target = `${serverApiBase()}/${pathSegments}${search}`;
 
   const anonymous = req.headers.get('x-kinloom-anonymous') === '1';
 
