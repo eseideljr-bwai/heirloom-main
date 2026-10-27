@@ -72,7 +72,9 @@ export default async function PublishPage({
       <p className="eyebrow pub-page__eyebrow">{isDraft ? 'Saved to your Vault' : 'In your Vault'}</p>
       <h1 className="pub-page__title">Who should be able to read this?</h1>
       <p className="pub-page__lead">
-        Publishing only adds an audience. Nothing ever leaves your vault.
+        {isDraft
+          ? 'Publishing only adds an audience. Nothing ever leaves your vault.'
+          : 'Add or remove rooms. Taking it out of a room never deletes it: it stays in your Vault, and its comments come back if you publish there again.'}
       </p>
 
       <PublishSheet

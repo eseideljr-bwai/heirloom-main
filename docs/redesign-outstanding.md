@@ -43,8 +43,8 @@ photos — needs no curation UI and only a filtered query. Cheapest path by far.
 
 | # | Question | Why it matters |
 |---|---|---|
-| 2.1 | Does `GET /family-spaces/{id}/library` return **private** kinlooms? | If not, My Vault silently under-reports and its Private filter is permanently empty |
-| 2.2 | Do list rows carry `visibility`? | Nothing in the codebase reads it off a list row — only off the detail endpoint. If absent, every Vault card reads as "published to Home" |
+| 2.1 | ~~Does `GET /family-spaces/{id}/library` return **private** kinlooms?~~ **Answered by Phase 3.** The Vault is its own endpoint, `GET /vault`, and returns the author's private kinlooms, drafts and published ones. Checked live: all four filters return the right set |
+| 2.2 | ~~Do list rows carry `visibility`?~~ **Answered by Phase 3.** `visibility` is gone. Each Vault row carries `publications` (room, name, `when`), and the cards and filters read that |
 | 2.4 | ~~Does a subject-less conversation ground across the whole Space?~~ **Answered by Phase 3.** `LegacyBankConversationCreate` is a oneOf: `{ subject_member_id }` for a person, or `{ scope: "space", family_space_id }` for a Space. Space grounding is a first-class variant, not a mock. `mode: living\|sealed` is gone |
 | 2.3 | Archival kinlooms (about account-less relatives) authored by the recorder? | SOW 4.1 requires it. `CreateKinloomPayload` has no author override, so it looks right — worth confirming against real data |
 

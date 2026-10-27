@@ -75,7 +75,7 @@ function VaultCard({ item }: { item: VaultItem }) {
         {year && <span className="vault-card__date">{year}</span>}
         {item.status === 'final' && (
           <Link href={`/create/publish?k=${item.id}`} className="vault-card__action">
-            {published ? 'Publish elsewhere…' : 'Publish…'}
+            {published ? 'Who can see it…' : 'Publish…'}
           </Link>
         )}
       </div>
