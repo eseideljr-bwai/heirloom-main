@@ -139,7 +139,15 @@ export function middleware(req: NextRequest) {
     }
     return applyEmbedCookie(NextResponse.redirect(url), embed);
   }
-  if (hasSession && AUTH_ENTRY_PATHS.has(pathname)) {
+  // `/?reason=session_expired` is where the (app) layouts send someone whose
+  // session cookie failed verification (deleted account, revoked, expired).
+  // This check only sees that a cookie exists, so bouncing that URL on to
+  // `/home` sent them straight back: an endless redirect, with no page ever
+  // loading to clear the dead cookie. Let it render; the login page signs the
+  // stale session out, and a person who is in fact signed in is moved on by
+  // its own effect.
+  const sessionExpired = req.nextUrl.searchParams.get('reason') === 'session_expired';
+  if (hasSession && AUTH_ENTRY_PATHS.has(pathname) && !sessionExpired) {
     const url = req.nextUrl.clone();
     url.pathname = '/home';
     url.search = '';
