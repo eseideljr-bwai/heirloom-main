@@ -8,6 +8,8 @@ import {
   inviteToHome,
   removeHomeMember,
   revokeHomeInvitation,
+  setHomeRoles,
+  transferHomeOwnership,
   updateHomeMember,
   type HomeInvitation,
   type HomeInvitationCreated,
@@ -15,6 +17,7 @@ import {
   type HomeMember,
 } from '../../../../lib/home-manage';
 import { ApiError } from '../../../../lib/api';
+import { useAuth } from '../../../../lib/auth-context';
 import { firebaseAuth } from '../../../../lib/firebase-client';
 import { syncSessionRefresh } from '../../../../lib/auth';
 import { revalidateFamilyData } from '../../../actions';
@@ -32,6 +35,8 @@ type Modal =
   | { kind: 'edit'; member: HomeMember }
   | { kind: 'remove'; member: HomeMember }
   | { kind: 'revoke'; invitation: HomeInvitation }
+  | { kind: 'roles'; member: HomeMember }
+  | { kind: 'transfer'; member: HomeMember }
   | null;
 
 const ROLE_LABEL: Record<string, string> = {
@@ -55,14 +60,37 @@ function plainError(err: unknown, fallback: string): string {
   return fallback;
 }
 
+function roleError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    if (err.status === 403) return 'Only the owner can change roles or hand the home over.';
+    if (err.status === 404) return 'That person is no longer in this home. Reload the page and try again.';
+    if (err.status === 422) return 'That person can’t take this role. It has to be someone with an account in this home.';
+    return plainError(err, fallback);
+  }
+  return fallback;
+}
+
+/** Roles in the order the page shows them, for the people who can hold one. */
+function canHoldRole(m: HomeMember): boolean {
+  return m.has_account && m.role !== 'owner' && !m.deceased;
+}
+
 export default function ManageFamilyClient({ homeId, manage }: Props) {
   const router = useRouter();
+  const { refresh: refreshAuth } = useAuth();
   const [modal, setModal] = useState<Modal>(null);
   const { viewer, people, invitations } = manage;
 
   const close = () => setModal(null);
   const refresh = async () => {
     await revalidateFamilyData();
+    router.refresh();
+  };
+
+  // Roles and ownership change what /me says about this person's Home.
+  const refreshRoles = async () => {
+    await revalidateFamilyData();
+    await refreshAuth();
     router.refresh();
   };
 
@@ -116,6 +144,11 @@ export default function ManageFamilyClient({ homeId, manage }: Props) {
               {m.can_edit && (
                 <button type="button" className="mg-btn" onClick={() => setModal({ kind: 'edit', member: m })}>
                   Edit
+                </button>
+              )}
+              {viewer.can_set_roles && canHoldRole(m) && (
+                <button type="button" className="mg-btn" onClick={() => setModal({ kind: 'roles', member: m })}>
+                  Roles
                 </button>
               )}
               {m.can_remove && (
@@ -194,6 +227,35 @@ export default function ManageFamilyClient({ homeId, manage }: Props) {
           }}
         />
       )}
+      {modal?.kind === 'roles' && (
+        <RolesModal
+          homeId={homeId}
+          member={modal.member}
+          people={people}
+          canTransfer={viewer.can_transfer}
+          onClose={close}
+          onDone={async () => { close(); await refreshRoles(); }}
+          onTransfer={() => setModal({ kind: 'transfer', member: modal.member })}
+        />
+      )}
+      {modal?.kind === 'transfer' && (
+        <ConfirmModal
+          title={`Make ${modal.member.name} the owner?`}
+          text={transferText(modal.member, people)}
+          confirmLabel="Transfer ownership"
+          danger
+          onCancel={close}
+          onConfirm={async () => {
+            try {
+              await transferHomeOwnership(homeId, modal.member.id);
+            } catch (err) {
+              throw new Error(roleError(err, 'Couldn’t transfer ownership.'));
+            }
+            close();
+            await refreshRoles();
+          }}
+        />
+      )}
       {modal?.kind === 'revoke' && (
         <ConfirmModal
           title="Revoke invitation?"
@@ -209,6 +271,128 @@ export default function ManageFamilyClient({ homeId, manage }: Props) {
         />
       )}
     </>
+  );
+}
+
+// ─── Roles and ownership ────────────────────────────────────────────
+
+/** What ownership changing hands means for the person handing it over. */
+function transferText(newOwner: HomeMember, people: HomeMember[]): string {
+  const coOwner = people.find(p => p.role === 'co_owner');
+  const youBecome = !coOwner || coOwner.id === newOwner.id ? 'the co-owner' : 'a member';
+  return (
+    `${newOwner.name} becomes the owner of this home, and you become ${youBecome}. ` +
+    'The home then runs on their plan: if they are on the Free plan, inviting people stops until they upgrade. ' +
+    'Only they can transfer it back.'
+  );
+}
+
+function RolesModal({
+  homeId,
+  member,
+  people,
+  canTransfer,
+  onClose,
+  onDone,
+  onTransfer,
+}: {
+  homeId: string;
+  member: HomeMember;
+  people: HomeMember[];
+  canTransfer: boolean;
+  onClose: () => void;
+  onDone: () => Promise<void>;
+  onTransfer: () => void;
+}) {
+  const currentCoOwner = people.find(p => p.role === 'co_owner') ?? null;
+  const currentSuccessor = people.find(p => p.is_successor) ?? null;
+
+  const wasCoOwner = member.role === 'co_owner';
+  const wasSuccessor = member.is_successor;
+  const [coOwner, setCoOwner] = useState(wasCoOwner);
+  const [successor, setSuccessor] = useState(wasSuccessor);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const changed = coOwner !== wasCoOwner || successor !== wasSuccessor;
+  const replacesCoOwner = coOwner && !wasCoOwner && currentCoOwner && currentCoOwner.id !== member.id;
+  const replacesSuccessor = successor && !wasSuccessor && currentSuccessor && currentSuccessor.id !== member.id;
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!changed) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      // The request replaces both roles, so send the pair as it should end up.
+      await setHomeRoles(homeId, {
+        co_owner_member_id: coOwner ? member.id : currentCoOwner?.id === member.id ? null : currentCoOwner?.id ?? null,
+        successor_member_id: successor ? member.id : currentSuccessor?.id === member.id ? null : currentSuccessor?.id ?? null,
+      });
+      await onDone();
+    } catch (err) {
+      setError(roleError(err, 'Couldn’t save the roles.'));
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={e => { if (e.target === e.currentTarget && !submitting) onClose(); }}
+    >
+      <form className="modal" onSubmit={onSubmit}>
+        <h3 className="modal-title">Roles for {member.name}</h3>
+        <p className="modal-text">Only you, as the owner, can set these.</p>
+
+        <div className="settings-fields">
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={coOwner}
+              onChange={e => setCoOwner(e.target.checked)}
+              disabled={submitting}
+            />
+            <span>
+              Co-owner. Can edit the home, invite on your plan, manage family profiles and remove comments.
+            </span>
+          </label>
+          {replacesCoOwner && currentCoOwner && (
+            <p className="modal-text">{currentCoOwner.name} would become a member.</p>
+          )}
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={successor}
+              onChange={e => setSuccessor(e.target.checked)}
+              disabled={submitting}
+            />
+            <span>
+              Successor. Takes the home over if you leave the product, by deleting your account or being memorialized.
+            </span>
+          </label>
+          {replacesSuccessor && currentSuccessor && (
+            <p className="modal-text">{currentSuccessor.name} would no longer be the successor.</p>
+          )}
+          {error && <p className="form-status form-status--error">{error}</p>}
+        </div>
+
+        {canTransfer && (
+          <p className="modal-text mg-modal__alt">
+            <button type="button" className="mg-card__action" onClick={onTransfer} disabled={submitting}>
+              Make {member.name} the owner instead…
+            </button>
+          </p>
+        )}
+
+        <div className="modal-actions">
+          <button type="button" className="btn-outline" onClick={onClose} disabled={submitting}>Cancel</button>
+          <button type="submit" className="btn-save" disabled={submitting || !changed}>
+            {submitting ? 'Saving…' : 'Save roles'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -611,7 +795,7 @@ function ConfirmModal({
     try {
       await onConfirm();
     } catch (err) {
-      setError(plainError(err, 'Something went wrong.'));
+      setError(err instanceof Error && !(err instanceof ApiError) ? err.message : plainError(err, 'Something went wrong.'));
       setSubmitting(false);
     }
   }

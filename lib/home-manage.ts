@@ -64,3 +64,33 @@ export async function removeHomeMember(homeId: string, memberId: string): Promis
     path: { familyHome: homeId, member: memberId },
   });
 }
+
+export type HomeRoles = Schemas['HomeRoles'];
+export type HomeLeaveResult = Schemas['HomeLeaveResult'];
+
+/**
+ * PUT /family-homes/{id}/roles (owner only). The body replaces both roles and
+ * `null` clears one, so callers always send the pair they want afterwards.
+ */
+export function setHomeRoles(
+  homeId: string,
+  body: { co_owner_member_id: string | null; successor_member_id: string | null },
+): Promise<HomeRoles> {
+  return kinloomApi.put('/family-homes/{familyHome}/roles', {
+    path: { familyHome: homeId },
+    body,
+  });
+}
+
+/** POST /family-homes/{id}/transfer (owner only): the owner becomes co-owner or member. */
+export function transferHomeOwnership(homeId: string, newOwnerMemberId: string): Promise<HomeRoles> {
+  return kinloomApi.post('/family-homes/{familyHome}/transfer', {
+    path: { familyHome: homeId },
+    body: { new_owner_member_id: newOwnerMemberId },
+  });
+}
+
+/** POST /family-homes/{id}/leave: lands you in a new solo Home you own. */
+export function leaveHomeForSolo(homeId: string): Promise<HomeLeaveResult> {
+  return kinloomApi.post('/family-homes/{familyHome}/leave', { path: { familyHome: homeId } });
+}
