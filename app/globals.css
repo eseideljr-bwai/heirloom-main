@@ -3101,6 +3101,27 @@ body.has-texture::before {
   font-size: 15px;
   line-height: 1.55;
 }
+/* Invitation: what accepting changes, and the "publish what I've written" picker */
+.invite-page--wide { max-width: 560px; }
+.invite-page__notes {
+  margin: 0 0 20px; padding: 0 0 0 18px;
+  text-align: left; font-size: 14px; line-height: 1.55; color: var(--fg-2);
+}
+.invite-page__notes li + li { margin-top: 6px; }
+.invite-page__quiet { margin: 16px 0 0; font-size: 13px; color: var(--fg-3); }
+.invite-picker {
+  margin: 0 0 20px; text-align: left;
+  border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px;
+}
+.invite-picker__title { margin: 0 0 4px; font-size: 14px; font-weight: 600; color: var(--fg-1); }
+.invite-picker__sub { margin: 0 0 10px; font-size: 13px; color: var(--fg-3); line-height: 1.5; }
+.invite-picker__rooms { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 10px; }
+.invite-picker__list {
+  max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+  padding-top: 10px; border-top: 1px solid var(--border);
+}
+.invite-picker__type { color: var(--fg-3); font-size: 12px; }
+
 .checkbox-row {
   display: flex; align-items: center; gap: 10px;
   font-size: 14px; color: var(--fg-2);
@@ -3444,6 +3465,33 @@ body.has-texture::before {
   padding: 8px 12px;
   border-radius: 6px;
 }
+.settings-layout__link:hover { background: var(--secondary); color: var(--fg-1); }
+.settings-layout__link.is-active { background: rgba(85,107,91,0.10); color: var(--fg-1); font-weight: 500; }
+
+/* Settings screens */
+.settings-card-text--flush { margin: 0; }
+.settings-card-text a, .modal-text a, .privacy-note a { color: var(--primary); }
+.field-hint { margin: 6px 0 0; font-size: 12px; color: var(--fg-3); line-height: 1.5; }
+.field-input--area { resize: vertical; min-height: 96px; line-height: 1.5; }
+.modal-list { margin: 0 0 14px; padding: 0 0 0 18px; font-size: 14px; line-height: 1.55; color: var(--fg-2); }
+.modal-list li + li { margin-top: 6px; }
+.card--flush { padding-left: 0; padding-right: 0; }
+.settings-h2--pad { padding: 0 24px; }
+.notif-row__desc--pad { padding: 0 24px; margin: 0 0 8px; }
+.notif-row--top-border { border-top: 1px solid var(--border); }
+.privacy-note--top { margin: 0 0 20px; }
+.legacy-for { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border); }
+.legacy-for__title { margin: 0 0 12px; font-size: 14px; font-weight: 600; color: var(--fg-1); }
+.legacy-for__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.legacy-for__row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 14px; color: var(--fg-2); }
+.export-choices { display: flex; flex-direction: column; gap: 4px; margin-bottom: 4px; }
+.export-choice { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 14px 0; }
+.export-choice + .export-choice { border-top: 1px solid var(--border); }
+.export-choice__body { flex: 1; min-width: 0; }
+.export-status p { margin: 0; line-height: 1.55; }
+.export-status p + p { margin-top: 10px; }
+.export-status__fine { font-size: 12px; color: var(--fg-3); }
+.export-status__download { display: inline-block; text-decoration: none; }
 
 /* ═══════════════════════════════════════════════════════════════
    MOBILE
@@ -5318,6 +5366,9 @@ body.has-texture::before {
   border-radius: var(--radius-full);
   background: var(--primary);
   color: var(--primary-foreground);
+  border: 0;
+  padding: 0;
+  cursor: pointer;
 }
 .home-voice__wave {
   flex: 1;
@@ -5454,6 +5505,22 @@ body.has-texture::before {
   filter: none;
 }
 .home-band__note { font-size: 12px; color: rgba(253, 252, 250, 0.72); margin: 14px 0 0; }
+
+/* Modules the API has nothing for are left out; the grid closes up. */
+.home-hero--solo { grid-template-columns: minmax(0, 1fr); }
+.home-triptych--2 { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+.home-triptych--1 { grid-template-columns: minmax(0, 1fr); }
+.home-hero__media--link { display: block; color: inherit; text-decoration: none; }
+.home-hero__img--text {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 2.6vw, 32px);
+  color: var(--fg-3);
+  text-align: center;
+}
 
 @media (max-width: 900px) {
   .home-hero,
@@ -7358,4 +7425,91 @@ body.has-texture::before {
   color: var(--fg-4);
   margin: clamp(14px, 1.8vw, 20px) 0 0;
   max-width: 64ch;
+}
+
+/* ─── Settings: narrow screens ─── */
+@media (max-width: 640px) {
+  .privacy-row { flex-direction: column; gap: 12px; }
+  .privacy-row__control { width: 100%; justify-content: space-between; }
+  .privacy-row__select { max-width: 100%; }
+  .export-choice { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .notif-row { padding: 16px; }
+  .notif-row__desc--pad, .settings-h2--pad { padding: 0 16px; }
+}
+
+/* Legacy Bank: plain-text answers, earlier pages, and the thread notices. */
+.lb-msg__plain { margin: 0 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.lb-msg__plain:last-child { margin-bottom: 0; }
+.lb-msg__redacted { margin: 0; font-style: italic; color: var(--fg-4); }
+.lb-chat__older { display: flex; justify-content: center; padding: 4px 0 16px; }
+.lb-chat__older-btn {
+  background: none;
+  border: 1px solid var(--muted);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.lb-chat__older-btn:hover:not(:disabled) { color: var(--primary); border-color: var(--primary); }
+.lb-chat__older-btn:disabled { opacity: 0.6; cursor: default; }
+.lb-chat__notice {
+  margin: 0;
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg-3);
+  background: var(--muted);
+  border-radius: 10px;
+}
+.lb-chat-try__lede--quiet { margin-top: 16px; font-size: 14px; }
+.lb-subject-card__avatar--space { background: var(--muted); color: var(--fg-3); }
+
+/* Portrait: memorialization notice, home line and About text. */
+.portrait-memorial {
+  margin: 0 0 20px;
+  padding: 14px 18px;
+  border: 1px solid var(--muted);
+  border-radius: 12px;
+  background: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.portrait-memorial__text { margin: 0; flex: 1 1 280px; font-size: 14px; line-height: 1.5; color: var(--fg-2); }
+.portrait-memorial__btn {
+  background: none;
+  border: 1px solid var(--fg-4);
+  border-radius: 999px;
+  padding: 7px 16px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.portrait-memorial__btn:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+.portrait-memorial__btn:disabled { opacity: 0.6; cursor: default; }
+.portrait-memorial__error { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--destructive, #a8402f); }
+.portrait__line--home { margin-top: 2px; opacity: 0.8; }
+.portrait__about { margin: 14px 0 0; max-width: 56ch; font-size: 15px; line-height: 1.6; color: var(--fg-2); white-space: pre-wrap; }
+.portrait__quote-src a { color: inherit; text-decoration: none; }
+.portrait__quote-src a:hover { text-decoration: underline; }
+.lb-section--after { margin-top: 44px; }
+
+/* Card thumbnails are <img>, so they lazy-load; the 640 px image is uncropped, so the frame crops it. */
+img.lib-card__img,
+img.feat-card__img,
+img.feat-preview__hero,
+img.feat-preview__thumb-img,
+img.portrait-kin__img { object-fit: cover; }
+.portrait-kin__img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: var(--muted);
+  filter: saturate(0.96) sepia(0.05);
 }

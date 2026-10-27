@@ -1,20 +1,18 @@
 import Link from 'next/link';
-import { getActiveSpace, requireActiveSpaceId } from '../../../lib/server/auth';
-import { getLibraryServer, getManageMembers } from '../../../lib/server/queries';
-import {
-  bodyParagraphs,
-  normalizeList,
-  type KinloomAuthor,
-  type KinloomMedia,
-  type LibraryRow,
-} from '../../../lib/kinloom';
+import { redirect } from 'next/navigation';
+import { ApiError } from '../../../lib/api';
+import { requireHome } from '../../../lib/server/auth';
+import { serverKinloomApi } from '../../../lib/server/kinloom-api';
+import { getFamilyHome } from '../../../lib/server/queries';
+import type { components } from '../../../lib/api-schema/typed';
 import { KINLOOM_TYPES } from '../../lib/kinloom-types';
-import { paginate, parsePageParam } from '../../../lib/pagination';
-import { matchesDateRange, parseDayParam } from '../../../lib/date-filter';
+import { parsePageParam } from '../../../lib/pagination';
+import { parseDayParam } from '../../../lib/date-filter';
 import Pagination from '../../components/Pagination';
 import LibraryFilters from './LibraryFilters';
-import { orNull } from '../../../lib/server/safe';
 import DataNotice from '../../components/DataNotice';
+
+type KinloomCard = components['schemas']['KinloomCard'];
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +21,7 @@ const LIBRARY_PAGE_SIZE = 12;
 
 const SPELLED = ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
 
-function Silhouette({ member, idKey }: { member: KinloomAuthor; idKey: string }) {
+function Silhouette({ member, idKey }: { member: { name: string; gender?: string; tone?: string }; idKey: string }) {
   const gender = member.gender || 'n';
   const tone = member.tone || '#a39376';
   return (
@@ -42,51 +40,32 @@ function Silhouette({ member, idKey }: { member: KinloomAuthor; idKey: string })
   );
 }
 
-function rowExcerpt(row: LibraryRow): string {
-  if (row.excerpt) return row.excerpt;
-  if (row.body_paragraphs) {
-    const first = bodyParagraphs(row.body_paragraphs)[0] ?? '';
-    return first.length > 180 ? `${first.slice(0, 180).trim()}...` : first;
-  }
-  return '';
-}
-
-function photoUrl(row: LibraryRow): string | null {
-  const photos = normalizeList<KinloomMedia>(row.photos);
-  return photos[0]?.url || row.photo?.url || null;
-}
-
-function year(row: LibraryRow): string {
-  if (!row.created_at) return '';
-  const d = new Date(row.created_at);
+function year(card: KinloomCard): string {
+  if (!card.created_at) return '';
+  const d = new Date(card.created_at);
   return Number.isNaN(d.getTime()) ? '' : String(d.getFullYear());
 }
 
-function LibraryCard({ row, homeName }: { row: LibraryRow; homeName: string }) {
-  const img = photoUrl(row);
-  const when = year(row);
+function LibraryCard({ card, homeId, homeName }: { card: KinloomCard; homeId: string; homeName: string }) {
+  const when = year(card);
+  const author = card.author;
   return (
-    <Link href={`/library/${row.ulid}`} className="lib-card">
-      {img && (
-        <span
-          className="lib-card__img"
-          role="img"
-          aria-label={row.title || 'Untitled'}
-          style={{ backgroundImage: `url(${img})` }}
-        />
+    // Opened through this Home's room, so its comments are this Home's.
+    <Link href={`/library/${card.id}?room=home:${homeId}`} className="lib-card">
+      {card.thumbnail_url && (
+        // Lazy and async: twelve cards should not hold up the first paint.
+        <img className="lib-card__img" src={card.thumbnail_url} alt="" loading="lazy" decoding="async" />
       )}
       <span className="lib-card__body">
         <span className="lib-card__home">{homeName}</span>
-        {row.type_label && <span className="lib-card__type">{row.type_label}</span>}
-        <span className="lib-card__title">{row.title || 'Untitled'}</span>
-        {row.author && (
-          <span className="lib-card__by">
-            <Silhouette member={row.author} idKey={`${row.ulid}-${row.author.member_id}`} />
-            <span className="lib-card__byname">
-              {row.author.name}{when && ` · ${when}`}
-            </span>
+        <span className="lib-card__type">{card.type.label}</span>
+        <span className="lib-card__title">{card.title || 'Untitled'}</span>
+        <span className="lib-card__by">
+          <Silhouette member={'id' in author ? author : { name: author.name }} idKey={`${card.id}-${author.name}`} />
+          <span className="lib-card__byname">
+            {author.name}{when && ` · ${when}`}
           </span>
-        )}
+        </span>
       </span>
     </Link>
   );
@@ -95,48 +74,65 @@ function LibraryCard({ row, homeName }: { row: LibraryRow; homeName: string }) {
 type Search = { type?: string; q?: string; page?: string; from?: string; to?: string };
 
 export default async function OurLibraryPage({ searchParams }: { searchParams?: Search }) {
-  const familySpaceId = await requireActiveSpaceId();
+  const { homeId, home } = await requireHome();
 
-  const [library, activeSpace, manage] = await Promise.all([
-    orNull(getLibraryServer(familySpaceId)),
-    getActiveSpace(),
-    getManageMembers(familySpaceId).catch(() => null),
-  ]);
-
-  const all = library?.kinlooms ?? [];
+  const homeName = home.name?.trim() || 'your Family Home';
 
   // Our Library is the joint view: everything every member of this Home has
   // published to it, not just your own. That is the whole difference between
-  // this page and My Vault — so there is deliberately no author filter here.
-  //
-  // Until the backend separates Homes from Family Spaces there is only one
-  // container, so "published to this Home" is simply the space library.
-  const homeName = activeSpace?.name?.trim() || 'your Family Home';
-  const memberCount = manage?.members.length ?? 0;
-
+  // this page and My Vault, so there is deliberately no author filter here.
+  // Filtering, search and paging are the API's: the page asks for exactly the
+  // 12 cards it shows.
   const type = searchParams?.type || '';
-  const q = (searchParams?.q || '').trim().toLowerCase();
+  const q = (searchParams?.q || '').trim();
   const from = parseDayParam(searchParams?.from);
   const to = parseDayParam(searchParams?.to);
+  const requestedPage = parsePageParam(searchParams?.page);
+  const typeSlug = KINLOOM_TYPES.find(t => t.label === type)?.slug;
 
-  const filtered = all.filter(r => {
-    const matchType = !type || type === 'All' || r.type_label === type;
-    const matchQ = !q
-      || (r.title || '').toLowerCase().includes(q)
-      || rowExcerpt(r).toLowerCase().includes(q)
-      || (r.author?.name || '').toLowerCase().includes(q);
-    return matchType && matchQ && matchesDateRange(r.created_at, from, to);
-  });
+  // Independent of the library request, so the two run together. The lead
+  // line only needs a head count; if it fails the page still renders.
+  const homeReq = getFamilyHome(homeId).catch(() => null);
 
-  const total = filtered.length;
-  const { items, page, totalPages } = paginate(
-    filtered,
-    parsePageParam(searchParams?.page),
-    LIBRARY_PAGE_SIZE,
-  );
+  let result;
+  try {
+    result = await serverKinloomApi.get('/family-homes/{familyHome}/library', {
+      path: { familyHome: homeId },
+      query: {
+        ...(type && type !== 'All' ? { 'types[]': [typeSlug ?? type] } : {}),
+        ...(q ? { q } : {}),
+        ...(from ? { from } : {}),
+        ...(to ? { to } : {}),
+        page: requestedPage,
+        per_page: LIBRARY_PAGE_SIZE,
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    result = null;
+  }
+
+  // Past the last page (a stale ?page= after a filter narrowed the list):
+  // land on the last one instead of an empty grid.
+  if (result && result.data.length === 0 && result.meta.total > 0 && requestedPage > result.meta.last_page) {
+    const sp = new URLSearchParams();
+    if (type) sp.set('type', type);
+    if (q) sp.set('q', q);
+    if (from) sp.set('from', from);
+    if (to) sp.set('to', to);
+    if (result.meta.last_page > 1) sp.set('page', String(result.meta.last_page));
+    redirect(`/library${sp.toString() ? `?${sp}` : ''}`);
+  }
+
+  const items = result?.data ?? [];
+  const total = result?.meta.total ?? 0;
+  const page = result?.meta.page ?? 1;
+  const totalPages = result?.meta.last_page ?? 1;
   const first = total === 0 ? 0 : (page - 1) * LIBRARY_PAGE_SIZE + 1;
   const last = Math.min(page * LIBRARY_PAGE_SIZE, total);
+  const filtering = Boolean(type || q || from || to);
 
+  const memberCount = (await homeReq)?.stats.members ?? 0;
   const people = memberCount > 1 && memberCount < 10 ? SPELLED[memberCount] : null;
 
   return (
@@ -150,7 +146,7 @@ export default async function OurLibraryPage({ searchParams }: { searchParams?: 
         Each one still lives in the vault of whoever wrote it.
       </p>
 
-      {library === null && <DataNotice what="the kinlooms published to this home" />}
+      {result === null && <DataNotice what="the kinlooms published to this home" />}
 
       <p className="lib-page__count">
         {total === 0
@@ -158,14 +154,14 @@ export default async function OurLibraryPage({ searchParams }: { searchParams?: 
           : `${first}–${last} of ${total} kinloom${total === 1 ? '' : 's'} published to your Family Home`}
       </p>
 
-      <LibraryFilters types={KINLOOM_TYPES.map(t => t.label)} type={type} q={q} from={from} to={to} />
+      <LibraryFilters types={KINLOOM_TYPES.map(t => t.label)} type={type} q={q.toLowerCase()} from={from} to={to} />
 
-      {all.length === 0 ? (
+      {items.length === 0 && !filtering ? (
         <div className="empty-card">
           <p className="empty-card__text">Nothing has been published to this home yet.</p>
           <Link href="/create?from=library" className="empty-card__cta">Write the first one →</Link>
         </div>
-      ) : total === 0 ? (
+      ) : items.length === 0 ? (
         <div className="empty-card">
           <p className="empty-card__text">Nothing matches that yet.</p>
         </div>
@@ -181,8 +177,8 @@ export default async function OurLibraryPage({ searchParams }: { searchParams?: 
           </p>
 
           <div className="lib-grid">
-            {items.map(row => (
-              <LibraryCard key={row.ulid} row={row} homeName={homeName} />
+            {items.map(card => (
+              <LibraryCard key={card.id} card={card} homeId={homeId} homeName={homeName} />
             ))}
           </div>
           <Pagination

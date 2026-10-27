@@ -1,86 +1,42 @@
 import Link from 'next/link';
-import { getActiveSpace, requireActiveSpaceId } from '../../../lib/server/auth';
-import {
-  getHome,
-  getManageMembers,
-  type FamilyMember,
-  type HomeRecentKinloom,
-} from '../../../lib/server/queries';
-import { formatKinloomDate } from '../../../lib/kinloom';
+import { requireHome } from '../../../lib/server/auth';
+import { getFamilyHome } from '../../../lib/server/queries';
+import { formatKinloomDate, isVideoMedia, type PersonOrNameOnly } from '../../../lib/kinloom';
+import type { components } from '../../../lib/api-schema/typed';
 import { orNull } from '../../../lib/server/safe';
 import DataNotice from '../../components/DataNotice';
+import HomeVoicePlayer from './HomeVoicePlayer';
 
 export const dynamic = 'force-dynamic';
 
+type KinloomCard = components['schemas']['KinloomCard'];
+
 /**
- * My Home — the Family Home's own page.
+ * My Home: the Family Home's own page.
  *
- * Several modules here have no backend behind them yet: there is no Home
- * entity, no featured content, no founding year, no motto, and drafts
- * carry no readable status. Those are rendered with the copy and imagery
- * from the Federated Containers design so the page can be reviewed whole,
- * and every one of them is collected in PLACEHOLDER below — when the
- * fields exist, that object is the only thing to delete.
- *
- * Wired to real data already: the home's name, its member list, the
- * kinloom count and "Lately in the family".
+ * Everything on it comes from `GET /family-homes/{id}`: the profile, the
+ * counts, who is in the home, where you left off and the featured block. The
+ * API picks the hero, quote, voice and "lately" cards (the owner's picks, else
+ * the automatic choice), so every member sees the same block. A module the API
+ * has nothing for is left out rather than faked.
  */
-const PLACEHOLDER = {
-  /** No motto/description field on a space today. */
-  moral: 'We lean into the hard things, and we keep walking the path we have been given — together.',
-  /** No founding date on a space today. */
-  since: '2011',
-  /** No "featured" concept: the design hand-picks a film for the hero. */
-  hero: {
-    image: '/design-placeholder/hero-july-fire.jpg',
-    caption: 'The July Fire',
-    sub: 'Filmed by Eli · Ocracoke, July 2022',
-    duration: '2:14',
-  },
-  /** `status` is write-only in the API, so drafts can't be listed. */
-  leftOff: {
-    title: 'The Year We Almost Lost the House',
-    meta: 'Reflection · draft, 340 words · not published yet',
-  },
-  moment: {
-    image: '/design-placeholder/moment-asa.jpg',
-    caption: 'Asa at four, the summer he learned to swim · published to your home',
-  },
-  /** No featured-quote field on a kinloom today. */
-  quote: {
-    eyebrow: 'In her own words',
-    text: 'Asa answers his grandmother in one language and me in another, and does not notice he is doing it.',
-    by: 'Maria',
-    meta: 'Born 1987 · 61 kinlooms in her vault',
-    link: 'From the kinloom “Two Languages at One Table” →',
-  },
-  /** No featured-audio concept; the player is presentational here. */
-  voice: {
-    title: 'Maria, for Asa',
-    meta: 'Maria · recorded 2019 · published to your Family Home',
-    duration: '4:12',
-  },
-  band: {
-    eyebrow: 'Add to your family’s story',
-    head: 'Yours would be the next.',
-    sub: 'Every one you add makes the portrait of this home a little more complete.',
-    strip: [
-      '/design-placeholder/strip-1.jpg',
-      '/design-placeholder/strip-2.jpg',
-      '/design-placeholder/strip-3.jpg',
-      '/design-placeholder/strip-4.jpg',
-    ],
-    note: '38 photographs, 4 recorded voices, 2 films in this home.',
-  },
-};
 
-/** Deterministic stand-in for a real waveform. */
-const WAVE = Array.from({ length: 30 }, (_, j) => ({
-  height: `${20 + Math.round(Math.abs(Math.sin((j + 5) * 1.7)) * 78)}%`,
-  played: j < 9,
-}));
+const nameOf = (p: PersonOrNameOnly) => p.name;
 
-function Silhouette({ member, idKey }: { member: FamilyMember; idKey: string }) {
+function plural(n: number, one: string, many: string) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+function clock(seconds: number | null | undefined): string | null {
+  if (!seconds || seconds <= 0) return null;
+  const s = Math.round(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+/** Open a card through the Home's room so comments land in this Home's thread. */
+const cardHref = (id: string, homeId: string) => `/library/${id}?room=home:${homeId}`;
+
+function Silhouette({ member, idKey }: { member: { name: string; gender?: string; tone?: string }; idKey: string }) {
   const gender = member.gender || 'n';
   const tone = member.tone || '#a39376';
   return (
@@ -99,14 +55,14 @@ function Silhouette({ member, idKey }: { member: FamilyMember; idKey: string }) 
   );
 }
 
-function LatelyCard({ k }: { k: HomeRecentKinloom }) {
+function LatelyCard({ k, homeId }: { k: KinloomCard; homeId: string }) {
   return (
-    <Link href={`/library/${k.ulid}`} className="home-lately__card">
-      <span className="home-lately__type">{k.type_label}</span>
+    <Link href={cardHref(k.id, homeId)} className="home-lately__card">
+      <span className="home-lately__type">{k.type.label}</span>
       <span className="home-lately__title">{k.title || 'Untitled'}</span>
       {k.excerpt && <span className="home-lately__excerpt">{k.excerpt}</span>}
       <span className="home-lately__by">
-        {k.author?.name}
+        {nameOf(k.author)}
         {k.created_at && <> · {formatKinloomDate(k.created_at)}</>}
       </span>
     </Link>
@@ -114,69 +70,113 @@ function LatelyCard({ k }: { k: HomeRecentKinloom }) {
 }
 
 export default async function HomePage() {
-  const familySpaceId = await requireActiveSpaceId();
+  const { homeId, home: homeRef } = await requireHome();
+  const home = await orNull(getFamilyHome(homeId));
 
-  const [data, manage, activeSpace] = await Promise.all([
-    orNull(getHome(familySpaceId)),
-    getManageMembers(familySpaceId).catch(() => null),
-    getActiveSpace(),
-  ]);
+  const homeName = home?.name?.trim() || homeRef.name || 'Your Family Home';
+  const people = home?.people ?? [];
+  const stats = home?.stats;
+  const featured = home?.featured;
+  const hero = featured?.hero ?? null;
+  const quote = featured?.quote ?? null;
+  const voice = featured?.voice ?? null;
+  const lately = featured?.lately ?? [];
+  const leftOff = home?.where_you_left_off ?? null;
+  const kinloomTotal = stats?.kinlooms_published_here ?? 0;
+  const established = stats?.established_year ?? home?.established_year ?? null;
 
-  const homeName = activeSpace?.name?.trim() || 'Your Family Home';
-  const people = manage?.members ?? [];
-  const kinloomTotal = data?.legacyBankProgress?.total_kinlooms ?? 0;
-  const lately = (data?.recentKinlooms ?? []).slice(0, 3);
+  const heroMedia = hero?.media ?? null;
+  const heroIsVideo = heroMedia ? isVideoMedia(heroMedia) : false;
+  const heroIsImage = heroMedia?.type === 'image';
+  const heroDuration = clock(heroMedia?.duration_seconds);
+
+  const counts = home?.media_counts;
+  const countParts = counts
+    ? [
+        counts.photos > 0 ? plural(counts.photos, 'photograph', 'photographs') : null,
+        counts.recorded_voices > 0 ? plural(counts.recorded_voices, 'recorded voice', 'recorded voices') : null,
+        counts.films > 0 ? plural(counts.films, 'film', 'films') : null,
+      ].filter((x): x is string => !!x)
+    : [];
+
+  const triptychCount = (quote ? 1 : 0) + (voice ? 1 : 0);
 
   return (
     <div className="home-page">
 
-      {data === null && (
+      {home === null && (
         <section className="home-section">
-          <DataNotice what="this home’s recent activity" />
+          <DataNotice what="this home’s details" />
         </section>
       )}
 
       {/* ── Hero ─────────────────────────────────────────────────── */}
-      <section className="home-hero">
+      <section className={`home-hero${hero ? '' : ' home-hero--solo'}`}>
         <div>
           <p className="eyebrow">Your Family Home</p>
           <h1 className="home-hero__title">{homeName}</h1>
-          <p className="home-hero__moral no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ motto · string | null\nHome id: GET /me → home.id. Omit the line entirely when null."}>{PLACEHOLDER.moral}</p>
+          {home?.motto && <p className="home-hero__moral">{home.motto}</p>}
 
-          <div className="home-stats">
-            <div className="home-stat">
-              <p className="home-stat__v">{people.length || '—'}</p>
-              <p className="home-stat__l">in your home</p>
+          {home && (
+            <div className="home-stats">
+              <div className="home-stat">
+                <p className="home-stat__v">{stats?.members ?? people.length}</p>
+                <p className="home-stat__l">in your home</p>
+              </div>
+              <div className="home-stat">
+                <p className="home-stat__v">{kinloomTotal}</p>
+                <p className="home-stat__l">kinlooms here</p>
+              </div>
+              {established && (
+                <div className="home-stat">
+                  <p className="home-stat__v">{established}</p>
+                  <p className="home-stat__l">since</p>
+                </div>
+              )}
             </div>
-            <div className="home-stat">
-              <p className="home-stat__v">{kinloomTotal}</p>
-              <p className="home-stat__l">kinlooms here</p>
-            </div>
-            <div className="home-stat no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ established_year · integer | null  (also stats.established_year)\nDrop the whole stat when null rather than rendering a dash."}>
-              <p className="home-stat__v">{PLACEHOLDER.since}</p>
-              <p className="home-stat__l">since</p>
-            </div>
-          </div>
+          )}
         </div>
 
-        <div className="home-hero__media no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ featured.hero · HomeFeaturedMediaCard | null\nImage/film: hero.media.url (signed — watch media.expires_at). Duration: media.duration_seconds. Caption: title. Byline: author."}>
-          <div
-            role="img"
-            aria-label={PLACEHOLDER.hero.caption}
-            className="home-hero__img"
-            style={{ backgroundImage: `url(${PLACEHOLDER.hero.image})` }}
-          />
-          <div className="home-hero__overlay">
-            <div className="home-hero__play">
-              <span className="home-hero__play-btn" aria-hidden="true">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3" /></svg>
-              </span>
-              <span className="home-hero__dur">{PLACEHOLDER.hero.duration}</span>
+        {hero && (
+          <Link href={cardHref(hero.id, homeId)} className="home-hero__media home-hero__media--link">
+            {heroIsVideo && heroMedia ? (
+              // The first frame stands in for a poster; nothing plays until the kinloom opens.
+              <video
+                className="home-hero__img"
+                src={`${heroMedia.url}#t=0.1`}
+                muted
+                playsInline
+                preload="metadata"
+                aria-label={hero.title}
+                style={{ objectFit: 'cover' }}
+              />
+            ) : heroIsImage && heroMedia ? (
+              <div
+                role="img"
+                aria-label={hero.title}
+                className="home-hero__img"
+                style={{ backgroundImage: `url(${heroMedia.url})` }}
+              />
+            ) : (
+              <div className="home-hero__img home-hero__img--text">{hero.title}</div>
+            )}
+            <div className="home-hero__overlay">
+              {heroIsVideo && (
+                <div className="home-hero__play">
+                  <span className="home-hero__play-btn" aria-hidden="true">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3" /></svg>
+                  </span>
+                  {heroDuration && <span className="home-hero__dur">{heroDuration}</span>}
+                </div>
+              )}
+              <p className="home-hero__cap">{hero.title}</p>
+              <p className="home-hero__sub">
+                {nameOf(hero.author)}
+                {hero.occurred_label ? ` · ${hero.occurred_label}` : ''}
+              </p>
             </div>
-            <p className="home-hero__cap">{PLACEHOLDER.hero.caption}</p>
-            <p className="home-hero__sub">{PLACEHOLDER.hero.sub}</p>
-          </div>
-        </div>
+          </Link>
+        )}
       </section>
 
       {/* ── Your people ──────────────────────────────────────────── */}
@@ -187,67 +187,66 @@ export default async function HomePage() {
         </div>
         <div className="home-people kmScroll">
           {people.map(m => (
-            <Link key={m.member_id} href={`/family/${m.member_id}`} className="home-person">
-              <Silhouette member={m} idKey={m.member_id} />
+            <Link key={m.id} href={`/family/${m.id}`} className="home-person">
+              <Silhouette member={m} idKey={m.id} />
               <span className="home-person__name">{m.name}</span>
-              <span className="home-person__sub">
-                {m.is_me ? 'You' : m.kin_term || m.role_label || 'Member'}
-              </span>
+              <span className="home-person__sub">{m.label || 'Member'}</span>
             </Link>
           ))}
         </div>
       </section>
 
       {/* ── Where you left off ───────────────────────────────────── */}
-      <section className="home-section">
-        <div className="home-leftoff no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ where_you_left_off · KinloomCard | null\nResume at /kinlooms/{id}. Hide the whole bar when null. No word count in the payload."}>
-          <p className="home-section__label">Where you left off</p>
-          <p className="home-leftoff__title">{PLACEHOLDER.leftOff.title}</p>
-          <p className="home-leftoff__meta">{PLACEHOLDER.leftOff.meta}</p>
-          <Link href="/vault" className="home-section__link">Continue →</Link>
-        </div>
-      </section>
-
-      {/* ── A moment, a belief, a voice ──────────────────────────── */}
-      <section className="home-section home-triptych">
-        <div
-          role="img"
-          aria-label={PLACEHOLDER.moment.caption}
-          className="home-moment no-api" data-api-scope="out" data-api-note={"No field for this.\nfeatured carries hero, quote, voice and lately only — there is no dedicated “moment” slot.\nEither source it from featured.lately (first card with has_photo) or cut the module. A product decision, not a wiring one."}
-          style={{ backgroundImage: `url(${PLACEHOLDER.moment.image})` }}
-        />
-
-        <blockquote className="home-quote no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ featured.quote · KinloomQuoteCard | null\nText: quote.featured_quote. Attribution: quote.author. Source link: /kinlooms/{quote.id}."}>
-          <p className="home-section__label">{PLACEHOLDER.quote.eyebrow}</p>
-          <p className="home-quote__text">“{PLACEHOLDER.quote.text}”</p>
-          <footer className="home-quote__foot">
-            <span className="home-quote__by">{PLACEHOLDER.quote.by}</span>
-            <span className="home-quote__meta">{PLACEHOLDER.quote.meta}</span>
-          </footer>
-          <Link href="/library" className="home-section__link">{PLACEHOLDER.quote.link}</Link>
-        </blockquote>
-
-        <div className="home-voice no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ featured.voice · HomeFeaturedMediaCard | null\nAudio: voice.media.url. Length: media.duration_seconds. The waveform stays decorative — the payload carries no samples."}>
-          <p className="home-section__label">A voice in the family</p>
-          <p className="home-voice__title">{PLACEHOLDER.voice.title}</p>
-          <p className="home-voice__meta">{PLACEHOLDER.voice.meta}</p>
-          <div className="home-voice__player">
-            <span className="home-voice__play" aria-hidden="true">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3" /></svg>
-            </span>
-            <span className="home-voice__wave" aria-hidden="true">
-              {WAVE.map((w, i) => (
-                <span
-                  key={i}
-                  className={`home-voice__bar${w.played ? ' is-played' : ''}`}
-                  style={{ height: w.height }}
-                />
-              ))}
-            </span>
-            <span className="home-voice__dur">{PLACEHOLDER.voice.duration}</span>
+      {leftOff && (
+        <section className="home-section">
+          <div className="home-leftoff">
+            <p className="home-section__label">Where you left off</p>
+            <p className="home-leftoff__title">{leftOff.title || 'Untitled'}</p>
+            <p className="home-leftoff__meta">{leftOff.type.label} · draft · not published yet</p>
+            <Link href={`/library/${leftOff.id}`} className="home-section__link">Continue →</Link>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
+
+      {/* ── A belief, a voice ────────────────────────────────────── */}
+      {triptychCount > 0 && (
+        <section className={`home-section home-triptych${triptychCount === 2 ? ' home-triptych--2' : ' home-triptych--1'}`}>
+          {quote && (
+            <blockquote className="home-quote">
+              <p className="home-section__label">In their own words</p>
+              <p className="home-quote__text">“{quote.featured_quote}”</p>
+              <footer className="home-quote__foot">
+                <span className="home-quote__by">{nameOf(quote.author)}</span>
+                {'id' in quote.author && (quote.author.label || quote.author.birth_year) && (
+                  <span className="home-quote__meta">
+                    {[quote.author.label, quote.author.birth_year ? `Born ${quote.author.birth_year}` : null]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </span>
+                )}
+              </footer>
+              <Link href={cardHref(quote.id, homeId)} className="home-section__link">
+                From the kinloom “{quote.title}” →
+              </Link>
+            </blockquote>
+          )}
+
+          {voice?.media && (
+            <div className="home-voice">
+              <p className="home-section__label">A voice in the family</p>
+              <p className="home-voice__title">{voice.title}</p>
+              <p className="home-voice__meta">
+                {nameOf(voice.author)} · {formatKinloomDate(voice.created_at)} · published to your Family Home
+              </p>
+              <HomeVoicePlayer
+                src={voice.media.url}
+                durationSeconds={voice.media.duration_seconds}
+                label={voice.title}
+              />
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── Lately in the family ─────────────────────────────────── */}
       {lately.length > 0 && (
@@ -257,7 +256,7 @@ export default async function HomePage() {
             <Link href="/library" className="home-section__link">The whole library →</Link>
           </div>
           <div className="home-lately">
-            {lately.map(k => <LatelyCard key={k.ulid} k={k} />)}
+            {lately.map(k => <LatelyCard key={k.id} k={k} homeId={homeId} />)}
           </div>
         </section>
       )}
@@ -266,21 +265,20 @@ export default async function HomePage() {
       <section className="home-band">
         <div className="home-band__inner">
         <div>
-          <p className="home-band__eyebrow">{PLACEHOLDER.band.eyebrow}</p>
+          <p className="home-band__eyebrow">Add to your family’s story</p>
           <h2 className="home-band__head">
-            {kinloomTotal > 0 ? `${kinloomTotal} kinlooms. ` : ''}{PLACEHOLDER.band.head}
+            {kinloomTotal > 0 ? `${plural(kinloomTotal, 'kinloom', 'kinlooms')}. ` : ''}Yours would be the next.
           </h2>
-          <p className="home-band__sub">{PLACEHOLDER.band.sub}</p>
+          <p className="home-band__sub">Every one you add makes the portrait of this home a little more complete.</p>
           <Link href="/create?from=home" className="home-band__cta">Create a kinloom</Link>
         </div>
         <div>
-          <div className="home-band__strip no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ featured.lately · array<KinloomCard>\nCaution: KinloomCard has has_photo but no media url. Resolve each tile via GET /media/{id}/url, or render the cards without images."}>
-            {PLACEHOLDER.band.strip.map(src => (
-              <span key={src} className="home-band__tile" style={{ backgroundImage: `url(${src})` }} />
-            ))}
+          <div className="home-band__strip">
             <Link href="/create?from=home" className="home-band__tile home-band__tile--add" aria-label="Create a kinloom">+</Link>
           </div>
-          <p className="home-band__note no-api" data-api-scope="in" data-api-note={"GET /family-homes/{homeId}\n→ media_counts · photos, recorded_voices, films\nOmit any category that is zero."}>{PLACEHOLDER.band.note}</p>
+          {countParts.length > 0 && (
+            <p className="home-band__note">{countParts.join(', ')} in this home.</p>
+          )}
         </div>
         </div>
       </section>

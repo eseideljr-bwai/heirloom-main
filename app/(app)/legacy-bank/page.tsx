@@ -1,6 +1,7 @@
 import Link from 'next/link';
-import { requireActiveSpaceId } from '../../../lib/server/auth';
-import { getLegacyBank } from '../../../lib/server/queries';
+import { requireHome } from '../../../lib/server/auth';
+import { serverKinloomApi } from '../../../lib/server/kinloom-api';
+import { orNull } from '../../../lib/server/safe';
 import ConversationRow from './ConversationRow';
 
 export const dynamic = 'force-dynamic';
@@ -51,18 +52,15 @@ const DEPOSIT_PROMPTS = [
 ];
 
 export default async function LegacyBankPage() {
-  const familySpaceId = await requireActiveSpaceId();
+  await requireHome();
 
-  const { progress, conversations, subjects } = await getLegacyBank(familySpaceId);
-  const recentConversations = conversations.filter(c => c.last_message_at);
-  const subjectsById = Object.fromEntries(
-    subjects.map(s => [s.member_id, { tone: s.tone, initials: s.initials }]),
-  );
-  const total = progress.total_kinlooms;
-  const target = progress.target || 50;
-  const pct = progress.percent != null
-    ? Math.max(0, Math.min(100, Math.round(progress.percent)))
-    : Math.min(100, Math.round((total / target) * 100));
+  // Two independent reads, one wait. Your own count is the first person listed.
+  const [subjects, recent] = await Promise.all([
+    orNull(serverKinloomApi.get('/legacy-bank')),
+    orNull(serverKinloomApi.get('/legacy-bank/conversations', { query: { per_page: 5 } })),
+  ]);
+  const total = subjects?.people.find(p => p.is_you)?.kinlooms ?? 0;
+  const recentConversations = (recent?.data ?? []).filter(c => c.last_message_at);
 
   return (
     <div className="lb-page">
@@ -76,8 +74,7 @@ export default async function LegacyBankPage() {
       </p>
 
       <div className="lb-progress">
-        {/* <div className="lb-progress__track"><div className="lb-progress__bar" style={{ width: `${pct}%` }} /></div> */}
-        <p className="lb-progress__count"><strong>{total}</strong>{' kinlooms gathered'}</p>
+        <p className="lb-progress__count"><strong>{total}</strong>{total === 1 ? ' kinloom gathered' : ' kinlooms gathered'}</p>
       </div>
 
       {/* <div className="lb-hero">
@@ -98,10 +95,9 @@ export default async function LegacyBankPage() {
           <div className="lb-history-list">
             {recentConversations.map(c => (
               <ConversationRow
-                key={c.ulid}
+                key={c.id}
                 conversation={c}
-                href={`/legacy-bank/history/${c.ulid}`}
-                subjectsById={subjectsById}
+                href={`/legacy-bank/history/${c.id}`}
               />
             ))}
           </div>

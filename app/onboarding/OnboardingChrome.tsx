@@ -8,7 +8,6 @@ import Link from 'next/link';
 const STEPS = [
   { label: 'Welcome',       href: '/onboarding' },
   { label: 'Your Profile',  href: '/onboarding/profile' },
-  { label: 'First Kinloom', href: '/onboarding/first-kinloom' },
 ];
 
 export default function OnboardingChrome({ children }: { children: React.ReactNode }) {

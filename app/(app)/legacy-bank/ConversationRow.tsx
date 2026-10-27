@@ -1,25 +1,19 @@
 import Link from 'next/link';
-import type { LegacyBankConversation } from '../../../lib/server/queries';
 import { formatRelativeTime } from '../../../lib/kinloom';
+import {
+  conversationTitle,
+  subjectOf,
+  type LegacyBankConversation,
+} from '../../../lib/legacy-bank';
+
+export { conversationTitle };
 
 export type ConversationRowProps = {
   conversation: LegacyBankConversation;
   href: string;
-  /** Tone/initials for the subject, when known (from available_subjects). */
-  subjectsById?: Record<string, { tone?: string | null; initials?: string | null }>;
-  /** Full history includes message_count; the recent block does not. */
+  /** Full history shows the message count; the recent block does not. */
   showMessageCount?: boolean;
 };
-
-function initialsFromName(name: string | null): string {
-  if (!name) return '?';
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map(p => p.charAt(0).toUpperCase())
-    .join('');
-}
 
 function NeutralGlyph() {
   return (
@@ -32,44 +26,34 @@ function NeutralGlyph() {
   );
 }
 
-export function conversationTitle(c: LegacyBankConversation): string {
-  if (c.title) return c.title;
-  if (c.subject_member_id) return `Reflections on ${c.subject_name}`;
-  return 'Across the family';
-}
-
-export default function ConversationRow({ conversation: c, href, subjectsById, showMessageCount }: ConversationRowProps) {
-  const subject = c.subject_member_id ? subjectsById?.[c.subject_member_id] : undefined;
+export default function ConversationRow({ conversation: c, href, showMessageCount }: ConversationRowProps) {
+  const subject = subjectOf(c);
   const title = conversationTitle(c);
 
-  const metaParts = [c.subject_name || 'No single subject'];
-  if (c.last_message_at) {
-    metaParts.push(formatRelativeTime(c.last_message_at));
-  } else {
-    metaParts.push('not started yet');
+  const meta = [subject.isSpace ? `${subject.name} · Family Space` : subject.isYou ? 'Your own record' : subject.name];
+  if (showMessageCount) {
+    meta.push(`${c.message_count} message${c.message_count === 1 ? '' : 's'}`);
   }
-  if (showMessageCount && typeof c.message_count === 'number') {
-    metaParts.splice(1, 0, `${c.message_count} message${c.message_count === 1 ? '' : 's'}`);
-  }
+  meta.push(c.last_message_at ? formatRelativeTime(c.last_message_at) : 'not started yet');
 
   return (
     <Link href={href} className="lb-history-row">
-      {c.subject_member_id ? (
+      {subject.initials ? (
         <span
           className="lb-history-row__avatar"
-          style={{ background: (subject?.tone || '#a39376') + '28', color: subject?.tone || '#556b5b' }}
+          style={{ background: `${subject.tone || '#a39376'}28`, color: subject.tone || '#556b5b' }}
         >
-          {subject?.initials || initialsFromName(c.subject_name)}
+          {subject.initials}
         </span>
       ) : (
         <NeutralGlyph />
       )}
       <span className="lb-history-row__body">
         <span className="lb-history-row__title">{title}</span>
-        <span className="lb-history-row__meta">{metaParts.join(' · ')}</span>
+        <span className="lb-history-row__meta">{meta.join(' · ')}</span>
       </span>
       <span className="lb-history-row__cta">
-        Continue
+        {c.can_ask ? 'Continue' : 'Read'}
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8 L13 8 M9 4 L13 8 L9 12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </span>
     </Link>

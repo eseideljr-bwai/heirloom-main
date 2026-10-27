@@ -1,19 +1,27 @@
 import Link from 'next/link';
-import { requireActiveSpaceId } from '../../../../lib/server/auth';
-import { getLegacyBank } from '../../../../lib/server/queries';
+import { requireHome } from '../../../../lib/server/auth';
+import { serverKinloomApi } from '../../../../lib/server/kinloom-api';
+import { orNull } from '../../../../lib/server/safe';
+import ConversationRow from '../ConversationRow';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * "Try a conversation" entry point. Per-member chat lives at
- * /legacy-bank/[memberId] — pick a subject here, then dive in. The
- * free-form whole-corpus mode is intentionally not part of Epic 3
- * (it was a mock-only prototype).
+ * "Try a conversation": choose whose bank to ask, or a Family Space's. The
+ * list is the API's: you first, then the people whose bank is on and who have
+ * at least one kinloom you can read, then each Space your Home is in.
  */
 export default async function LegacyBankTryPage() {
-  const familySpaceId = await requireActiveSpaceId();
+  await requireHome();
 
-  const { subjects, conversations } = await getLegacyBank(familySpaceId);
+  const [subjects, recent] = await Promise.all([
+    orNull(serverKinloomApi.get('/legacy-bank')),
+    orNull(serverKinloomApi.get('/legacy-bank/conversations', { query: { per_page: 5 } })),
+  ]);
+  const people = subjects?.people ?? [];
+  const spaces = subjects?.spaces ?? [];
+  const conversations = (recent?.data ?? []).filter(c => c.last_message_at);
+  const others = people.filter(p => !p.is_you);
 
   return (
     <div className="lb-chat-try">
@@ -27,50 +35,72 @@ export default async function LegacyBankTryPage() {
       <p className="eyebrow lb-chat-try__eyebrow">Try a conversation</p>
       <h1 className="lb-chat-try__title">Whose legacy would you like to ask?</h1>
       <p className="lb-chat-try__lede">
-        Conversations are grounded only in what each person chose to keep.
-      </p>
-      <p className="lb-chat-try__lede">
-        Pick a family member to begin.
+        Every answer comes only from what a person chose to keep, and that you can already read.
       </p>
 
-      {subjects.length === 0 ? (
+      {people.length === 0 && spaces.length === 0 ? (
         <div className="empty-card">
-          <p className="empty-card__text">No one has deposited kinlooms yet.</p>
-          <p className="empty-card__sub">Add a few stories, letters, or voice memories first.</p>
+          <p className="empty-card__text">There’s no one to ask yet.</p>
+          <p className="empty-card__sub">Add a few stories, letters or voice memories first.</p>
           <Link href="/create" className="btn-primary btn-primary--lg">Create a kinloom</Link>
         </div>
       ) : (
-        <div className="lb-subject-grid">
-          {subjects.map(s => (
-            <Link key={s.member_id} href={`/legacy-bank/${s.member_id}`} className="lb-subject-card">
-              <span className="lb-subject-card__avatar" style={{ background: (s.tone || '#a39376') + '28', color: s.tone || '#556b5b' }}>
-                {s.initials || s.name?.charAt(0) || '?'}
-              </span>
-              <div>
-                <p className="lb-subject-card__name">{s.name}</p>
-                <p className="lb-subject-card__role">
-                  {s.role_label || s.kin_term || ''}
-                  {s.deceased ? ' · Passed' : ''}
-                </p>
+        <>
+          <div className="lb-subject-grid">
+            {people.map(p => (
+              <Link key={p.id} href={`/legacy-bank/${p.id}`} className="lb-subject-card">
+                <span className="lb-subject-card__avatar" style={{ background: `${p.tone || '#a39376'}28`, color: p.tone || '#556b5b' }}>
+                  {p.initials || p.name.charAt(0)}
+                </span>
+                <div>
+                  <p className="lb-subject-card__name">{p.is_you ? 'You' : p.name}</p>
+                  <p className="lb-subject-card__role">
+                    {p.is_you ? 'Your own record' : p.label || ''}
+                    {p.deceased ? ' · Passed' : ''}
+                    {` · ${p.kinlooms} kinloom${p.kinlooms === 1 ? '' : 's'}`}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {others.length === 0 && (
+            <p className="lb-chat-try__lede lb-chat-try__lede--quiet">
+              Others appear here once they’ve published something you can read.
+            </p>
+          )}
+
+          {spaces.length > 0 && (
+            <div className="lb-chat-try__section">
+              <p className="eyebrow">Across a Family Space</p>
+              <div className="lb-subject-grid">
+                {spaces.map(sp => (
+                  <Link key={sp.id} href={`/spaces/legacy-bank?space=${encodeURIComponent(sp.id)}`} className="lb-subject-card">
+                    <span className="lb-subject-card__avatar lb-subject-card__avatar--space" aria-hidden="true">
+                      {sp.name.charAt(0).toUpperCase()}
+                    </span>
+                    <div>
+                      <p className="lb-subject-card__name">{sp.name}</p>
+                      <p className="lb-subject-card__role">
+                        {sp.kinlooms} kinloom{sp.kinlooms === 1 ? '' : 's'} published here
+                      </p>
+                    </div>
+                  </Link>
+                ))}
               </div>
-            </Link>
-          ))}
-        </div>
+            </div>
+          )}
+        </>
       )}
 
       {conversations.length > 0 && (
         <div className="lb-chat-try__section">
           <p className="eyebrow">Continue where you left off</p>
-          <ul className="lb-convo-list">
+          <div className="lb-history-list">
             {conversations.map(c => (
-              <li key={c.ulid}>
-                <Link href={`/legacy-bank/history/${c.ulid}`} className="lb-convo-row">
-                  <span className="lb-convo-row__subject">{c.subject_name}</span>
-                  {c.last_message_at && <span className="lb-convo-row__when">{c.last_message_at}</span>}
-                </Link>
-              </li>
+              <ConversationRow key={c.id} conversation={c} href={`/legacy-bank/history/${c.id}`} />
             ))}
-          </ul>
+          </div>
         </div>
       )}
     </div>

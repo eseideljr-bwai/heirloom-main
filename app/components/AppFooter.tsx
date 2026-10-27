@@ -35,15 +35,13 @@ export default function AppFooter({
   homeMemberCount?: number | null;
 }) {
   const pathname = usePathname();
-  const { activeSpace } = useActiveFamilySpace();
+  const { home, activeFamilySpace } = useActiveFamilySpace();
 
   const inSpaces = pathname === '/spaces' || pathname.startsWith('/spaces/');
-  const name = activeSpace?.name?.trim() || null;
+  // Names whichever container the page is about: the Space inside /spaces,
+  // the person's Home everywhere else.
+  const name = (inSpaces ? activeFamilySpace?.name : home?.name)?.trim() || null;
 
-  // The app still has a single container. The backend scope converts it
-  // into the Family Home — "today's space, membership and invitation
-  // features become the Family Home" — so it is the right source for
-  // both scopes until Homes and Family Spaces become separate records.
   const parts = inSpaces
     ? [name, 'a Family Space', 'extended family']
     : [

@@ -3,7 +3,9 @@ import { Inter, Crimson_Pro } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '../lib/auth-context';
 import { ActiveFamilySpaceProvider } from '../lib/active-family-space';
+import { EmbedProvider } from '../lib/embed-context';
 import { getInitialAuthState } from '../lib/server/auth';
+import { isEmbeddedRequest } from '../lib/server/embed';
 
 // We read cookies during render to hydrate auth state — the root
 // layout must be dynamic.
@@ -36,21 +38,24 @@ export const viewport: Viewport = {
 };
 
 /**
- * Server component. Resolves the current user + active space from
+ * Server component. Resolves the current user (account, Home, Spaces) and the active Family Space from
  * cookies during render so providers boot with the right state — no
  * client-side /me round-trip needed on first paint (Epic 3).
  */
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const { user, activeSpaceId } = await getInitialAuthState();
+  const { user, activeFamilySpaceId } = await getInitialAuthState();
+  const embedded = isEmbeddedRequest();
 
   return (
     <html lang="en" className={`${inter.variable} ${crimsonPro.variable}`}>
       <body>
-        <AuthProvider initialUser={user}>
-          <ActiveFamilySpaceProvider initialActiveSpaceId={activeSpaceId}>
-            {children}
-          </ActiveFamilySpaceProvider>
-        </AuthProvider>
+        <EmbedProvider embedded={embedded}>
+          <AuthProvider initialUser={user}>
+            <ActiveFamilySpaceProvider initialActiveFamilySpaceId={activeFamilySpaceId}>
+              {children}
+            </ActiveFamilySpaceProvider>
+          </AuthProvider>
+        </EmbedProvider>
       </body>
     </html>
   );

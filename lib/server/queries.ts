@@ -13,10 +13,17 @@
 import 'server-only';
 import { cache } from 'react';
 import { serverApiFetch } from './api';
-import { normalizeList, type Kinloom, type KinloomAuthor, type LibraryRow, type LibraryResponse } from '../kinloom';
-import type { MeSettings } from '../auth';
+import { serverKinloomApi } from './kinloom-api';
+import { normalizeList, type KinloomAuthor, type LibraryRow, type LibraryResponse } from '../kinloom';
 
-// ─── Home ────────────────────────────────────────────────────────────
+// ─── Family Home (Phase 3) ───────────────────────────────────────────
+
+/** GET /family-homes/{id}: profile, people, stats, featured, where you left off. */
+export const getFamilyHome = cache(async (homeId: string) =>
+  serverKinloomApi.get('/family-homes/{familyHome}', { path: { familyHome: homeId } }),
+);
+
+// ─── Home (old API, until Portrait and Legacy Bank move) ─────────────
 
 export type HomeUserSummary = {
   ulid: string;
@@ -124,17 +131,6 @@ export const getLibraryServer = cache(async (familySpaceId: string): Promise<{
     kinlooms: normalizeList<LibraryRow>(res.kinlooms),
     nextCursor: res.next_cursor ?? null,
   };
-});
-
-// ─── Kinloom detail ──────────────────────────────────────────────────
-
-export const getKinloomServer = cache(async (
-  familySpaceId: string,
-  kinloomId: string,
-): Promise<Kinloom> => {
-  return serverApiFetch<Kinloom>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}`,
-  );
 });
 
 // ─── Family ──────────────────────────────────────────────────────────
@@ -295,103 +291,3 @@ export const getManageMembers = cache(async (familySpaceId: string): Promise<{
   };
 });
 
-// ─── Legacy Bank ─────────────────────────────────────────────────────
-
-export type LegacyBankProgress = {
-  total_kinlooms: number;
-  target: number;
-  percent: number | null;
-};
-
-export type LegacyBankConversation = {
-  ulid: string;
-  mode: 'living' | 'sealed';
-  subject_member_id: string | null;
-  subject_name: string | null;
-  title: string | null;
-  last_message_at?: string | null;
-  message_count?: number;
-};
-
-export type LegacyBankSubject = FamilyMember & {
-  can_ask?: boolean;
-};
-
-export type LegacyBankResponse = {
-  progress: LegacyBankProgress;
-  recent_conversations: LegacyBankConversation[] | string;
-  available_subjects: LegacyBankSubject[] | string;
-};
-
-export type LegacyBankSource = {
-  id: string;
-  title: string;
-  type: string;
-};
-
-export type LegacyBankMessage = {
-  ulid: string;
-  role: 'user' | 'assistant';
-  body: string;
-  sources: LegacyBankSource[] | string[];
-  created_at: string;
-};
-
-export type LegacyBankConversationResponse = {
-  conversations: LegacyBankConversation[] | string;
-};
-
-export type LegacyBankConversationDetailResponse = {
-  conversation: LegacyBankConversation;
-  messages: LegacyBankMessage[] | string;
-};
-
-// ─── Me settings ─────────────────────────────────────────────────────
-
-export const getMeSettings = cache(async (
-  familySpaceId?: string | null,
-): Promise<MeSettings> => {
-  const qs = familySpaceId ? `?family_space_id=${encodeURIComponent(familySpaceId)}` : '';
-  return serverApiFetch<MeSettings>(`/me/settings${qs}`);
-});
-
-export const getLegacyBank = cache(async (familySpaceId: string): Promise<{
-  progress: LegacyBankProgress;
-  conversations: LegacyBankConversation[];
-  subjects: LegacyBankSubject[];
-}> => {
-  const res = await serverApiFetch<LegacyBankResponse>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/legacy-bank`,
-  );
-  return {
-    progress: res.progress,
-    conversations: normalizeList<LegacyBankConversation>(res.recent_conversations),
-    subjects: normalizeList<LegacyBankSubject>(res.available_subjects),
-  };
-});
-
-/** GET /family-spaces/{familySpace}/legacy-bank/conversations — the user's full history. */
-export const getLegacyBankConversations = cache(async (
-  familySpaceId: string,
-): Promise<LegacyBankConversation[]> => {
-  // TODO: cursor pagination — this returns everything unpaginated today,
-  // fine at present volume, revisit past ~50 conversations in a space.
-  const res = await serverApiFetch<LegacyBankConversationResponse>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/legacy-bank/conversations`,
-  );
-  return normalizeList<LegacyBankConversation>(res.conversations);
-});
-
-/** GET /family-spaces/{familySpace}/legacy-bank/conversations/{conversation} */
-export const getLegacyBankConversation = cache(async (
-  familySpaceId: string,
-  conversationId: string,
-): Promise<{ conversation: LegacyBankConversation; messages: LegacyBankMessage[] }> => {
-  const res = await serverApiFetch<LegacyBankConversationDetailResponse>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/legacy-bank/conversations/${encodeURIComponent(conversationId)}`,
-  );
-  return {
-    conversation: res.conversation,
-    messages: normalizeList<LegacyBankMessage>(res.messages),
-  };
-});

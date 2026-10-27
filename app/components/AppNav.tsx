@@ -95,7 +95,8 @@ const ACTIVE_CONTAINER_HAS_LINEAGE = true;
 
 /** Row 2 only. Lists Family Spaces; never Homes. */
 function FamilySpaceSwitcher() {
-  const { spaces, activeSpace, activeSpaceId, setActiveSpaceId } = useActiveFamilySpace();
+  const { familySpaces: spaces, activeFamilySpace: activeSpace, setActiveFamilySpaceId } = useActiveFamilySpace();
+  const activeSpaceId = activeSpace?.id ?? null;
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -136,21 +137,21 @@ function FamilySpaceSwitcher() {
       {open && !single && (
         <ul className="space-switcher__menu" role="listbox">
           {spaces.map(s => {
-            const isActive = s.ulid === activeSpaceId;
+            const isActive = s.id === activeSpaceId;
             return (
-              <li key={s.ulid}>
+              <li key={s.id}>
                 <button
                   type="button"
                   role="option"
                   aria-selected={isActive}
                   className={`space-switcher__item${isActive ? ' is-active' : ''}`}
                   onClick={() => {
-                    setActiveSpaceId(s.ulid);
+                    setActiveFamilySpaceId(s.id);
                     setOpen(false);
                   }}
                 >
                   <span className="space-switcher__item-name">
-                    {s.name?.trim() || s.ulid}
+                    {s.name?.trim() || s.id}
                   </span>
                   {isActive && <CheckIcon />}
                 </button>

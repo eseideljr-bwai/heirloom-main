@@ -1,40 +1,36 @@
 import Link from 'next/link';
-import { getActiveSpace, getCurrentUser, requireActiveSpaceId } from '../../../../lib/server/auth';
-import { getManageMembers } from '../../../../lib/server/queries';
-import { isOwnerOfSpace } from '../../../../lib/auth';
-import { orNull } from '../../../../lib/server/safe';
+import { ApiError } from '../../../../lib/api';
+import { requireHome } from '../../../../lib/server/auth';
+import { serverKinloomApi } from '../../../../lib/server/kinloom-api';
 import ManageTabs from '../../../components/ManageTabs';
-import MembersClient from '../../family/members/MembersClient';
+import ManageFamilyClient from './ManageFamilyClient';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Manage Family — the people in this Home, their roles, and seat usage.
+ * Manage Family: the people in this Home, their roles, and seat usage.
  *
- * All the invite / add / edit / remove behaviour is MembersClient, reused
- * untouched from the legacy /family/members route; this page supplies the
- * design's shell around it.
- *
- * Seats are the one thing with no API: nothing exposes a limit, so the
- * used count is real and the allowance is marked as unsupported rather
- * than invented.
+ * `GET /family-homes/{id}/manage` is for the owner and co-owner; for anyone
+ * else it answers 403 and the page explains instead of failing. Every button
+ * is gated on the flags that response carries (`viewer.can_*`,
+ * `people[].can_edit`, `can_remove`), never on the client's own idea of roles.
  */
 export default async function ManageFamilyPage() {
-  const familySpaceId = await requireActiveSpaceId();
+  const { homeId, home } = await requireHome();
+  const homeName = home.name?.trim() || 'Your Family Home';
 
-  // This route is refused for some memberships, so a failure here has to
-  // degrade to an explanation rather than take the page down.
-  const [manage, user, activeSpace] = await Promise.all([
-    orNull(getManageMembers(familySpaceId)),
-    getCurrentUser(),
-    getActiveSpace(),
-  ]);
+  let manage = null;
+  let forbidden = false;
+  try {
+    manage = await serverKinloomApi.get('/family-homes/{familyHome}/manage', {
+      path: { familyHome: homeId },
+    });
+  } catch (err) {
+    if (!(err instanceof ApiError)) throw err;
+    forbidden = err.status === 403;
+  }
 
-  const isOwner = isOwnerOfSpace(user, familySpaceId);
-  const homeName = activeSpace?.name?.trim() || 'Your Family Home';
-  const members = manage?.members ?? [];
-  const pending = manage?.pending ?? [];
-  const withAccounts = members.length;
+  const meter = (used: number, max: number) => (max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0);
 
   return (
     <div className="mg-page">
@@ -44,66 +40,58 @@ export default async function ManageFamilyPage() {
 
       <div className="mg-notice">
         <span className="mg-notice__text">
-          {isOwner
-            ? 'You own this home. Anyone you invite can read everything published here, and publish their own.'
-            : 'You are a member of this home. Only owners can invite, add or remove people.'}
+          {forbidden
+            ? 'You are a member of this home. Only the owner and co-owner can invite, add or remove people.'
+            : manage?.read_only
+              ? 'This home is read-only because it lost its owner. Everything can still be read, but nothing here can change.'
+              : 'Anyone you invite can read everything published here, and publish their own.'}
         </span>
       </div>
 
       <div className="mg-grid">
         <div>
-          {manage === null ? (
+          {manage ? (
+            <ManageFamilyClient homeId={homeId} manage={manage} />
+          ) : (
             <div className="mg-card">
               <div className="mg-card__head">
-                <span className="mg-card__title">Members</span>
+                <span className="mg-card__title">People</span>
               </div>
               <p className="mg-card__empty">
-                This family space wouldn’t return its member list. That usually
-                means the account isn’t currently permitted to manage it — either
-                it belongs to someone else, or the membership needs repairing on
-                the server. Nothing you have written is affected.
+                {forbidden
+                  ? 'Members can see who is in the home on the Home page.'
+                  : 'The member list couldn’t be loaded just now. Nothing you have written is affected. Try again in a moment.'}
               </p>
             </div>
-          ) : (
-            <MembersClient
-              familySpaceId={familySpaceId}
-              members={members}
-              pending={pending}
-              isOwner={isOwner}
-            />
           )}
         </div>
 
         <aside className="mg-seats">
           <p className="mg-seats__label">Seats</p>
           <p className="mg-seats__summary">
-            {manage === null
-              ? 'Unavailable'
-              : `${withAccounts} seat${withAccounts === 1 ? '' : 's'} used`}
+            {manage ? `${manage.seats.used} of ${manage.seats.max} seats used` : 'Unavailable'}
           </p>
 
           <div
-            className="no-api"
-              data-api-scope="in"
-              data-api-note={"GET /family-homes/{homeId}/manage\n→ seats · Meter { used, max }   (people without accounts: profiles · Meter)\nGives the bar its denominator. Also returns people[], invitations[], viewer, read_only — which replaces GET /family-spaces/{id}/manage-members."}
+            className="mg-seats__bar"
+            role="img"
+            aria-label={manage ? `${manage.seats.used} of ${manage.seats.max} seats used` : 'Seat usage unavailable'}
           >
-            <div className="mg-seats__bar" role="img" aria-label="Seat allowance unavailable">
-              <span className="mg-seats__fill" style={{ width: '0%' }} />
-            </div>
-            <p className="mg-seats__note">
-              Not wired yet — the allowance comes from <code>seats.max</code> on
-              the Phase 3 manage endpoint, which this page doesn’t read.
-            </p>
+            <span
+              className="mg-seats__fill"
+              style={{ width: `${manage ? meter(manage.seats.used, manage.seats.max) : 0}%` }}
+            />
           </div>
 
           <p className="mg-seats__scope">
-            Seats count accounts. Someone who appears in this home without an
-            account — a child, a relative who has passed — uses none.
+            Seats count accounts and pending invitations. Someone who appears in this home without an
+            account, like a child or a relative who has passed, uses none.
+            {manage && ` Family profiles: ${manage.profiles.used} of ${manage.profiles.max}.`}
           </p>
 
-          {pending.length > 0 && (
+          {manage && manage.invitations.length > 0 && (
             <p className="mg-seats__pending">
-              {pending.length} invitation{pending.length === 1 ? '' : 's'} outstanding.
+              {manage.invitations.length} invitation{manage.invitations.length === 1 ? '' : 's'} outstanding.
             </p>
           )}
         </aside>

@@ -39,7 +39,13 @@ export default function Login() {
   const { user, loading: authLoading, login } = useAuth();
 
   useEffect(() => {
-    if (!authLoading && user) router.replace(next);
+    if (!authLoading && user) {
+      router.replace(next);
+      // The client router keeps pages it already rendered for ~30 s. After
+      // signing in as someone else (the invitation's "Switch account"), that
+      // cached page belongs to the previous person, so drop it.
+      router.refresh();
+    }
   }, [authLoading, user, router, next]);
 
   const handleLogin = async (e: React.FormEvent) => {
