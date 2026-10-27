@@ -22,11 +22,33 @@ import { COOKIES } from './cookies';
 import { adminAuth } from './firebase-admin';
 import { verifySession } from './auth';
 
-export const SERVER_API_BASE = (
-  process.env.KINLOOM_API_URL ||
-  process.env.BACKEND_API_URL ||
-  'https://kinloom-api-laravel-vycjbweb.on-forge.com/api'
-).replace(/\/$/, '');
+/**
+ * Local-development fallback only: the Phase 3 API on Forge. A deployed
+ * build must name its own API host, otherwise it would quietly talk to this
+ * one (a personal environment, with its own data).
+ */
+const DEV_FALLBACK_API_URL = 'https://kinloom-api-laravel-vycjbweb.on-forge.com/api';
+
+/**
+ * The Laravel API root for this server, without a trailing slash.
+ *
+ * Read per request, not at import: `next build` imports this module with no
+ * runtime environment (Cloud Run sets env vars on the service, not the
+ * build), so a throw at import would fail every build. In production a
+ * missing `KINLOOM_API_URL` fails the first request instead, with a message
+ * that names the variable.
+ */
+export function serverApiBase(): string {
+  const configured = process.env.KINLOOM_API_URL || process.env.BACKEND_API_URL;
+  if (configured) return configured.replace(/\/$/, '');
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'KINLOOM_API_URL is not set. A production server has to be told which API to call; ' +
+        'set it on the service (see .env.example).',
+    );
+  }
+  return DEV_FALLBACK_API_URL;
+}
 
 /**
  * Cap on how much of an upstream error body we log. Laravel's exception
@@ -154,7 +176,7 @@ export async function serverApiFetch<T = unknown>(
     h.Authorization = `Bearer ${token}`;
   }
 
-  const url = path.startsWith('http') ? path : `${SERVER_API_BASE}${path}`;
+  const url = path.startsWith('http') ? path : `${serverApiBase()}${path}`;
 
   const res = await fetch(url, {
     ...rest,

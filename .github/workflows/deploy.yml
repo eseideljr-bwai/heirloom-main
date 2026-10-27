@@ -32,7 +32,6 @@ jobs:
       - name: Set up Dev Environment Variables
         run: |
           cat << 'EOF' > .env.production
-          NEXT_PUBLIC_API_URL=https://heirloom-api-dev-174694943962.us-east1.run.app
           NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.DEV_FIREBASE_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.DEV_FIREBASE_AUTH_DOMAIN }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.DEV_FIREBASE_PROJECT_ID }}
@@ -54,6 +53,7 @@ jobs:
           # Server-side Firebase Admin credentials (single-line base64 of the
           # service-account JSON). Consumed by lib/server/firebase-admin.ts.
           env_vars: |
+            KINLOOM_API_URL=${{ vars.DEV_KINLOOM_API_URL || 'https://kinloom-api-laravel-vycjbweb.on-forge.com/api' }}
             FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
             ANTHROPIC_API_KEY=${{ secrets.DEV_ANTHROPIC_API_KEY }}
             FEEDBACK_INGEST_URL=https://us-east1-bw-heirloom-dev.cloudfunctions.net/feedback-ingest-dev
@@ -74,7 +74,11 @@ jobs:
 
         - name: Set up Prod Environment Variables
           run: |
-            echo "NEXT_PUBLIC_API_URL=https://REPLACE_WITH_PROD_API_URL_LATER" > .env.production
+            # Placeholder until the GCP production environment exists. The
+            # server calls the API named by KINLOOM_API_URL (set below from the
+            # PROD_KINLOOM_API_URL repository variable) and refuses to start
+            # serving without one.
+            echo "NEXT_PUBLIC_FEEDBACK_TOOL=0" > .env.production
 
         - name: 'Deploy to Cloud Run (Prod)'
           uses: 'google-github-actions/deploy-cloudrun@v2'
@@ -83,6 +87,8 @@ jobs:
             region: 'us-east1'
             source: './'
             project_id: 'bw-heirloom-prod'
+            env_vars: |
+              KINLOOM_API_URL=${{ vars.PROD_KINLOOM_API_URL }}
 
   deploy-preview:
     name: Deploy PR Preview
@@ -99,7 +105,6 @@ jobs:
       - name: Set up Preview Environment Variables
         run: |
           cat << 'EOF' > .env.production
-          NEXT_PUBLIC_API_URL=https://heirloom-api-dev-174694943962.us-east1.run.app
           NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.DEV_FIREBASE_API_KEY }}
           NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.DEV_FIREBASE_AUTH_DOMAIN }}
           NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.DEV_FIREBASE_PROJECT_ID }}
@@ -121,6 +126,7 @@ jobs:
           # Server-side Firebase Admin credentials (single-line base64 of the
           # service-account JSON). Consumed by lib/server/firebase-admin.ts.
           env_vars: |
+            KINLOOM_API_URL=${{ vars.DEV_KINLOOM_API_URL || 'https://kinloom-api-laravel-vycjbweb.on-forge.com/api' }}
             FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
             FEEDBACK_INGEST_URL=https://us-east1-bw-heirloom-dev.cloudfunctions.net/feedback-ingest-dev
       - name: 'Comment PR'
