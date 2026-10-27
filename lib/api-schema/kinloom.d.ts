@@ -327,7 +327,7 @@ export interface paths {
          *     - `spaces` lists the Family Spaces this Home is active in, by name (lowercased, then `id`) like `GET /me`, with your role in each and whether it is read-only. Pending offers and invitations are not listed.
          *     - `read_only: true` means the Home lost its owner with no successor or co-owner, or it was closed when its last account moved to another Home (a join or a merge) (contract §4.6). Reads work. A write answers 423 to anyone who could otherwise make it, except leaving, which always works; someone who may not make that write at all gets 403 `forbidden` first (contract §2.5). Every `viewer` flag but `can_leave` is `false`.
          *     - Every v2 count counts only kinlooms you can read that are actively published to this Home: final and not deleted. Drafts, private kinlooms and pending "after I pass" publications never count. Every member reads all of them, so every member gets the same numbers, and `stats.kinlooms_published_here` is Our Library's `meta.total`. `media_counts` counts those kinlooms' files by purpose; documents, deleted files and files in another bucket aren't counted (contract §6.3). Your own drafts appear only in `where_you_left_off`: your most recently edited one, by `updated_at`, then `id`.
-         *     - `featured` (v2): each slot shows the owner's or co-owner's picks while they still apply, otherwise its automatic choice (`GET …/featured` has the rules). The picks and the whole `hero`, its automatic choice included, are CO-1 C1: without C1, `hero` is `null` and `lately` leaves nothing out. `hero` and `voice` carry the one media item they show (`media`, with a signed URL: the first photo or video, or the first audio, in the order attached; a file in another bucket is skipped), so the Home loads without extra calls. An automatic hero with no photo or video has `media: null`. The other cards carry no media URLs: open the kinloom with `GET /kinlooms/{kinloom}?room=home:{familyHome}`.
+         *     - `featured` (v2): each slot shows the owner's or co-owner's picks while they still apply, otherwise its automatic choice (`GET …/featured` has the rules). The picks and the whole `hero`, its automatic choice included, are CO-1 C1: without C1, `hero` is `null` and `lately` leaves nothing out. `hero` and `voice` carry the one media item they show (`media`, with a signed URL: the first photo or video, or the first audio, in the order attached; a file in another bucket is skipped), so the Home loads without extra calls. An automatic hero with no photo or video has `media: null`. The other cards carry no media items, only their `thumbnail_url` (the image that stands for each kinloom): open the kinloom with `GET /kinlooms/{kinloom}?room=home:{familyHome}`.
          *
          *     Example: Eli, the owner, in the Seidel world, with **every featured slot automatic**: the real answer. `family-home.v1.json` is its v1 golden file and `family-home.v2-additions.json`, golden too, its v2 keys. `GET …/featured`'s example shows a different state, with a hero pick.
          */
@@ -817,7 +817,7 @@ export interface paths {
          *     - `facts.kinlooms_kept` is the unfiltered `meta.total`; `recorded_voices` counts the audio recordings attached to those kinlooms; `generations` is the number of generations on the tree (`GET …/tree`), 0 when nothing is placed.
          *     - `featured`: each slot shows the owner's picks while they still apply, otherwise its automatic choice: `lead` the most recently published kinloom with a photo or video that isn't pinned, with that photo or video in `lead.media`; `quote` the most recently published with a `featured_quote` (its card carries the quote); `pins` nothing. "Most recently published" means the publication to this Space, newest `activated_at` first, then `id`. A pick that was withdrawn, deleted or no longer fits is left out when read. `is_automatic` is `true` when no slot has a pick that still applies. The rules are on `GET …/featured`; the owner edits them with `PUT …/featured`.
          *
-         *     Cards carry no media URLs, except the lead's one item. Open a kinloom with `GET /kinlooms/{kinloom}?room=space:{familySpace}`, so its comments and holds are this Space's (contract §6.4).
+         *     Cards carry no media items, except the lead's one item; each has its `thumbnail_url` (the image that stands for the kinloom). Open a kinloom with `GET /kinlooms/{kinloom}?room=space:{familySpace}`, so its comments and holds are this Space's (contract §6.4).
          *
          *     Example: Dana (The Reyes Home) on The Seidel Family, five per page, after Ray pinned "Marta's Crossing, 1929" and "Pratt Street summers" (CO-1 C1): the real answer in the Seidel world, but for the lead's signed URL and expiry, which are illustrative. `space`, `data` and `meta` are the golden file `examples/tapestry.v1.json`, with Dana's labels: Eli "Sibling", Ray and Ellen "Parent". The automatic lead, "Both grandmothers at one table", is the quote too. With no pins, `featured` is the golden `examples/tapestry.v2-additions.json`.
          */
@@ -1147,7 +1147,7 @@ export interface paths {
          *     - A slot with picks shows them, in the order picked. A slot with no picks shows its automatic choice. A pick withdrawn from the Space, deleted, or no longer eligible is left out when read; when none is left, the slot is automatic again.
          *     - `quote` may show the lead's card or a pin's; `pins` never shows the lead.
          *
-         *     - Cards are Tapestry cards (with `home`), labelled from this Space's lineage (contract §4.3), with no media.
+         *     - Cards are Tapestry cards (with `home`), labelled from this Space's lineage (contract §4.3), with no media items (each has its `thumbnail_url`).
          *     - **The order of the checks** is the Home editor's: the uniform 404 for someone whose Home isn't active in the Space → 403 `forbidden` for a member who isn't its owner. A read-only Space has no owner, so every member gets the 403.
          *
          *     Example: Ray pinned "Marta's Crossing, 1929" and "Pratt Street summers"; `lead` and `quote` are automatic, both "Both grandmothers at one table". The real answer in the Seidel world. (The Tapestry example shows the same state from Dana's side.)
@@ -1516,6 +1516,7 @@ export interface paths {
          *     - `tagged_member_ids` replaces your tags among the people you can see; each must be someone you can see: your Home, and the Homes active in your Spaces (contract §4.3). Anyone else gets the uniform 404, and their name is never echoed. Take them from `GET /create-context/{typeSlug}`. At most 50; a repeated id counts once.
          *     - Tags of people you can't see (for example, someone whose Home has left your Space) are kept, and never shown to you.
          *     - `title` can't be null. `body` can be null (a media-only kinloom), but a kinloom needs a body or a media item to become `final`, and a final kinloom keeps one: a `PATCH` that would leave a final kinloom with no body (null or blank) and no media is a 422 on `body`.
+         *     - `featured_media_id` (after S12) picks the photo the kinloom's cards show (`thumbnail_url`): the `id` of one of this kinloom's photos, or `null` to go back to its first photo. Anything else (an audio or video, a deleted photo, another kinloom's file, an id that names nothing) is the same 422 on `featured_media_id`, and nothing changes. Deleting the marked photo clears it.
          *     - `publish` and `tagged_member_ids` must be JSON arrays. An object, even `{}` or `{"0": …}`, is a 422.
          *     - The CO-1 C6 fields are writable: `occurred_label` (up to 64 characters), `occurred_year` (a JSON integer from 1 to 9999: `"2025"` is a 422), `place` (up to 255 characters) and `capture_mode` (`write`, `talk`, `import` or `record`). Each can be null, and a blank `occurred_label` or `place` is stored as null. A build without CO-1 C6 ignores them, as S4a did.
          *     - When several things are wrong, the first in contract §6.1's order answers: not the author (403), then a `publish` key that leaves it a draft (409 `not_final`), then a room or person you can't use (the uniform 404), then a read-only room of yours (423), then the field errors (422), and last 409 `unpublish_first` or the 422 for a final kinloom with no body and no media. A control character in any string of the input is a 422 right after the 403 (contract §2.5).
@@ -2780,7 +2781,7 @@ export interface components {
         KinloomCaptureMode: "write" | "talk" | "import" | "record";
         /**
          * KinloomCard
-         * @description A kinloom in a list (contract §5.3). Cards carry no media URLs: open the kinloom for those. `has_audio`, `has_photo`, `has_video` and `has_document` go by each attached file's `purpose`, deleted files and files in another bucket aside.
+         * @description A kinloom in a list (contract §5.3). `has_audio`, `has_photo`, `has_video` and `has_document` go by each attached file's `purpose`, deleted files and files in another bucket aside. `thumbnail_url` is the one image that stands for the kinloom (after S12): the photo its author marked (`featured_media_id` on the kinloom), else its first photo, else its first video's poster frame; for the full files, open the kinloom.
          */
         KinloomCard: {
             id: components["schemas"]["Id"];
@@ -2797,6 +2798,13 @@ export interface components {
             has_video: boolean;
             /** @description CO-1 C6. */
             has_document: boolean;
+            /**
+             * Format: uri
+             * @description A signed URL, good for about 30 minutes (`thumbnail_expires_at`), to the image that stands for the kinloom: the photo its author marked (`featured_media_id`), else its first photo in the order attached, else its first video. It is that file's thumbnail (640 px on the long edge, WebP, not cropped: crop it to 4:3 in CSS) once the server has made it, seconds after the upload; until then a photo's original, and for a video `null`. `null` when the kinloom has no photo or video. Opaque: never parse ids or paths out of it, and refresh the list (or the kinloom) when it expires. After S12.
+             */
+            thumbnail_url: string | null;
+            /** @description When `thumbnail_url` stops working; `null` with it. After S12. */
+            thumbnail_expires_at: components["schemas"]["Timestamp"] | null;
         };
         /**
          * KinloomCommentPage
@@ -2876,6 +2884,8 @@ export interface components {
             engagement: components["schemas"]["KinloomEngagement"] | null;
             /** @description The attached files, in the order they were attached. At most 20. */
             media: components["schemas"]["MediaItem"][];
+            /** @description The photo the author marked for the kinloom's cards: one of `media`'s photo ids, or `null` when none is (the cards then show the first photo). The same for every reader; the author changes it with `PATCH`. Deleting that photo clears it. After S12. */
+            featured_media_id: components["schemas"]["Id"] | null;
             /** @description You may `PATCH` it: you are its author. */
             can_edit: boolean;
             /** @description You may `DELETE` it: you are its author. */
@@ -3006,6 +3016,8 @@ export interface components {
             place?: string | null;
             /** @description `talk` and `import` for kinlooms from Talk and Import. CO-1 C6. */
             capture_mode?: components["schemas"]["KinloomCaptureMode"] | null;
+            /** @description The photo its cards show (`thumbnail_url`): the `id` of one of this kinloom's photos (a `media` item with `purpose: "photo"`), or `null` to go back to its first photo. Anything else (an audio or video, a deleted photo, another kinloom's file, an id that names nothing) is the same 422 on `featured_media_id`. After S12. */
+            featured_media_id?: components["schemas"]["Id"] | null;
             /** @description Replaces your tags among the people you can see. At most 50. */
             tagged_member_ids?: components["schemas"]["Id"][];
             /** @description Only with `status: "final"` on a draft: where to publish. `[]` keeps it private. */
@@ -3323,6 +3335,13 @@ export interface components {
             transcript_text: string | null;
             /** @description The file's original name, for display and downloads (documents especially). */
             filename: string | null;
+            /**
+             * Format: uri
+             * @description A photo's or video's thumbnail (640 px on the long edge, WebP; a video's from a frame about a second in), signed like `url` and good until `thumbnail_expires_at`. `null` until the server has made it (seconds after the upload), for a video while the server has no ffmpeg, and always for audio and documents. After S12.
+             */
+            thumbnail_url: string | null;
+            /** @description When `thumbnail_url` stops working; `null` with it. After S12. */
+            thumbnail_expires_at: components["schemas"]["Timestamp"] | null;
         };
         /**
          * MediaPurpose
@@ -4084,7 +4103,7 @@ export interface components {
         };
         /**
          * TapestryFeatured
-         * @description What the Tapestry features, from the kinlooms actively published to this Space: per slot, the owner's picks while they still apply, otherwise the automatic choice. "Most recent" means most recently published to this Space (the publication's `activated_at`, newest first, then `id`). `lead` and `pins` are CO-1 C1; `quote` and `is_automatic` are in the base scope. Without C1, `lead` is `null`, `pins` is `[]` and `is_automatic` is `true`. The rules are on `GET /family-spaces/{familySpace}/featured`. Cards carry no media URLs.
+         * @description What the Tapestry features, from the kinlooms actively published to this Space: per slot, the owner's picks while they still apply, otherwise the automatic choice. "Most recent" means most recently published to this Space (the publication's `activated_at`, newest first, then `id`). `lead` and `pins` are CO-1 C1; `quote` and `is_automatic` are in the base scope. Without C1, `lead` is `null`, `pins` is `[]` and `is_automatic` is `true`. The rules are on `GET /family-spaces/{familySpace}/featured`. Cards carry no media items but the lead's, only their `thumbnail_url`.
          */
         TapestryFeatured: {
             /** @description CO-1 C1. The owner's pick, else the most recently published kinloom with a photo or a video that isn't pinned, with its photo or video in `media`. `null` when none qualifies. */
@@ -6892,7 +6911,9 @@ export interface operations {
                      *         "has_audio": false,
                      *         "has_photo": false,
                      *         "has_video": false,
-                     *         "has_document": false
+                     *         "has_document": false,
+                     *         "thumbnail_url": null,
+                     *         "thumbnail_expires_at": null
                      *       },
                      *       "featured": {
                      *         "hero": {
@@ -6921,6 +6942,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "media": {
                      *             "id": "01m7wnyqdbsyb6t491ky73t36w",
                      *             "type": "image",
@@ -6931,7 +6954,9 @@ export interface operations {
                      *             "width": 640,
                      *             "height": 427,
                      *             "transcript_text": null,
-                     *             "filename": "thanksgiving-table.jpg"
+                     *             "filename": "thanksgiving-table.jpg",
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         },
                      *         "quote": {
@@ -6960,6 +6985,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "featured_quote": "Two kitchens, one table, and nobody wanted to go home."
                      *         },
                      *         "voice": {
@@ -6988,6 +7015,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "media": {
                      *             "id": "01m7wp08xh49zafeyrx80731pg",
                      *             "type": "audio",
@@ -6998,7 +7027,9 @@ export interface operations {
                      *             "width": null,
                      *             "height": null,
                      *             "transcript_text": "That was the year both grandmothers finally sat at the same table. Mom made the turkey, Maria's mother brought the rice, and by nine o'clock they were arguing about salt like they had known each other for thirty years.",
-                     *             "filename": "both-grandmothers.wav"
+                     *             "filename": "both-grandmothers.wav",
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           }
                      *         },
                      *         "lately": [
@@ -7027,7 +7058,9 @@ export interface operations {
                      *             "has_audio": false,
                      *             "has_photo": false,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           },
                      *           {
                      *             "id": "01m5fc9w86e2y5hvt3c13vgp2v",
@@ -7054,7 +7087,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": false,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           },
                      *           {
                      *             "id": "01m5fc9w60g3r1ddrhqqzbebbb",
@@ -7081,7 +7116,9 @@ export interface operations {
                      *             "has_audio": false,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/fb5b93561ca7200ba56b6a278f/thumbnails/01m3vnbwg02qbh846sve90z84g.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=a4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4eda4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4ed",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         ],
                      *         "is_automatic": true
@@ -7347,7 +7384,9 @@ export interface operations {
                      *         "has_audio": false,
                      *         "has_photo": false,
                      *         "has_video": false,
-                     *         "has_document": false
+                     *         "has_document": false,
+                     *         "thumbnail_url": null,
+                     *         "thumbnail_expires_at": null
                      *       },
                      *       "featured": {
                      *         "hero": {
@@ -7376,6 +7415,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "media": {
                      *             "id": "01m7wnyqdbsyb6t491ky73t36w",
                      *             "type": "image",
@@ -7386,7 +7427,9 @@ export interface operations {
                      *             "width": 640,
                      *             "height": 427,
                      *             "transcript_text": null,
-                     *             "filename": "thanksgiving-table.jpg"
+                     *             "filename": "thanksgiving-table.jpg",
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         },
                      *         "quote": {
@@ -7415,6 +7458,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "featured_quote": "Two kitchens, one table, and nobody wanted to go home."
                      *         },
                      *         "voice": {
@@ -7443,6 +7488,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "media": {
                      *             "id": "01m7wp08xh49zafeyrx80731pg",
                      *             "type": "audio",
@@ -7453,7 +7500,9 @@ export interface operations {
                      *             "width": null,
                      *             "height": null,
                      *             "transcript_text": "That was the year both grandmothers finally sat at the same table. Mom made the turkey, Maria's mother brought the rice, and by nine o'clock they were arguing about salt like they had known each other for thirty years.",
-                     *             "filename": "both-grandmothers.wav"
+                     *             "filename": "both-grandmothers.wav",
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           }
                      *         },
                      *         "lately": [
@@ -7482,7 +7531,9 @@ export interface operations {
                      *             "has_audio": false,
                      *             "has_photo": false,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           },
                      *           {
                      *             "id": "01m5fc9w86e2y5hvt3c13vgp2v",
@@ -7509,7 +7560,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": false,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           },
                      *           {
                      *             "id": "01m5fc9w60g3r1ddrhqqzbebbb",
@@ -7536,7 +7589,9 @@ export interface operations {
                      *             "has_audio": false,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/fb5b93561ca7200ba56b6a278f/thumbnails/01m3vnbwg02qbh846sve90z84g.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=a4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4eda4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4ed",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         ],
                      *         "is_automatic": true
@@ -7781,7 +7836,9 @@ export interface operations {
                      *           "has_audio": false,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w5nyjaa204avxhy03ze",
@@ -7808,7 +7865,9 @@ export interface operations {
                      *           "has_audio": true,
                      *           "has_photo": true,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *         },
                      *         {
                      *           "id": "01m5fc9w86e2y5hvt3c13vgp2v",
@@ -7835,7 +7894,9 @@ export interface operations {
                      *           "has_audio": true,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w60g3r1ddrhqqzbebbb",
@@ -7862,7 +7923,9 @@ export interface operations {
                      *           "has_audio": false,
                      *           "has_photo": true,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/fb5b93561ca7200ba56b6a278f/thumbnails/01m3vnbwg02qbh846sve90z84g.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=a4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4eda4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4ed",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *         },
                      *         {
                      *           "id": "01m5fc9w31c5tyv5g6fy0yqa6x",
@@ -7889,7 +7952,9 @@ export interface operations {
                      *           "has_audio": false,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         }
                      *       ],
                      *       "meta": {
@@ -10134,7 +10199,9 @@ export interface operations {
                      *             "has_audio": false,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/fb5b93561ca7200ba56b6a278f/thumbnails/01m3vnbwg02qbh846sve90z84g.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=a4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4eda4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4ed",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         ],
                      *         "automatic": [
@@ -10163,7 +10230,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         ]
                      *       },
@@ -10197,6 +10266,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "featured_quote": "Two kitchens, one table, and nobody wanted to go home."
                      *           }
                      *         ]
@@ -10230,7 +10301,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         ]
                      *       },
@@ -10263,7 +10336,9 @@ export interface operations {
                      *             "has_audio": false,
                      *             "has_photo": false,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           },
                      *           {
                      *             "id": "01m5fc9w5nyjaa204avxhy03ze",
@@ -10290,7 +10365,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           },
                      *           {
                      *             "id": "01m5fc9w86e2y5hvt3c13vgp2v",
@@ -10317,7 +10394,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": false,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           }
                      *         ]
                      *       },
@@ -10508,7 +10587,9 @@ export interface operations {
                      *             "has_audio": false,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/fb5b93561ca7200ba56b6a278f/thumbnails/01m3vnbwg02qbh846sve90z84g.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=a4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4eda4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4ed",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         ],
                      *         "automatic": [
@@ -10537,7 +10618,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         ]
                      *       },
@@ -10571,6 +10654,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "featured_quote": "Two kitchens, one table, and nobody wanted to go home."
                      *           }
                      *         ]
@@ -10604,7 +10689,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         ]
                      *       },
@@ -10637,7 +10724,9 @@ export interface operations {
                      *             "has_audio": false,
                      *             "has_photo": false,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           },
                      *           {
                      *             "id": "01m5fc9w5nyjaa204avxhy03ze",
@@ -10664,7 +10753,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": true,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           },
                      *           {
                      *             "id": "01m5fc9w86e2y5hvt3c13vgp2v",
@@ -10691,7 +10782,9 @@ export interface operations {
                      *             "has_audio": true,
                      *             "has_photo": false,
                      *             "has_video": false,
-                     *             "has_document": false
+                     *             "has_document": false,
+                     *             "thumbnail_url": null,
+                     *             "thumbnail_expires_at": null
                      *           }
                      *         ]
                      *       },
@@ -11125,6 +11218,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "featured_quote": "Two kitchens, one table, and nobody wanted to go home.",
                      *           "is_picked": false
                      *         },
@@ -11154,6 +11249,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/fb5b93561ca7200ba56b6a278f/thumbnails/01m3vnbwg02qbh846sve90z84g.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=a4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4eda4c8f50179392d84d7001da8c6c1246dca0066adaea290e2d4e9aeb61894a4ed",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "featured_quote": null,
                      *           "is_picked": true
                      *         }
@@ -11835,6 +11932,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "home": {
                      *             "id": "01m5fc9vv2tb4rwk09ha02mt62",
                      *             "name": "The Reyes Home"
@@ -11866,6 +11965,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "home": {
                      *             "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *             "name": "The Seidel Home"
@@ -11897,6 +11998,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "home": {
                      *             "id": "01m5fc9vv2tb4rwk09ha02mt62",
                      *             "name": "The Reyes Home"
@@ -11928,6 +12031,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "home": {
                      *             "id": "01m5fc9vsgkxc9qrmcts5912av",
                      *             "name": "Pratt Street House"
@@ -11959,6 +12064,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "home": {
                      *             "id": "01m5fc9vsgkxc9qrmcts5912av",
                      *             "name": "Pratt Street House"
@@ -12003,6 +12110,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "home": {
                      *             "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *             "name": "The Seidel Home"
@@ -12017,7 +12126,9 @@ export interface operations {
                      *             "width": 640,
                      *             "height": 427,
                      *             "transcript_text": null,
-                     *             "filename": "thanksgiving-table.jpg"
+                     *             "filename": "thanksgiving-table.jpg",
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *           }
                      *         },
                      *         "quote": {
@@ -12046,6 +12157,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "home": {
                      *             "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *             "name": "The Seidel Home"
@@ -12079,6 +12192,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/138aae8ee4cb226b266d9d7ab0/thumbnails/01m3vnbwg0xkmsm8qq72mh341a.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b65db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b6",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vsgkxc9qrmcts5912av",
                      *               "name": "Pratt Street House"
@@ -12110,6 +12225,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m3vnbwg09p58998t13s186f4.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *               "name": "The Seidel Home"
@@ -15061,6 +15178,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *               "name": "The Seidel Home"
@@ -15098,6 +15217,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *               "name": "The Seidel Home"
@@ -15135,6 +15256,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/138aae8ee4cb226b266d9d7ab0/thumbnails/01m3vnbwg0xkmsm8qq72mh341a.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b65db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b6",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vsgkxc9qrmcts5912av",
                      *               "name": "Pratt Street House"
@@ -15166,6 +15289,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m3vnbwg09p58998t13s186f4.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *               "name": "The Seidel Home"
@@ -15363,6 +15488,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *               "name": "The Seidel Home"
@@ -15400,6 +15527,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *               "name": "The Seidel Home"
@@ -15437,6 +15566,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/138aae8ee4cb226b266d9d7ab0/thumbnails/01m3vnbwg0xkmsm8qq72mh341a.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b65db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b6",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vsgkxc9qrmcts5912av",
                      *               "name": "Pratt Street House"
@@ -15468,6 +15599,8 @@ export interface operations {
                      *             "has_photo": true,
                      *             "has_video": false,
                      *             "has_document": false,
+                     *             "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m3vnbwg09p58998t13s186f4.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d",
+                     *             "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *             "home": {
                      *               "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *               "name": "The Seidel Home"
@@ -15906,6 +16039,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "home": {
                      *             "id": "01m5fc9vv2tb4rwk09ha02mt62",
                      *             "name": "The Reyes Home"
@@ -15939,6 +16074,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "home": {
                      *             "id": "01m5fc9vtq8ys1kwxv36zf417g",
                      *             "name": "The Seidel Home"
@@ -15972,6 +16109,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "home": {
                      *             "id": "01m5fc9vv2tb4rwk09ha02mt62",
                      *             "name": "The Reyes Home"
@@ -16005,6 +16144,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "home": {
                      *             "id": "01m5fc9vsgkxc9qrmcts5912av",
                      *             "name": "Pratt Street House"
@@ -16038,6 +16179,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "home": {
                      *             "id": "01m5fc9vsgkxc9qrmcts5912av",
                      *             "name": "Pratt Street House"
@@ -17219,6 +17362,7 @@ export interface operations {
                      *       "room": null,
                      *       "engagement": null,
                      *       "media": [],
+                     *       "featured_media_id": null,
                      *       "can_edit": true,
                      *       "can_delete": true,
                      *       "can_publish": false,
@@ -17248,7 +17392,9 @@ export interface operations {
                      *           "has_audio": true,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w5nyjaa204avxhy03ze",
@@ -17275,7 +17421,9 @@ export interface operations {
                      *           "has_audio": true,
                      *           "has_photo": true,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *         },
                      *         {
                      *           "id": "01m5fc9w31c5tyv5g6fy0yqa6x",
@@ -17302,7 +17450,9 @@ export interface operations {
                      *           "has_audio": false,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         }
                      *       ]
                      *     }
@@ -17703,7 +17853,9 @@ export interface operations {
                      *           "width": 640,
                      *           "height": 427,
                      *           "transcript_text": null,
-                     *           "filename": "thanksgiving-table.jpg"
+                     *           "filename": "thanksgiving-table.jpg",
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *         },
                      *         {
                      *           "id": "01m7wp08xh49zafeyrx80731pg",
@@ -17715,9 +17867,12 @@ export interface operations {
                      *           "width": null,
                      *           "height": null,
                      *           "transcript_text": "That was the year both grandmothers finally sat at the same table. Mom made the turkey, Maria's mother brought the rice, and by nine o'clock they were arguing about salt like they had known each other for thirty years.",
-                     *           "filename": "both-grandmothers.wav"
+                     *           "filename": "both-grandmothers.wav",
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         }
                      *       ],
+                     *       "featured_media_id": null,
                      *       "can_edit": true,
                      *       "can_delete": true,
                      *       "can_publish": true,
@@ -17747,7 +17902,9 @@ export interface operations {
                      *           "has_audio": true,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w31c5tyv5g6fy0yqa6x",
@@ -17774,7 +17931,9 @@ export interface operations {
                      *           "has_audio": false,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w2jeqnbt6ccf46epxpk",
@@ -17801,7 +17960,9 @@ export interface operations {
                      *           "has_audio": false,
                      *           "has_photo": true,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m3vnbwg09p58998t13s186f4.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *         }
                      *       ]
                      *     }
@@ -18257,9 +18418,12 @@ export interface operations {
                      *           "width": 1600,
                      *           "height": 1200,
                      *           "transcript_text": null,
-                     *           "filename": "power-out-candles.jpg"
+                     *           "filename": "power-out-candles.jpg",
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         }
                      *       ],
+                     *       "featured_media_id": null,
                      *       "can_edit": true,
                      *       "can_delete": true,
                      *       "can_publish": true,
@@ -18289,7 +18453,9 @@ export interface operations {
                      *           "has_audio": true,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w5nyjaa204avxhy03ze",
@@ -18316,7 +18482,9 @@ export interface operations {
                      *           "has_audio": true,
                      *           "has_photo": true,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *         },
                      *         {
                      *           "id": "01m5fc9w31c5tyv5g6fy0yqa6x",
@@ -18343,7 +18511,9 @@ export interface operations {
                      *           "has_audio": false,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         }
                      *       ]
                      *     }
@@ -18471,7 +18641,7 @@ export interface operations {
             /**
              * @description Invalid input. On every write, a string anywhere in the input (the body, a form field or the query string; a value or a key) that holds NUL or another control character from U+0000 to U+001F, other than tab, line feed and carriage return, or that is not valid UTF-8, is refused before anything else is validated; `errors` names each such field by its dot path, such as `tags.0.name` (at most 20 of them).
              *
-             *     A field is invalid or too long; `title` or `type_slug` is null; more than 50 tags; `publish` or `tagged_member_ids` that isn't a JSON array (`{}` included); a malformed `publish` target, the same room twice or an unknown `when`; a `publish` key on a kinloom that is already `final`; finalizing a kinloom with no body and no media; or emptying the body of a final kinloom that has no media.
+             *     A field is invalid or too long; `title` or `type_slug` is null; more than 50 tags; `publish` or `tagged_member_ids` that isn't a JSON array (`{}` included); a malformed `publish` target, the same room twice or an unknown `when`; a `publish` key on a kinloom that is already `final`; finalizing a kinloom with no body and no media; emptying the body of a final kinloom that has no media; or a `featured_media_id` that isn't one of this kinloom's photos.
              */
             422: {
                 headers: {
@@ -21081,7 +21251,9 @@ export interface operations {
                      *       "width": 1600,
                      *       "height": 1200,
                      *       "transcript_text": null,
-                     *       "filename": "power-out-candles.jpg"
+                     *       "filename": "power-out-candles.jpg",
+                     *       "thumbnail_url": null,
+                     *       "thumbnail_expires_at": null
                      *     }
                      */
                     "application/json": components["schemas"]["MediaItem"];
@@ -22395,6 +22567,8 @@ export interface operations {
                      *         "has_photo": true,
                      *         "has_video": false,
                      *         "has_document": false,
+                     *         "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/138aae8ee4cb226b266d9d7ab0/thumbnails/01m3vnbwg0xkmsm8qq72mh341a.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b65db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b6",
+                     *         "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *         "featured_quote": "We crossed with one trunk and two names."
                      *       },
                      *       "counts": {
@@ -22452,7 +22626,9 @@ export interface operations {
                      *           "has_audio": true,
                      *           "has_photo": false,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w2caaxeak1mfr65cxt8",
@@ -22479,7 +22655,9 @@ export interface operations {
                      *           "has_audio": false,
                      *           "has_photo": true,
                      *           "has_video": false,
-                     *           "has_document": false
+                     *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/138aae8ee4cb226b266d9d7ab0/thumbnails/01m3vnbwg0xkmsm8qq72mh341a.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b65db56c77491e6071fdbc5389e136048adcf5341ef0a5064fbea575bac3fc60b6",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z"
                      *         }
                      *       ],
                      *       "meta": {
@@ -22679,6 +22857,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "status": "draft",
                      *           "publications": []
                      *         },
@@ -22708,6 +22888,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m7wnyqdbsyb6t491ky73t36w.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017ee4c1e21f101341e01fab6fcacf5e04aaf051e8bec4bacad536fdd1b836d0017",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "status": "final",
                      *           "publications": [
                      *             {
@@ -22756,6 +22938,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "status": "final",
                      *           "publications": [
                      *             {
@@ -22792,6 +22976,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "status": "final",
                      *           "publications": []
                      *         },
@@ -22821,6 +23007,8 @@ export interface operations {
                      *           "has_photo": false,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": null,
+                     *           "thumbnail_expires_at": null,
                      *           "status": "final",
                      *           "publications": [
                      *             {
@@ -22863,6 +23051,8 @@ export interface operations {
                      *           "has_photo": true,
                      *           "has_video": false,
                      *           "has_document": false,
+                     *           "thumbnail_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/thumbnails/01m3vnbwg09p58998t13s186f4.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d434ea5555ba564dc1864f87b04ed21d5a1786c05c0cc58d7882f6126f652230d",
+                     *           "thumbnail_expires_at": "2026-11-21T10:00:00Z",
                      *           "status": "final",
                      *           "publications": [
                      *             {

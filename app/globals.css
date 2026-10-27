@@ -7497,3 +7497,19 @@ body.has-texture::before {
 .portrait__quote-src a { color: inherit; text-decoration: none; }
 .portrait__quote-src a:hover { text-decoration: underline; }
 .lb-section--after { margin-top: 44px; }
+
+/* Card thumbnails are <img>, so they lazy-load; the 640 px image is uncropped, so the frame crops it. */
+img.lib-card__img,
+img.feat-card__img,
+img.feat-preview__hero,
+img.feat-preview__thumb-img,
+img.portrait-kin__img { object-fit: cover; }
+.portrait-kin__img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: var(--muted);
+  filter: saturate(0.96) sepia(0.05);
+}

@@ -19,6 +19,8 @@ export type FeaturedCard = {
   by: string;
   kind: 'film' | 'photograph' | 'voice' | 'written';
   quote: string | null;
+  /** The API's thumbnail (640 px, signed), or null when the kinloom has no photo or video. */
+  image: string | null;
 };
 
 export type SlotData = {
@@ -67,7 +69,11 @@ function Card({
       onClick={onToggle}
     >
       <span className="feat-card__mark" aria-hidden="true">{on ? '✓' : ''}</span>
-      <span className="feat-card__img feat-card__img--none" />
+      {c.image ? (
+        <img className="feat-card__img" src={c.image} alt="" loading="lazy" decoding="async" />
+      ) : (
+        <span className="feat-card__img feat-card__img--none" />
+      )}
       <span className="feat-card__body">
         <span className="feat-card__kind">{KIND_LABEL[c.kind]}</span>
         <span className="feat-card__title">{showQuote && c.quote ? `“${c.quote}”` : c.title}</span>
@@ -270,7 +276,11 @@ export default function HomeFeaturedClient({ homeId, homeName, slots, cards }: P
       <aside className="feat-preview">
         <p className="feat-preview__label">How Home will open</p>
 
-        <span className="feat-preview__hero feat-preview__hero--none" />
+        {hero?.image ? (
+          <img className="feat-preview__hero" src={hero.image} alt="" decoding="async" />
+        ) : (
+          <span className="feat-preview__hero feat-preview__hero--none" />
+        )}
         {hero && <p className="feat-preview__title">{hero.title}</p>}
 
         {quote?.quote && (
@@ -283,7 +293,11 @@ export default function HomeFeaturedClient({ homeId, homeName, slots, cards }: P
           <div className="feat-preview__strip">
             {lately.map(c => (
               <span key={c.id} className="feat-preview__thumb">
-                <span className="feat-preview__thumb-img" />
+                {c.image ? (
+                  <img className="feat-preview__thumb-img" src={c.image} alt="" loading="lazy" decoding="async" />
+                ) : (
+                  <span className="feat-preview__thumb-img" />
+                )}
                 <span className="feat-preview__thumb-cap">{c.title}</span>
               </span>
             ))}

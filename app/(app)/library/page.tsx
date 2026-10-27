@@ -52,6 +52,10 @@ function LibraryCard({ card, homeId, homeName }: { card: KinloomCard; homeId: st
   return (
     // Opened through this Home's room, so its comments are this Home's.
     <Link href={`/library/${card.id}?room=home:${homeId}`} className="lib-card">
+      {card.thumbnail_url && (
+        // Lazy and async: twelve cards should not hold up the first paint.
+        <img className="lib-card__img" src={card.thumbnail_url} alt="" loading="lazy" decoding="async" />
+      )}
       <span className="lib-card__body">
         <span className="lib-card__home">{homeName}</span>
         <span className="lib-card__type">{card.type.label}</span>

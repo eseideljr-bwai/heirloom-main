@@ -20,7 +20,7 @@ function toCard(c: Card, quote: string | null = null, slot: Slot = 'lately'): Fe
     slot === 'voice' ? 'voice'
     : slot === 'hero' ? visual ?? 'written'
     : visual ?? (c.has_audio ? 'voice' : 'written');
-  return { id: c.id, title: c.title || 'Untitled', by: c.author.name, kind, quote };
+  return { id: c.id, title: c.title || 'Untitled', by: c.author.name, kind, quote, image: c.thumbnail_url ?? null };
 }
 
 /**

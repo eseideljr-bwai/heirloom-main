@@ -46,6 +46,9 @@ function PortraitFace({ member }: { member: Person }) {
 function KinloomEntry({ row }: { row: Card }) {
   return (
     <Link href={`/library/${row.id}`} className="portrait-kin">
+      {row.thumbnail_url && (
+        <img className="portrait-kin__img" src={row.thumbnail_url} alt="" loading="lazy" decoding="async" />
+      )}
       <span className="portrait-kin__type">{row.type.label}</span>
       <span className="portrait-kin__title">{row.title || 'Untitled'}</span>
       {row.created_at && (
