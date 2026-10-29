@@ -1,9 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  getReach,
   setKinloomPublications,
   updateKinloom,
   type KinloomStatus,
@@ -13,10 +12,11 @@ import {
 import { ApiError } from '../../../../lib/api';
 import { postToNative } from '../../../../lib/embed';
 import { revalidateKinloomData } from '../../../actions';
-
-const roomKey = (r: { type: string; id: string }) => `${r.type}:${r.id}`;
-
-const people = (n: number) => `${n} ${n === 1 ? 'person' : 'people'}`;
+import AudiencePicker, {
+  audienceSummary,
+  roomKey,
+  useSelectionReach,
+} from '../../../components/AudiencePicker';
 
 /**
  * Step 3 of the create flow: "Who can see it".
@@ -68,53 +68,9 @@ export default function PublishSheet({
 
   const isPrivate = selected.size === 0;
 
-  // Reach: a single room's count comes with the room; two or more need the
-  // API to de-duplicate people who sit in both, so ask it (latest wins).
-  const [combined, setCombined] = useState<{ key: string; accounts: number } | null>(null);
   const selectedRooms = rooms.filter((r) => selected.has(roomKey(r)));
-  const selectionKey = selectedRooms.map(roomKey).join(',');
-  const requestRef = useRef(0);
-
-  useEffect(() => {
-    if (selectedRooms.length < 2) return;
-    const id = ++requestRef.current;
-    getReach(selectedRooms)
-      .then((res) => {
-        if (id === requestRef.current) setCombined({ key: selectionKey, accounts: res.accounts });
-      })
-      .catch(() => {
-        if (id === requestRef.current) setCombined(null);
-      });
-    // selectionKey captures the selected rooms.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionKey]);
-
-  const reach: number | null =
-    selectedRooms.length === 0
-      ? 0
-      : selectedRooms.length === 1
-        ? selectedRooms[0].accounts
-        : combined?.key === selectionKey
-          ? combined.accounts
-          : null;
-
-  const summary = isPrivate
-    ? 'Private. Only you can read it.'
-    : reach == null
-      ? 'Counting who can read this…'
-      : reach === 0
-        ? 'No one else can read this yet.'
-        : `${people(reach)} will be able to read this.`;
-
-  const toggle = (r: PublicationRoom) => {
-    const key = roomKey(r);
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
+  const reach = useSelectionReach(selectedRooms);
+  const summary = audienceSummary(selectedRooms.length, reach);
 
   const commit = async () => {
     setSaving(true);
@@ -143,95 +99,12 @@ export default function PublishSheet({
     }
   };
 
-  const Option = ({
-    name,
-    meta,
-    on,
-    disabled,
-    onToggle,
-  }: {
-    name: string;
-    meta: string;
-    on: boolean;
-    disabled?: boolean;
-    onToggle: () => void;
-  }) => (
-    <button
-      type="button"
-      className={`pub-option${on ? ' is-on' : ''}`}
-      aria-pressed={on}
-      disabled={disabled || saving}
-      onClick={onToggle}
-    >
-      <span className="pub-option__box" aria-hidden="true">{on ? '✓' : ''}</span>
-      <span className="pub-option__text">
-        <span className="pub-option__name">{name}</span>
-        <span className="pub-option__meta">{meta}</span>
-      </span>
-    </button>
-  );
-
-  const roomMeta = (r: PublicationRoom, kind: string) => {
-    const parts = [kind];
-    if (r.read_only) parts.push('read-only');
-    else parts.push(`${people(r.accounts)} can read`);
-    if (r.when === 'on_passing') parts.push('after I pass');
-    return parts.join(' · ');
-  };
-
   return (
     <div className="pub-sheet">
       <p className="pub-sheet__type">{typeLabel}</p>
       <p className="pub-sheet__title">{title || 'Untitled'}</p>
 
-      <div className="pub-group">
-        <p className="pub-group__label">Private</p>
-        <div className="pub-group__opts">
-          <Option
-            name="Keep private"
-            meta="Only you. It stays in your Vault."
-            on={isPrivate}
-            onToggle={() => setSelected(new Set())}
-          />
-        </div>
-      </div>
-
-      {home && (
-        <div className="pub-group">
-          <p className="pub-group__label">Family Home</p>
-          <div className="pub-group__opts">
-            <Option
-              name={`Publish to ${home.name}`}
-              meta={roomMeta(home, 'Your Family Home')}
-              on={selected.has(roomKey(home))}
-              disabled={home.read_only}
-              onToggle={() => toggle(home)}
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="pub-group">
-        <p className="pub-group__label">Family Spaces</p>
-        <div className="pub-group__opts">
-          {spaces.length === 0 ? (
-            <p className="pub-group__empty">
-              Your Family Home isn&rsquo;t in a Family Space yet. Anything you publish here stays in your Family Home.
-            </p>
-          ) : (
-            spaces.map((s) => (
-              <Option
-                key={s.id}
-                name={`Publish to ${s.name}`}
-                meta={roomMeta(s, 'Family Space')}
-                on={selected.has(roomKey(s))}
-                disabled={s.read_only}
-                onToggle={() => toggle(s)}
-              />
-            ))
-          )}
-        </div>
-      </div>
+      <AudiencePicker rooms={rooms} selected={selected} onChange={setSelected} disabled={saving} />
 
       {error && <p className="create-banner create-banner--error">{error}</p>}
 

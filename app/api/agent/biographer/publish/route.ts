@@ -7,10 +7,11 @@
  * (POST /kinlooms — see createKinloom / lib/kinloom.ts) once per draft,
  * server-side, attaching the Bearer via the shared token resolver.
  *
- * Each import is created `final` with `capture_mode: "import"` and no
- * `publish` key, so it lands wherever the author's default publish target
- * says (their Family Home, or private). The kinloom belongs to the author's
- * Vault either way.
+ * Each import is created `final` with `capture_mode: "import"`. When the
+ * request carries `publish` (the rooms the author chose on the batch card),
+ * that is where every draft goes; `[]` keeps them private. Without it there
+ * is no `publish` key, so a draft lands wherever the author's default
+ * publish target says. The kinloom belongs to the author's Vault either way.
  *
  * NOT transactional. Looping the single-create endpoint means a mid-batch
  * failure leaves some kinlooms created and some not. We therefore return a
@@ -25,8 +26,11 @@
  * because an escaped error here used to collapse the whole batch into an
  * opaque 500.
  *
- * Request:  { drafts: Array<{ title; type_slug; body; visibility? }> }
- *           `visibility: "private"` keeps that draft out of every room.
+ * Request:  { drafts: Array<{ title; type_slug; body; visibility? }>,
+ *             publish?: Array<{ type: 'home' | 'space'; id; when? }> }
+ *           `publish` is the author's choice for the whole batch; the API
+ *           rejects a room that isn't theirs. `visibility: "private"` keeps
+ *           that draft out of every room when `publish` is absent.
  * Response: { results: Array<{ ok; ulid?; title; error? }> }
  */
 
@@ -63,6 +67,24 @@ type IncomingDraft = {
   visibility?: unknown;
 };
 
+type Target = { type: 'home' | 'space'; id: string; when?: 'now' | 'on_passing' };
+
+/** The batch's rooms, or null when the key is absent. Throws on a bad shape. */
+function parsePublish(value: unknown): Target[] | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.length > 50) throw new Error('`publish` must be an array of rooms.');
+  return value.map((t) => {
+    const o = (t ?? {}) as Record<string, unknown>;
+    if ((o.type !== 'home' && o.type !== 'space') || typeof o.id !== 'string' || !/^[0-9A-Za-z]{26}$/.test(o.id)) {
+      throw new Error('Each room in `publish` needs a type (home or space) and an id.');
+    }
+    if (o.when !== undefined && o.when !== 'now' && o.when !== 'on_passing') {
+      throw new Error('`when` must be now or on_passing.');
+    }
+    return { type: o.type, id: o.id, ...(o.when ? { when: o.when } : {}) } as Target;
+  });
+}
+
 type ItemResult = { ok: boolean; ulid?: string; title: string; error?: string };
 
 export async function POST(request: Request): Promise<NextResponse> {
@@ -84,6 +106,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   const drafts = (raw as { drafts?: unknown })?.drafts;
   if (!Array.isArray(drafts) || drafts.length === 0) {
     return NextResponse.json({ error: '`drafts` must be a non-empty array.' }, { status: 400 });
+  }
+
+  let chosen: Target[] | null;
+  try {
+    chosen = parsePublish((raw as { publish?: unknown })?.publish);
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
   }
 
   const results: ItemResult[] = [];
@@ -115,8 +144,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           body,
           status: 'final',
           capture_mode: 'import',
-          // No `publish` key: the author's default publish target applies.
-          ...(keepPrivate ? { publish: [] } : {}),
+          // The author's choice wins. With none, a draft marked private stays
+          // private, and otherwise the default publish target applies.
+          ...(chosen ? { publish: chosen } : keepPrivate ? { publish: [] } : {}),
         },
       });
       results.push({ ok: true, ulid: created.id, title: label });
