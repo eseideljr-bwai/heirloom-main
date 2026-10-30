@@ -167,15 +167,6 @@ export default async function OurLibraryPage({ searchParams }: { searchParams?: 
         </div>
       ) : (
         <>
-          <p
-            className="lib-page__flag no-api"
-            data-api-scope="out"
-            data-api-note={"GET /family-homes/{homeId}/library → HomeLibraryPage\n→ data[] · KinloomCard — carries has_photo, but no media and no media id\nNo thumbnail/cover/image field exists anywhere in the API, and this endpoint takes no include param.\nTo show a cover today: GET /kinlooms/{kinloomCard.id} → KinloomDetail.media[0].url. That is one detail call per card (12 a page here, more on the Tapestry) — workable for a few, not for a grid. GET /media/{id}/url does not help: the card exposes no media id to pass it.\nAsk: a nullable thumbnail_url on KinloomCard. Precedent — TapestryLeadCard already carries media."}
-          >
-            Cards render without covers: the library payload says whether a
-            kinloom has a photo, but never where to find it.
-          </p>
-
           <div className="lib-grid">
             {items.map(card => (
               <LibraryCard key={card.id} card={card} homeId={homeId} homeName={homeName} />
