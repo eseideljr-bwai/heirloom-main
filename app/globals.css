@@ -7039,6 +7039,26 @@ body.has-texture::before {
 }
 .tap-audio__bar.is-played { background: var(--primary); }
 
+/* A kinloom photo: an <img> rather than a background, so it can load lazily. */
+.tap-card__img--photo { display: block; width: 100%; object-fit: cover; }
+.tap-count { font-size: 13px; color: var(--fg-5); margin: 0 0 clamp(12px, 1.6vw, 18px); }
+
+/* Featured quotation */
+.tap-card--quote {
+  justify-content: space-between;
+  gap: 16px;
+  padding: clamp(18px, 2.4vw, 30px);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border-color: transparent;
+}
+.tap-quote__text {
+  font-family: var(--font-serif);
+  font-style: italic;
+  line-height: 1.3;
+}
+.tap-quote__by { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.8; }
+
 /* People view */
 .tap-people {
   display: grid;
