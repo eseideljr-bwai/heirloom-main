@@ -187,7 +187,7 @@ export default async function HomePage() {
         </div>
         <div className="home-people kmScroll">
           {people.map(m => (
-            <Link key={m.id} href={`/family/${m.id}`} className="home-person">
+            <Link key={m.id} href={`/portrait/${m.id}`} className="home-person">
               <Silhouette member={m} idKey={m.id} />
               <span className="home-person__name">{m.name}</span>
               <span className="home-person__sub">{m.label || 'Member'}</span>

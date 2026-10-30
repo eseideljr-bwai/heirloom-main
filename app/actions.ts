@@ -14,7 +14,7 @@
 
 import { revalidatePath } from 'next/cache';
 
-const ALWAYS = ['/vault', '/home', '/library', '/family', '/family/feed', '/family/tree', '/family/members'];
+const ALWAYS = ['/vault', '/home', '/library'];
 
 /** Invalidate every page that reads from kinloom data (create/edit/delete/hold). */
 export async function revalidateKinloomData(kinloomId?: string): Promise<void> {
@@ -24,18 +24,14 @@ export async function revalidateKinloomData(kinloomId?: string): Promise<void> {
   } else {
     revalidatePath('/library/[id]', 'page');
   }
-  revalidatePath('/family/[memberId]', 'page');
+  revalidatePath('/portrait/[memberId]', 'page');
   revalidatePath('/legacy-bank');
   revalidatePath('/legacy-bank/[memberId]', 'page');
 }
 
-/** Invalidate family-overview / members / tree pages after a member or invite mutation. */
+/** Invalidate Home and Manage Home after a member or invite mutation. */
 export async function revalidateFamilyData(): Promise<void> {
-  revalidatePath('/family');
-  revalidatePath('/family/feed');
-  revalidatePath('/family/tree');
-  revalidatePath('/family/members');
-  revalidatePath('/family/[memberId]', 'page');
+  revalidatePath('/portrait/[memberId]', 'page');
   revalidatePath('/home');
   revalidatePath('/home/manage');
   revalidatePath('/library');

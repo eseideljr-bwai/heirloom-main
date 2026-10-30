@@ -59,7 +59,7 @@ const DYNAMIC_ROUTES: Array<{ prefix: string; template: string; depth: number }>
   { prefix: '/legacy-bank/history/', template: '/legacy-bank/history/[conversation]', depth: 3 },
   { prefix: '/legacy-bank/', template: '/legacy-bank/[memberId]', depth: 2 },
   { prefix: '/library/', template: '/library/[id]', depth: 2 },
-  { prefix: '/family/', template: '/family/[memberId]', depth: 2 },
+  { prefix: '/portrait/', template: '/portrait/[memberId]', depth: 2 },
   { prefix: '/create/', template: '/create/[type]', depth: 2 },
   { prefix: '/invite/', template: '/invite/[token]', depth: 2 },
 ];
@@ -68,9 +68,6 @@ const DYNAMIC_ROUTES: Array<{ prefix: string; template: string; depth: number }>
 const STATIC_EXCEPTIONS = new Set([
   '/create/talk',
   '/create/import',
-  '/family/feed',
-  '/family/members',
-  '/family/tree',
   '/legacy-bank/chat',
   '/legacy-bank/history',
 ]);
