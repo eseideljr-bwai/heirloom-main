@@ -17,6 +17,18 @@ export type SpacePendingHome = Schemas['SpacePendingHome'];
 export type SpaceInvitation = Schemas['SpaceInvitation'];
 export type PersonCard = Schemas['PersonCard'];
 
+/**
+ * POST /family-spaces: your Home becomes the first Home of a new Space and you
+ * its owner. Needs `can_create_space` on `GET /me` (Family plan, and you own or
+ * co-own your Home). The Space starts with your Home unplaced on the tree.
+ */
+export function createFamilySpace(name: string, description?: string) {
+  const trimmed = description?.trim();
+  return kinloomApi.post('/family-spaces', {
+    body: { name: name.trim(), ...(trimmed ? { description: trimmed } : {}) },
+  });
+}
+
 /** POST /family-spaces/{id}/invitations. `invite_token` is in this response only. */
 export function inviteHomeToSpace(spaceId: string, email: string) {
   return kinloomApi.post('/family-spaces/{familySpace}/invitations', {
