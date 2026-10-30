@@ -38,7 +38,6 @@ const PROTECTED_PREFIXES = [
   '/home',
   '/create',
   '/library',
-  '/family',
   '/legacy-bank',
   '/settings',
   '/help',

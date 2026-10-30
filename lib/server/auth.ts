@@ -152,27 +152,10 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
   return state.status === 'unauthenticated' ? null : state.user;
 }
 
-// ─── Pre-Phase-3 names ──────────────────────────────────────────────
+// ─── Agent routes ───────────────────────────────────────────────────
 //
-// Fifty-odd screens still ask for "the active space" and pass its id to
-// the old `/family-spaces/{id}/…` routes. The container those routes meant
-// is the person's Family Home now, so these return the Home. Each screen
-// moves to `requireHome()` when it is rewired; the real Family Space is
-// `getActiveFamilySpaceId()`.
-
-/**
- * @deprecated Returns the Home id. Use `requireHome()`; for a Family
- * Space use `getActiveFamilySpaceId()`.
- */
-export async function requireActiveSpaceId(): Promise<string> {
-  return (await requireHome()).homeId;
-}
-
-/** @deprecated Returns the Home id, or null. See `requireActiveSpaceId`. */
-export async function getActiveSpaceId(): Promise<string | null> {
-  const state = await getUserState();
-  return state.status === 'ready' ? state.home.id : null;
-}
+// The Talk and Biographer routes still call this by its pre-Phase-3 name. The
+// container they mean is the person's Family Home, so it returns the Home id.
 
 export type ActiveSpaceResult =
   | {
@@ -240,18 +223,6 @@ export async function resolveActiveSpaceForRoute(
       error: 'Could not reach your family home. Please try again in a moment.',
     };
   }
-}
-
-/** @deprecated The Home as a legacy ref. Use `requireHome()`. */
-export async function getActiveSpace(): Promise<FamilySpaceRef | null> {
-  const state = await getUserState();
-  return state.status === 'ready' ? homeAsLegacyRef(state.user) : null;
-}
-
-/** @deprecated A one-item list: the Home. Real Spaces are `state.spaces`. */
-export async function getFamilySpaces(): Promise<FamilySpaceRef[]> {
-  const state = await getUserState();
-  return state.status === 'ready' ? [homeAsLegacyRef(state.user)] : [];
 }
 
 /**
