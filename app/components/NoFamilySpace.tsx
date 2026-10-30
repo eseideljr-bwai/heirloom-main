@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import CreateSpaceCard from './CreateSpaceCard';
 
 /**
  * Shown on every `/spaces/*` screen when the person's Family Home is in no
@@ -16,6 +17,7 @@ export default function NoFamilySpace({ what }: { what: string }) {
           {' '}{what} appears here.
         </p>
         <Link href="/home" className="empty-card__cta">Back to your home →</Link>
+        <CreateSpaceCard />
       </div>
     </div>
   );
