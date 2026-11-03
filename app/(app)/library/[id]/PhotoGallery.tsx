@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, type TouchEvent } from 'react';
-import { isVideoMediaUrl, type KinloomMedia } from '../../../../lib/kinloom';
+import { isVideoMedia, type KinloomMedia } from '../../../../lib/kinloom';
 
 /** Tiles per page until the grid has been measured. Matches the 3-up desktop column count. */
 const FALLBACK_PER_PAGE = 3;
@@ -111,7 +111,7 @@ export default function PhotoGallery({ photos }: { photos: KinloomMedia[] }) {
   // Warm the next page so paging forward doesn't wait on a fresh download.
   useEffect(() => {
     for (const photo of photos.slice((page + 1) * perPage, (page + 2) * perPage)) {
-      if (photo.url && !isVideoMediaUrl(photo.url)) {
+      if (photo.url && !isVideoMedia(photo)) {
         const preload = new window.Image();
         preload.src = photo.url;
       }
@@ -132,7 +132,7 @@ export default function PhotoGallery({ photos }: { photos: KinloomMedia[] }) {
   if (photos.length === 0) return null;
 
   const open = openIndex !== null ? photos[openIndex] : null;
-  const openIsVideo = isVideoMediaUrl(open?.url);
+  const openIsVideo = isVideoMedia(open);
 
   const first = page * perPage;
   const last = Math.min(first + perPage, photos.length);
@@ -162,7 +162,7 @@ export default function PhotoGallery({ photos }: { photos: KinloomMedia[] }) {
           {photos.slice(first, last).map((photo, i) => {
             const index = first + i;
             if (!photo.url) return null;
-            const isVideo = isVideoMediaUrl(photo.url);
+            const isVideo = isVideoMedia(photo);
             return (
               <button
                 key={index}

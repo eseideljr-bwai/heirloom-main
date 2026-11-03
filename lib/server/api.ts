@@ -22,11 +22,33 @@ import { COOKIES } from './cookies';
 import { adminAuth } from './firebase-admin';
 import { verifySession } from './auth';
 
-export const SERVER_API_BASE = (
-  process.env.KINLOOM_API_URL ||
-  process.env.BACKEND_API_URL ||
-  'https://kinloom-api-laravel-fz0wpjzb.on-forge.com/api'
-).replace(/\/$/, '');
+/**
+ * Local-development fallback only: the Phase 3 API on Forge. A deployed
+ * build must name its own API host, otherwise it would quietly talk to this
+ * one (a personal environment, with its own data).
+ */
+const DEV_FALLBACK_API_URL = 'https://kinloom-api-laravel-vycjbweb.on-forge.com/api';
+
+/**
+ * The Laravel API root for this server, without a trailing slash.
+ *
+ * Read per request, not at import: `next build` imports this module with no
+ * runtime environment (Cloud Run sets env vars on the service, not the
+ * build), so a throw at import would fail every build. In production a
+ * missing `KINLOOM_API_URL` fails the first request instead, with a message
+ * that names the variable.
+ */
+export function serverApiBase(): string {
+  const configured = process.env.KINLOOM_API_URL || process.env.BACKEND_API_URL;
+  if (configured) return configured.replace(/\/$/, '');
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'KINLOOM_API_URL is not set. A production server has to be told which API to call; ' +
+        'set it on the service (see .env.example).',
+    );
+  }
+  return DEV_FALLBACK_API_URL;
+}
 
 /**
  * Cap on how much of an upstream error body we log. Laravel's exception
@@ -79,24 +101,20 @@ function isIdTokenLikelyExpired(token: string): boolean {
 }
 
 /**
- * Mint a Firebase ID token server-side for the currently-signed-in
- * user. Uses Admin SDK to create a custom token, then exchanges it
- * via the Identity Toolkit REST API.
- *
- * Cached per request so multiple SSR fetches share one round-trip.
+ * Mint a fresh Firebase ID token for `uid`. Uses Admin SDK to create a
+ * custom token, then exchanges it via the Identity Toolkit REST API.
+ * The result has a current `auth_time`, which is what
+ * `createSessionCookie` requires.
  */
-const mintIdTokenForCurrentSession = cache(async (): Promise<string | null> => {
-  const session = await verifySession();
-  if (!session) return null;
-
+export async function mintIdTokenForUid(uid: string): Promise<string | null> {
   const apiKey = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
   if (!apiKey) {
     throw new Error(
-      'NEXT_PUBLIC_FIREBASE_API_KEY is not set — needed for SSR custom-token exchange.',
+      'NEXT_PUBLIC_FIREBASE_API_KEY is not set — needed for custom-token exchange.',
     );
   }
 
-  const customToken = await adminAuth().createCustomToken(session.uid);
+  const customToken = await adminAuth().createCustomToken(uid);
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${encodeURIComponent(apiKey)}`,
     {
@@ -112,6 +130,16 @@ const mintIdTokenForCurrentSession = cache(async (): Promise<string | null> => {
   }
   const data = (await res.json()) as { idToken?: string };
   return data.idToken ?? null;
+}
+
+/**
+ * ID token for the currently-signed-in user. Cached per request so
+ * multiple SSR fetches share one round-trip.
+ */
+const mintIdTokenForCurrentSession = cache(async (): Promise<string | null> => {
+  const session = await verifySession();
+  if (!session) return null;
+  return mintIdTokenForUid(session.uid);
 });
 
 async function readIdToken(): Promise<string | null> {
@@ -148,7 +176,7 @@ export async function serverApiFetch<T = unknown>(
     h.Authorization = `Bearer ${token}`;
   }
 
-  const url = path.startsWith('http') ? path : `${SERVER_API_BASE}${path}`;
+  const url = path.startsWith('http') ? path : `${serverApiBase()}${path}`;
 
   const res = await fetch(url, {
     ...rest,

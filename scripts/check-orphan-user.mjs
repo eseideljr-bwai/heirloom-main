@@ -60,7 +60,7 @@ if (!exch.ok) {
 }
 const { idToken } = await exch.json();
 
-const apiBase = (env.KINLOOM_API_URL || 'https://kinloom-api-laravel-fz0wpjzb.on-forge.com/api').replace(/\/$/, '');
+const apiBase = (env.KINLOOM_API_URL || 'https://kinloom-api-laravel-vycjbweb.on-forge.com/api').replace(/\/$/, '');
 const me = await fetch(`${apiBase}/me`, {
   headers: { Accept: 'application/json', Authorization: `Bearer ${idToken}` },
 });

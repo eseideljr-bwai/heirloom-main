@@ -4,24 +4,20 @@
  * `pdf` a printable book of their kinlooms. The family space in the URL is
  * only the route the request goes through.
  *
- *   1. createExport(...)  → 202 with { export_id, status: 'pending' }
- *   2. poll getExport(...) until status === 'ready' (or 'failed')
- *   3. download via the proxied /api/proxy/.../exports/{id}/download
- *      using `exportDownloadUrl(...)`. We force a same-origin link so
- *      the kinloom_id_token cookie is attached.
+ *   1. startExport(format)  → 202 with the export (a double click returns the running one)
+ *   2. pollExport(id)       → until `status` is `ready` or `failed`
+ *   3. exportDownloadUrl(id) → navigate to it; the API redirects to a signed file URL
+ *
+ * There is no list of exports, so the id is kept in this browser to resume a
+ * job after a reload. Only 2 exports an hour are allowed.
  */
 
-import { apiFetch, API_BASE } from './api';
+import { kinloomApi } from './kinloom-api';
+import { API_BASE } from './api';
+import type { components } from './api-schema/typed';
 
-export type ExportFormat = 'pdf' | 'json';
-export type ExportSchedule = 'once' | 'monthly';
-
-export type ExportStatus =
-  | 'pending'
-  | 'processing'
-  | 'ready'
-  | 'failed'
-  | (string & {});
+export type VaultExport = components['schemas']['VaultExport'];
+export type ExportFormat = VaultExport['format'];
 
 export type CreateExportPayload = {
   format: ExportFormat;
@@ -48,31 +44,37 @@ export type Export = {
   counts?: ExportCounts | null;
 };
 
-/** POST /family-spaces/{familySpace}/exports */
-export async function createExport(
-  familySpaceId: string,
-  payload: CreateExportPayload,
-): Promise<CreateExportResponse> {
-  return apiFetch<CreateExportResponse>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/exports`,
-    { method: 'POST', body: payload },
-  );
+/** Same-origin, so the session reaches the API; the API answers 302 to the file. */
+export function exportDownloadUrl(id: string): string {
+  return `${API_BASE}/vault/exports/${encodeURIComponent(id)}/download`;
 }
 
-/** GET /family-spaces/{familySpace}/exports/{export} — status polling. */
-export async function getExport(
-  familySpaceId: string,
-  exportId: string,
-): Promise<Export> {
-  return apiFetch<Export>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/exports/${encodeURIComponent(exportId)}`,
-  );
+const KEY = 'kinloom-vault-export-v1';
+type Remembered = { id: string; format: ExportFormat };
+
+export function rememberExport(job: Remembered | null): void {
+  try {
+    if (job) window.localStorage.setItem(KEY, JSON.stringify(job));
+    else window.localStorage.removeItem(KEY);
+  } catch {
+    /* blocked storage: the export still works, it just can't be resumed */
+  }
 }
 
-/**
- * Same-origin URL the browser can navigate to for the actual file. Goes
- * through the BFF so the Bearer cookie is attached.
- */
-export function exportDownloadUrl(familySpaceId: string, exportId: string): string {
-  return `${API_BASE}/family-spaces/${encodeURIComponent(familySpaceId)}/exports/${encodeURIComponent(exportId)}/download`;
+export function recallExport(): Remembered | null {
+  try {
+    const raw = window.localStorage.getItem(KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<Remembered>;
+    return v.id && (v.format === 'json' || v.format === 'pdf') ? { id: v.id, format: v.format } : null;
+  } catch {
+    return null;
+  }
+}
+
+export function formatBytes(n: number | null): string {
+  if (n == null) return '';
+  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }

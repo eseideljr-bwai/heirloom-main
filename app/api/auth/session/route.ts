@@ -84,6 +84,14 @@ export async function POST(req: NextRequest) {
   });
 
   if (mode === 'establish') {
+    // /api/auth/mobile-session hands out custom-minted tokens; don't let one
+    // become a 14-day session.
+    if (decoded.firebase.sign_in_provider === 'custom') {
+      return NextResponse.json(
+        { message: 'Sign in again to start a session.' },
+        { status: 401 },
+      );
+    }
     let sessionCookie: string;
     try {
       sessionCookie = await adminAuth().createSessionCookie(idToken, {

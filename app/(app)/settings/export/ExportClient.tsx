@@ -1,11 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useActiveFamilySpace } from '../../../../lib/active-family-space';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ApiError } from '../../../../lib/api';
 import {
-  createExport,
-  getExport,
   exportDownloadUrl,
+  formatBytes,
+  getExport,
+  recallExport,
+  rememberExport,
+  startExport,
   type ExportFormat,
   type ExportStatus,
 } from '../../../../lib/exports';
@@ -30,19 +33,25 @@ export default function ExportClient() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    alive.current = true;
+    const remembered = recallExport();
+    if (remembered) watch(remembered.id);
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+      alive.current = false;
+      if (timer.current) clearTimeout(timer.current);
     };
-  }, []);
+  }, [watch]);
 
-  async function start(format: ExportFormat) {
-    if (!activeSpaceId) return;
-    setSubmitting(true);
-    setJob({ exportId: '', format, status: 'pending' });
+  async function begin(format: ExportFormat) {
+    setStarting(format);
+    setError(null);
+    setGaveUp(false);
     try {
-      const res = await createExport(activeSpaceId, { format, schedule: 'once' });
-      setJob({ exportId: res.export_id, format, status: res.status });
-      pollExport(activeSpaceId, res.export_id);
+      const ex = await startExport(format);
+      rememberExport({ id: ex.id, format: ex.format });
+      setJob(ex);
+      if (ex.status === 'ready' || ex.status === 'failed' || ex.status === 'expired') stop();
+      else watch(ex.id);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not start the export.';
       setJob({ exportId: '', format, status: 'failed', error: msg });
@@ -83,32 +92,33 @@ export default function ExportClient() {
 
   return (
     <div>
-      <h1 className="settings-h1">Export & backup</h1>
-      <p className="settings-card-text">Your kinlooms belong to you. Export or download them at any time.</p>
+      <h1 className="settings-h1">Export &amp; backup</h1>
+      <p className="settings-card-text">
+        Your kinlooms belong to you. Download a copy of everything you’ve written, drafts and private
+        kinlooms included, any time.
+      </p>
 
       <div className="settings-stack">
         <div className="card">
-          <h2 className="settings-h2">Export all kinlooms</h2>
-          <p className="settings-card-text">
-            Download all your kinlooms as a single archive. Includes full text and metadata.
-          </p>
-          <div className="vis-row">
-            <button
-              type="button"
-              className="btn-save"
-              onClick={() => start('pdf')}
-              disabled={submitting || inFlight || !activeSpaceId}
-            >
-              Export as PDF
-            </button>
-            <button
-              type="button"
-              className="btn-outline"
-              onClick={() => start('json')}
-              disabled={submitting || inFlight || !activeSpaceId}
-            >
-              Export as JSON
-            </button>
+          <h2 className="settings-h2">Download your kinlooms</h2>
+
+          <div className="export-choices">
+            {FORMATS.map(f => (
+              <div key={f.format} className="export-choice">
+                <div className="export-choice__body">
+                  <p className="notif-row__label">{f.title}</p>
+                  <p className="notif-row__desc">{f.text}</p>
+                </div>
+                <button
+                  type="button"
+                  className={f.primary ? 'btn-save' : 'btn-outline'}
+                  onClick={() => begin(f.format)}
+                  disabled={busy}
+                >
+                  {starting === f.format ? 'Starting…' : 'Export'}
+                </button>
+              </div>
+            ))}
           </div>
 
           {job && (
@@ -134,7 +144,21 @@ export default function ExportClient() {
                   </a>
                 </p>
               )}
-              {failed && <p><strong>Export failed.</strong> {job.error || 'Please try again in a moment.'}</p>}
+            </div>
+          )}
+
+          {finished && job?.status === 'failed' && (
+            <div className="export-status export-status--error" role="alert">
+              <p>
+                <strong>The export didn’t finish.</strong>{' '}
+                {job.error_message || 'Please start a new one in a few minutes.'}
+              </p>
+            </div>
+          )}
+
+          {finished && job?.status === 'expired' && (
+            <div className="export-status" role="status">
+              <p>Your last export has expired, as downloads last seven days. Start a new one above.</p>
             </div>
           )}
         </div>

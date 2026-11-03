@@ -16,6 +16,8 @@
  * from lib/server/api.ts.
  */
 
+import { reportUnauthorized } from './embed';
+
 export const API_BASE = '/api/proxy';
 
 const SESSION_STARTED_AT_COOKIE = 'kinloom_session_started_at';
@@ -161,6 +163,7 @@ export async function apiFetch<T = unknown>(
   }
 
   if (!res.ok) {
+    if (!anonymous) reportUnauthorized(res.status);
     const message =
       data && typeof data === 'object' && 'message' in data && typeof (data as { message: unknown }).message === 'string'
         ? (data as { message: string }).message

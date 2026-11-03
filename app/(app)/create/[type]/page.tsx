@@ -3,10 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { KINLOOM_TYPE_MAP } from '../../../lib/kinloom-types';
+import CreateSteps from '../../../components/CreateSteps';
+import { KINLOOM_TYPE_MAP, KINLOOM_TYPES } from '../../../lib/kinloom-types';
 import { useAuth } from '../../../../lib/auth-context';
-import { useActiveFamilySpace } from '../../../../lib/active-family-space';
-import { parseFamilySpaces } from '../../../../lib/auth';
 import {
   createKinloom,
   deleteKinloom,
@@ -24,9 +23,10 @@ import {
   uploadKinloomVideo,
   type KinloomType,
   type TaggableMember,
-  type Visibility,
 } from '../../../../lib/kinloom';
 import { ApiError } from '../../../../lib/api';
+import { postToNative } from '../../../../lib/embed';
+import NativeExitLink from '../../../components/NativeExitLink';
 import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
 import { revalidateKinloomData } from '../../../actions';
 
@@ -56,34 +56,6 @@ type VideoItem = {
   error?: string;
   mediaId?: string;
 };
-
-function StepIndicator({ current, total = 3 }: { current: Step; total?: number }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      {Array.from({ length: total }).map((_, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{
-            width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: i + 1 === current ? '#556b5b' : i + 1 < current ? 'rgba(85,107,91,0.20)' : '#f5f4f1',
-            border: `1px solid ${i + 1 === current ? '#556b5b' : i + 1 < current ? 'rgba(85,107,91,0.30)' : '#d4d2cc'}`,
-            fontSize: 11, fontWeight: 500,
-            color: i + 1 === current ? '#fdfcfa' : i + 1 < current ? '#556b5b' : 'rgba(26,26,26,0.4)',
-          }}>
-            {i + 1 < current ? (
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
-            ) : i + 1}
-          </div>
-          {i < total - 1 && (
-            <div style={{ width: 24, height: 1, background: i + 1 < current ? 'rgba(85,107,91,0.30)' : '#d4d2cc' }} />
-          )}
-        </div>
-      ))}
-      <span style={{ fontSize: 12, color: 'rgba(26,26,26,0.45)', marginLeft: 4 }}>
-        Step {current} of {total}
-      </span>
-    </div>
-  );
-}
 
 function MediaStatusBadges({ status, error }: { status: MediaUploadStatus; error?: string }) {
   return (
@@ -179,13 +151,14 @@ function VideoThumbnailGrid({
 export default function CreateTypePage({ params }: { params: { type: string } }) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { activeSpaceId: familySpaceId } = useActiveFamilySpace();
-  const noFamilySpace = !authLoading && !familySpaceId;
 
   const fallbackType = KINLOOM_TYPE_MAP[params.type];
 
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState('');
+  // "When" is free text ("Summer 1987"); the API stores it as `occurred_label`.
+  const [happenedWhen, setHappenedWhen] = useState('');
+  const [happenedWhere, setHappenedWhere] = useState('');
   const [body, setBody] = useState('');
   const [voiceValue, setVoiceValue] = useState<VoiceRecorderValue | null>(null);
   const [showVoice, setShowVoice] = useState(false);
@@ -200,10 +173,12 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const hasVideo = videoItems.length > 0;
   const mediaSlotCount = photoItems.length + videoItems.length;
   const [taggedKin, setTaggedKin] = useState<string[]>([]);
-  const [visibility, setVisibility] = useState<Visibility>('family');
+  // Everything lands in the author's Vault as a draft first; step 3 of the
+  // flow ("Who can see it") finalizes it and decides the audience.
 
   const [typeData, setTypeData] = useState<KinloomType | null>(fallbackType ?? null);
   const [taggableMembers, setTaggableMembers] = useState<TaggableMember[]>([]);
+  const [maxVideoBytes, setMaxVideoBytes] = useState<number>(MAX_VIDEO_BYTES);
   const [contextLoading, setContextLoading] = useState(true);
   const [contextError, setContextError] = useState<string | null>(null);
 
@@ -213,31 +188,30 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
   const [voiceUploadError, setVoiceUploadError] = useState<string | null>(null);
   /**
-   * The kinloom is created as a `draft` on first save attempt; we only
-   * flip it to `published` after all media uploads succeed. While a
-   * draft exists, navigating away or hitting "Discard" purges it so
-   * abandoned flows leave no orphaned data (Epic 4 acceptance).
+   * The kinloom is created as a `draft` on first save attempt. Once the
+   * text and every media upload have landed we hand it to the publish step
+   * (`handedOffId`), which finalizes it. Until then, navigating away or
+   * hitting "Discard" purges the draft so a half-saved flow leaves nothing
+   * behind in the Vault.
    */
   const [savedKinloomId, setSavedKinloomId] = useState<string | null>(null);
-  const [publishedId, setPublishedId] = useState<string | null>(null);
+  const [handedOffId, setHandedOffId] = useState<string | null>(null);
   const [discarding, setDiscarding] = useState(false);
 
   useEffect(() => {
     if (authLoading) return;
-    if (!familySpaceId) {
-      setContextLoading(false);
-      return;
-    }
     let cancelled = false;
     setContextLoading(true);
     setContextError(null);
     (async () => {
       try {
-        const ctx = await getCreateContext(familySpaceId, params.type);
+        const ctx = await getCreateContext(params.type);
         if (cancelled) return;
         setTypeData(ctx.type);
         setTaggableMembers(ctx.taggableMembers);
-        setVisibility(ctx.defaultVisibility);
+        // The API names the largest file it takes; checking here saves a
+        // long upload that would be refused at the end.
+        setMaxVideoBytes(Math.min(MAX_VIDEO_BYTES, ctx.uploadLimits.video.max_bytes));
       } catch (err) {
         if (cancelled) return;
         const msg = err instanceof ApiError ? err.message : 'Could not load this kinloom type.';
@@ -247,7 +221,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       }
     })();
     return () => { cancelled = true; };
-  }, [authLoading, familySpaceId, params.type]);
+  }, [authLoading, params.type]);
 
   // Object URLs are created on selection and revoked on removal (see
   // handleRemovePhoto / handleRemoveVideo); this only catches URLs still
@@ -275,8 +249,8 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   // unload — cookies stay attached because /api/proxy is same-origin.
   useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (!savedKinloomId || publishedId === savedKinloomId) return;
-      const url = `/api/proxy/family-spaces/${encodeURIComponent(familySpaceId!)}/kinlooms/${encodeURIComponent(savedKinloomId)}`;
+      if (!savedKinloomId || handedOffId === savedKinloomId) return;
+      const url = `/api/proxy/kinlooms/${encodeURIComponent(savedKinloomId)}`;
       try {
         fetch(url, { method: 'DELETE', credentials: 'same-origin', keepalive: true });
       } catch {
@@ -289,23 +263,23 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [savedKinloomId, publishedId, familySpaceId]);
+  }, [savedKinloomId, handedOffId]);
 
   // In-app navigation (clicking the Back link, the family logo, etc.)
   // triggers React unmount. Fire the same best-effort DELETE so
   // soft-navigations leave no orphan either. Capture the latest IDs
   // through a ref so the unmount cleanup sees current values.
-  const draftRef = useRef<{ id: string | null; published: string | null; spaceId: string | null }>({
-    id: null, published: null, spaceId: null,
+  const draftRef = useRef<{ id: string | null; handedOff: string | null }>({
+    id: null, handedOff: null,
   });
   useEffect(() => {
-    draftRef.current = { id: savedKinloomId, published: publishedId, spaceId: familySpaceId };
-  }, [savedKinloomId, publishedId, familySpaceId]);
+    draftRef.current = { id: savedKinloomId, handedOff: handedOffId };
+  }, [savedKinloomId, handedOffId]);
   useEffect(() => {
     return () => {
-      const { id, published, spaceId } = draftRef.current;
-      if (!id || !spaceId || published === id) return;
-      const url = `/api/proxy/family-spaces/${encodeURIComponent(spaceId)}/kinlooms/${encodeURIComponent(id)}`;
+      const { id, handedOff } = draftRef.current;
+      if (!id || handedOff === id) return;
+      const url = `/api/proxy/kinlooms/${encodeURIComponent(id)}`;
       try {
         fetch(url, { method: 'DELETE', credentials: 'same-origin', keepalive: true });
       } catch {
@@ -341,7 +315,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     return (
       <div className="compose-page">
         <p style={{ fontSize: 16, color: 'rgba(26,26,26,0.7)' }}>Unknown kinloom type.</p>
-        <Link href="/create" style={{ color: '#556b5b', fontSize: 14 }}>← Back to create</Link>
+        <NativeExitLink href="/create" message={{ type: 'cancel' }} style={{ color: '#556b5b', fontSize: 14 }}>← Back to create</NativeExitLink>
       </div>
     );
   }
@@ -415,8 +389,8 @@ export default function CreateTypePage({ params }: { params: { type: string } })
         errors.push(`\u201c${file.name}\u201d isn\u2019t a supported video type. Use MP4, WebM, or MOV.`);
         continue;
       }
-      if (file.size > MAX_VIDEO_BYTES) {
-        errors.push(`\u201c${file.name}\u201d is too large. Max 100 MB per video.`);
+      if (file.size > maxVideoBytes) {
+        errors.push(`\u201c${file.name}\u201d is too large. Max ${Math.floor(maxVideoBytes / (1024 * 1024))} MB per video.`);
         continue;
       }
       accepted.push(file);
@@ -466,10 +440,6 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   };
 
   const handleSave = async () => {
-    if (!familySpaceId) {
-      setSaveError('No family space found for your account.');
-      return;
-    }
     if (!title.trim()) {
       setSaveError('Please give it a title before saving.');
       setStep(2);
@@ -492,23 +462,26 @@ export default function CreateTypePage({ params }: { params: { type: string } })
     // Step 1: ensure a draft row exists (idempotent on retry).
     try {
       if (!createdId) {
-        const created = await createKinloom(familySpaceId, {
+        const created = await createKinloom({
           type_slug: resolvedType.slug,
           title: title.trim(),
           body: body.trim(),
-          visibility,
           status: 'draft',
           tagged_member_ids: taggedKin,
+          occurred_label: happenedWhen.trim() || null,
+          place: happenedWhere.trim() || null,
+          capture_mode: 'write',
         });
-        createdId = created.ulid;
+        createdId = created.id;
         setSavedKinloomId(createdId);
       } else {
-        // Sync the latest text/visibility/tags into the existing draft.
-        await updateKinloom(familySpaceId, createdId, {
+        // Sync the latest text/tags into the existing draft.
+        await updateKinloom(createdId, {
           title: title.trim(),
           body: body.trim(),
-          visibility,
           tagged_member_ids: taggedKin,
+          occurred_label: happenedWhen.trim() || null,
+          place: happenedWhere.trim() || null,
         });
       }
     } catch (err) {
@@ -544,7 +517,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
           p.id === item.id ? { ...p, status: 'uploading', error: undefined } : p
         ));
         try {
-          const confirmed = await uploadKinloomPhoto(familySpaceId, kinloomId, item.file, {
+          const confirmed = await uploadKinloomPhoto(kinloomId, item.file, {
             width: item.width,
             height: item.height,
           });
@@ -580,7 +553,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
           v.id === item.id ? { ...v, status: 'uploading', error: undefined } : v
         ));
         try {
-          const confirmed = await uploadKinloomVideo(familySpaceId, kinloomId, item.file, {
+          const confirmed = await uploadKinloomVideo(kinloomId, item.file, {
             width: item.width,
             height: item.height,
             durationSeconds: item.durationSeconds,
@@ -607,7 +580,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
 
     if (voiceValue && createdId) {
       try {
-        await uploadKinloomAudio(familySpaceId, createdId, voiceValue.file, {
+        await uploadKinloomAudio(createdId, voiceValue.file, {
           durationSeconds: voiceValue.durationSeconds,
         });
       } catch (uploadErr) {
@@ -623,58 +596,35 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       }
     }
 
-    // Step 4: flip the draft to published — the only atomic commit.
-    try {
-      await updateKinloom(familySpaceId, createdId!, { status: 'published' });
-    } catch (err) {
-      const msg = err instanceof ApiError
-        ? (err.firstFieldError() || err.message)
-        : 'Could not finalize publishing.';
-      setSaveError(msg);
-      setSaving(false);
-      return;
-    }
-
-    setPublishedId(createdId);
+    // Step 4: the draft is complete. Hand it to the publish step, which
+    // finalizes it and chooses who can see it in one request.
+    setHandedOffId(createdId);
     void revalidateKinloomData(createdId!);
-    router.push(`/library/${createdId}`);
-    router.refresh();
+    router.push(`/create/publish?k=${createdId}`);
   };
 
   const handleSkipMedia = async () => {
-    if (!savedKinloomId || !familySpaceId) return;
-    console.log('[CP2-diag] skip-media taken — publishing with zero photos');
-    setSaving(true);
-    try {
-      await updateKinloom(familySpaceId, savedKinloomId, { status: 'published' });
-      setPublishedId(savedKinloomId);
-      void revalidateKinloomData(savedKinloomId);
-      router.push(`/library/${savedKinloomId}`);
-      router.refresh();
-    } catch (err) {
-      const msg = err instanceof ApiError
-        ? (err.firstFieldError() || err.message)
-        : 'Could not finalize publishing.';
-      setSaveError(msg);
-      setSaving(false);
-    }
+    if (!savedKinloomId) return;
+    setHandedOffId(savedKinloomId);
+    void revalidateKinloomData(savedKinloomId);
+    router.push(`/create/publish?k=${savedKinloomId}`);
   };
 
   const handleDiscard = async () => {
-    if (!savedKinloomId || !familySpaceId) {
-      router.push('/create');
+    if (!savedKinloomId) {
+      if (!postToNative({ type: 'cancel' })) router.push('/create');
       return;
     }
     setDiscarding(true);
     try {
-      await deleteKinloom(familySpaceId, savedKinloomId);
+      await deleteKinloom(savedKinloomId);
     } catch {
       // best-effort — we'd rather move on than block the user
     } finally {
       setSavedKinloomId(null);
       setDiscarding(false);
       void revalidateKinloomData(savedKinloomId);
-      router.push('/create');
+      if (!postToNative({ type: 'cancel' })) router.push('/create');
     }
   };
 
@@ -683,14 +633,11 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   };
 
   const otherMembers = useMemo(() => {
-    // Tag-from-me list should hide ME in the *currently active* space, not
-    // whichever space happens to be first. Falls back to the first space's
-    // member_id when no active id is set (parity with old behaviour).
-    const spaces = parseFamilySpaces(user?.family_spaces);
-    const mine = spaces.find(s => s.ulid === familySpaceId) ?? spaces[0];
-    const myMemberId = mine?.member_id ?? null;
+    // Tag-from-me list hides the signed-in person. `person_id` is the id
+    // on their own person card, which is what the tag list carries.
+    const myMemberId = user?.person_id ?? null;
     return taggableMembers.filter(m => m.member_id !== myMemberId);
-  }, [taggableMembers, user, familySpaceId]);
+  }, [taggableMembers, user]);
 
   const taggedKinObjects = useMemo(
     () => taggedKin
@@ -702,22 +649,18 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   return (
     <div className="compose-page">
 
-      {/* Header */}
-      <div style={{ borderBottom: '1px solid #d4d2cc', paddingBottom: 20, marginBottom: 36 }}>
-        <div className="compose-page__head">
-          <Link href="/create" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(26,26,26,0.6)', textDecoration: 'none' }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
-            Create
-          </Link>
-          <StepIndicator current={step} />
-        </div>
+      {/* Chrome: the flow-wide step indicator replaces the composer's
+          own 1-2-3 counter, so there is one progress signal, not two. */}
+      <div className="compose-page__chrome">
+        <NativeExitLink href="/create" message={{ type: 'cancel' }} className="create-page__back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+          </svg>
+          Back to Create
+        </NativeExitLink>
+        <CreateSteps active={1} mode="write" />
       </div>
 
-      {noFamilySpace && (
-        <div className="create-banner create-banner--error">
-          You don&apos;t have a family space yet. <Link href="/onboarding/profile" style={{ color: 'inherit', textDecoration: 'underline' }}>Finish setting up your profile</Link> to start writing kinlooms.
-        </div>
-      )}
       {contextError && (
         <p className="create-banner create-banner--error">{contextError}</p>
       )}
@@ -725,9 +668,20 @@ export default function CreateTypePage({ params }: { params: { type: string } })
       {/* Step 1: Prompt */}
       {step === 1 && (
         <div style={{ maxWidth: 640 }}>
-          <span style={{ display: 'inline-block', padding: '4px 12px', borderRadius: 9999, fontSize: 12, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b', marginBottom: 20 }}>
-            {resolvedType.label}
-          </span>
+          <p className="compose-types__label">What kind of kinloom is this?</p>
+          <div className="compose-types">
+            {KINLOOM_TYPES.map(t => (
+              <Link
+                key={t.slug}
+                href={`/create/${t.slug}`}
+                replace
+                className={`compose-type${t.slug === resolvedType.slug ? ' is-active' : ''}`}
+                aria-current={t.slug === resolvedType.slug ? 'true' : undefined}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </div>
           <h1 className="compose-page__title">
             {resolvedType.definition}
           </h1>
@@ -749,9 +703,6 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               Begin writing
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 12 L10 8 L6 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
             </button>
-            <Link href="/create" style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 24px', borderRadius: 8, fontSize: 15, textDecoration: 'none' }}>
-              Choose different type
-            </Link>
           </div>
         </div>
       )}
@@ -785,6 +736,31 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               maxLength={65000}
               style={{ width: '100%', padding: '16px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 16, fontFamily: 'var(--font-serif)', lineHeight: 1.75, resize: 'vertical', outline: 'none', color: '#1a1a1a', boxSizing: 'border-box' }}
             />
+
+            <div className="compose-meta">
+              <div className="field">
+                <label htmlFor="kinloom-when">When did this happen?</label>
+                <input
+                  id="kinloom-when"
+                  type="text"
+                  value={happenedWhen}
+                  onChange={e => setHappenedWhen(e.target.value)}
+                  placeholder="A year, a season, or &lsquo;every July&rsquo;"
+                  maxLength={120}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="kinloom-where">Where?</label>
+                <input
+                  id="kinloom-where"
+                  type="text"
+                  value={happenedWhere}
+                  onChange={e => setHappenedWhere(e.target.value)}
+                  placeholder="Optional"
+                  maxLength={120}
+                />
+              </div>
+            </div>
 
             {/* Attachment options */}
             <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
@@ -913,10 +889,10 @@ export default function CreateTypePage({ params }: { params: { type: string } })
             <div style={{ marginBottom: 32 }}>
               <p style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a', margin: '0 0 12px' }}>Tag family members</p>
               <p style={{ fontSize: 13, color: 'rgba(26,26,26,0.5)', margin: '0 0 14px' }}>Select anyone this kinloom is written to or about.</p>
-              {contextLoading && familySpaceId && (
+              {contextLoading && (
                 <p className="create-banner create-banner--muted">Loading family members…</p>
               )}
-              {!contextLoading && familySpaceId && otherMembers.length === 0 && (
+              {!contextLoading && otherMembers.length === 0 && (
                 <p className="create-banner create-banner--muted">No other family members to tag yet.</p>
               )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
@@ -939,26 +915,6 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                     </button>
                   );
                 })}
-              </div>
-            </div>
-
-            {/* Visibility */}
-            <div style={{ marginBottom: 36 }}>
-              <p style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a', margin: '0 0 12px' }}>Visibility</p>
-              <div className="compose-visibility">
-                {[
-                  { id: 'family', label: 'Family space', desc: 'All family members can read this.' },
-                  { id: 'private', label: 'Only me', desc: 'Just for your personal record.' },
-                ].map(v => (
-                  <button
-                    key={v.id}
-                    onClick={() => setVisibility(v.id as Visibility)}
-                    style={{ flex: 1, padding: '14px 16px', borderRadius: 10, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', border: `1px solid ${visibility === v.id ? 'rgba(85,107,91,0.40)' : '#d4d2cc'}`, background: visibility === v.id ? 'rgba(85,107,91,0.06)' : '#fff' }}
-                  >
-                    <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 500, color: visibility === v.id ? '#556b5b' : '#1a1a1a' }}>{v.label}</p>
-                    <p style={{ margin: 0, fontSize: 13, color: 'rgba(26,26,26,0.5)' }}>{v.desc}</p>
-                  </button>
-                ))}
               </div>
             </div>
 
@@ -1002,9 +958,9 @@ export default function CreateTypePage({ params }: { params: { type: string } })
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <button
                 onClick={handleSave}
-                disabled={saving || noFamilySpace}
+                disabled={saving}
                 className="btn-disabled-soft"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: (saving || noFamilySpace) ? 'not-allowed' : 'pointer' }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: saving ? 'not-allowed' : 'pointer' }}
               >
                 {saving
                   ? (hasPhoto || hasVideo || voiceValue ? 'Saving & uploading…' : 'Saving…')
@@ -1012,7 +968,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
                     ? 'Retry upload'
                     : savedKinloomId
                       ? 'Continue'
-                      : 'Save kinloom'}
+                      : 'Next: who can see it \u2192'}
                 {!saving && (
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
                 )}
@@ -1033,7 +989,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               >
                 Back
               </button>
-              {savedKinloomId && !publishedId && (
+              {savedKinloomId && !handedOffId && (
                 <button
                   onClick={handleDiscard}
                   disabled={saving || discarding}
@@ -1096,7 +1052,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               )}
               <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e8e6e1' }}>
                 <p style={{ margin: 0, fontSize: 11, color: 'rgba(26,26,26,0.4)' }}>
-                  {visibility === 'family' ? 'Shared with your family' : 'Private to you'}
+                  Private until you publish
                 </p>
               </div>
             </div>

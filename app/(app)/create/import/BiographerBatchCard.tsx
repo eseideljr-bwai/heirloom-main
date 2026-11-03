@@ -16,10 +16,24 @@
  * some kinlooms created: the card marks each item done/failed and lets the
  * user retry ONLY the failures, so a success is never re-created (no dupes).
  * On full success it locks and hands off to the Library via onAllPublished.
+ *
+ * Who can read them is the same choice the publish step offers after Write
+ * and Talk (AudiencePicker): one audience for the whole batch, set before
+ * publishing and fixed once the first kinloom is saved so a retry can't
+ * leave the batch split across different rooms.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { KINLOOM_TYPE_SLUGS } from '../../../../lib/agent/tools';
+import { reportUnauthorized } from '../../../../lib/embed';
+import { getCreateContext } from '../../../../lib/kinloom';
+import AudiencePicker, {
+  audienceSummary,
+  roomKey,
+  useRoomCounts,
+  useSelectionReach,
+  type AudienceRoom,
+} from '../../../components/AudiencePicker';
 
 export type ProposedKinloom = {
   working_title: string;
@@ -52,8 +66,11 @@ type Props = {
   toolUseId: string;
   input: BatchInput;
   onKeepRefining: (toolUseId: string) => void;
-  /** Called when the final (or only) batch is fully published — hands off to the Library. */
-  onAllPublished: () => void;
+  /**
+   * Called when the final (or only) batch is fully published — hands off to
+   * the Library. Receives the ulids of the kinlooms this card created.
+   */
+  onAllPublished: (kinloomIds: string[]) => void;
   /**
    * Called when a non-final section (final_batch === false) is fully published.
    * Keeps the conversation open so the Biographer can propose the next section.
@@ -86,6 +103,9 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
 
   const [statuses, setStatuses] = useState<ItemStatus[]>(() => proposed.map(() => 'idle'));
   const [errors, setErrors] = useState<Array<string | null>>(() => proposed.map(() => null));
+  // A ref, not state: a retry pass hands off in the same tick it finishes,
+  // and needs the ulids saved by earlier passes too.
+  const createdIdsRef = useRef<Array<string | null>>(proposed.map(() => null));
   const [publishing, setPublishing] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   // Rate-limit cooldown. Kept separate from `banner` (which reports genuine
@@ -101,6 +121,41 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
     const id = window.setTimeout(() => setCooldown(c => c - 1), 1000);
     return () => window.clearTimeout(id);
   }, [cooldown]);
+
+  // The rooms the author can publish to, with the default preselected the way
+  // the publish step does. If they can't be loaded the batch still publishes,
+  // to the author's default, rather than blocking the import.
+  const [roomsState, setRoomsState] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [baseRooms, setBaseRooms] = useState<AudienceRoom[]>([]);
+  const [audience, setAudience] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let cancelled = false;
+    getCreateContext('story')
+      .then(ctx => {
+        if (cancelled) return;
+        const rooms: AudienceRoom[] = ctx.rooms.map(r => ({
+          type: r.type as 'home' | 'space',
+          id: r.id,
+          name: r.name,
+          read_only: r.read_only,
+        }));
+        const home = rooms.find(r => r.type === 'home');
+        setBaseRooms(rooms);
+        setAudience(
+          ctx.defaultPublishTarget === 'home' && home && !home.read_only
+            ? new Set([roomKey(home)])
+            : new Set(),
+        );
+        setRoomsState('ready');
+      })
+      .catch(() => {
+        if (!cancelled) setRoomsState('failed');
+      });
+    return () => { cancelled = true; };
+  }, []);
+  const rooms = useRoomCounts(baseRooms);
+  const audienceRooms = rooms.filter(r => audience.has(roomKey(r)));
+  const audienceReach = useSelectionReach(audienceRooms);
 
   const keptCount = dropped.filter(d => !d).length;
   // "All published" only counts kept items, and requires at least one kept.
@@ -156,9 +211,14 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
               type_slug: items[idx].suggested_type_slug,
               body: items[idx].body,
             }],
+            // The author's choice for the whole batch (absent: their default).
+            ...(roomsState === 'ready'
+              ? { publish: audienceRooms.map(r => ({ type: r.type, id: r.id, when: 'now' })) }
+              : {}),
           }),
         });
         if (!res.ok) {
+          reportUnauthorized(res.status);
           const data = (await res.json().catch(() => ({}))) as {
             error?: string;
             retryAfterSeconds?: number;
@@ -180,6 +240,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
         const r = data.results?.[0];
 
         if (r?.ok) {
+          createdIdsRef.current[idx] = r.ulid ?? null;
           setStatuses(prev => prev.map((s, i) => (i === idx ? 'done' : s)));
           setErrors(prev => prev.map((e, i) => (i === idx ? null : e)));
         } else {
@@ -219,7 +280,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
       // Final/only batch → hand off to the Library. A non-final section →
       // keep the conversation open so the next section can be proposed.
       if (isFinalBatch) {
-        onAllPublished();
+        onAllPublished(createdIdsRef.current.filter((id): id is string => !!id));
       } else {
         onSectionPublished(toolUseId, keptCount);
       }
@@ -242,12 +303,15 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
         : keptCount === 0
           ? 'Nothing to publish'
           : isFinalBatch
-            ? `Publish ${remainingCount} to your library`
-            : `Publish ${remainingCount} & continue`;
+            ? `${audience.size === 0 && roomsState === 'ready' ? 'Save' : 'Publish'} ${remainingCount} ${audience.size === 0 && roomsState === 'ready' ? 'to your Vault' : 'to your library'}`
+            : `${audience.size === 0 && roomsState === 'ready' ? 'Save' : 'Publish'} ${remainingCount} & continue`;
 
   // Publishing during the cooldown just spends another request against a
   // budget that hasn't reset, so the action is held until the timer expires.
-  const publishDisabled = publishing || allPublished || keptCount === 0 || cooldown > 0;
+  const publishDisabled =
+    publishing || allPublished || keptCount === 0 || cooldown > 0 || roomsState === 'loading';
+  // Fixed once something is saved: a retry must land in the same rooms.
+  const audienceLocked = publishing || doneCount > 0;
 
   return (
     <div
@@ -380,6 +444,33 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
           );
         })}
       </div>
+
+      {roomsState === 'ready' && !allPublished && (
+        <div style={{ margin: '0 0 28px' }}>
+          <p
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              letterSpacing: '0.14em',
+              textTransform: 'uppercase',
+              color: 'var(--fg-4)',
+              margin: '0 0 4px',
+            }}
+          >
+            Who can read {keptCount === 1 ? 'it' : 'these'}
+          </p>
+          <AudiencePicker
+            rooms={rooms}
+            selected={audience}
+            onChange={setAudience}
+            disabled={audienceLocked}
+          />
+          <p style={{ fontSize: 13, color: 'var(--fg-3)', margin: '14px 0 0' }}>
+            {audienceSummary(audienceRooms.length, audienceReach)}
+            {audienceLocked && doneCount > 0 ? ' Fixed now that some are saved.' : ''}
+          </p>
+        </div>
+      )}
 
       {throttled && (
         <p style={{ fontSize: 13, color: 'var(--fg-2)', margin: '0 0 16px', lineHeight: 1.55 }}>
