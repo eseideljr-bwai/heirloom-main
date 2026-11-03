@@ -1,42 +1,38 @@
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
-import { requireActiveSpaceId } from '../../../../../lib/server/auth';
-import { getLegacyBank, getLegacyBankConversation, getMemberProfile } from '../../../../../lib/server/queries';
+import { notFound } from 'next/navigation';
 import { ApiError } from '../../../../../lib/api';
+import { conversationTitle, subjectOf } from '../../../../../lib/legacy-bank';
+import { requireHome } from '../../../../../lib/server/auth';
+import { serverKinloomApi } from '../../../../../lib/server/kinloom-api';
 import LegacyChatThread from '../../LegacyChatThread';
 
 export const dynamic = 'force-dynamic';
 
 export default async function LegacyBankHistoryThreadPage({ params }: { params: { conversation: string } }) {
-  const familySpaceId = await requireActiveSpaceId();
+  await requireHome();
 
-  let detail;
-  try {
-    detail = await getLegacyBankConversation(familySpaceId, params.conversation);
-  } catch (err) {
-    // Both "doesn't exist" and "belongs to another member" render as not-found —
-    // history must never confirm the existence of someone else's conversation.
-    if (err instanceof ApiError && (err.status === 404 || err.status === 403)) notFound();
-    throw err;
-  }
-  const { conversation, messages } = detail;
+  const detail = await serverKinloomApi
+    .get('/legacy-bank/conversations/{conversation}', { path: { conversation: params.conversation } })
+    .catch((err: unknown) => {
+      // A conversation is private to whoever started it: someone else's reads as not found.
+      if (err instanceof ApiError && (err.status === 404 || err.status === 403)) notFound();
+      throw err;
+    });
 
-  let avatar: { tone: string | null; initials: string | null } | null = null;
-  let heading: string;
-  let sub: string;
-  let firstName: string;
+  const { conversation, data, meta } = detail;
+  const subject = subjectOf(conversation);
+  const title = conversationTitle(conversation);
+  const past = conversation.tense === 'past';
+  // The API lists newest first; the thread reads oldest first.
+  const messages = [...data].reverse();
 
-  if (conversation.subject_member_id) {
-    const { member, kinloomCount } = await getMemberProfile(familySpaceId, conversation.subject_member_id);
-    avatar = { tone: member.tone, initials: member.initials };
-    heading = `${member.name}’s Legacy`;
-    sub = `${member.role_label || member.kin_term || ''}${member.deceased ? ' · Passed' : ''} · ${kinloomCount} kinloom${kinloomCount !== 1 ? 's' : ''} deposited`;
-    firstName = member.name?.split(' ')[0] || 'them';
-  } else {
-    const { progress } = await getLegacyBank(familySpaceId);
-    heading = 'Across the family';
-    sub = `${progress.total_kinlooms} kinloom${progress.total_kinlooms !== 1 ? 's' : ''} deposited`;
-    firstName = 'the family';
+  let cannotAsk: string | undefined;
+  if (!conversation.can_ask) {
+    cannotAsk = subject.isSpace
+      ? 'Your Home is no longer in this Family Space, so you can read this conversation but not add to it.'
+      : subject.personId == null
+        ? `You can no longer see ${subject.name}, so you can read this conversation but not add to it.`
+        : `${subject.firstName} has switched their Legacy Bank off, so you can read this conversation but not add to it.`;
   }
 
   return (
@@ -49,9 +45,9 @@ export default async function LegacyBankHistoryThreadPage({ params }: { params: 
       </div>
 
       <div className="lb-chat-page__header">
-        {avatar ? (
-          <span className="lb-chat-page__avatar" style={{ background: (avatar.tone || '#a39376') + '28', color: avatar.tone || '#556b5b' }}>
-            {avatar.initials || heading.charAt(0)}
+        {subject.initials ? (
+          <span className="lb-chat-page__avatar" style={{ background: `${subject.tone || '#a39376'}28`, color: subject.tone || '#556b5b' }}>
+            {subject.initials}
           </span>
         ) : (
           <span className="lb-chat-page__avatar lb-chat-page__avatar--neutral">
@@ -62,18 +58,30 @@ export default async function LegacyBankHistoryThreadPage({ params }: { params: 
           </span>
         )}
         <div>
-          <h1 className="lb-chat-page__title">{heading}</h1>
-          <p className="lb-chat-page__sub">{sub}</p>
+          <h1 className="lb-chat-page__title">{title}</h1>
+          <p className="lb-chat-page__sub">
+            {subject.isSpace ? `${subject.name} · Family Space` : subject.isYou ? 'Your own record' : `${subject.name}’s Legacy`}
+            {past && !subject.isSpace ? ' · Passed' : ''}
+            {` · ${conversation.message_count} message${conversation.message_count === 1 ? '' : 's'}`}
+          </p>
         </div>
       </div>
 
       <LegacyChatThread
-        familySpaceId={familySpaceId}
-        conversationId={conversation.ulid}
-        mode={conversation.mode}
-        subjectMemberId={conversation.subject_member_id}
-        subjectDisplayName={firstName}
+        target={
+          subject.isSpace && subject.spaceId
+            ? { scope: 'space', spaceId: subject.spaceId }
+            : { scope: 'person', personId: subject.personId ?? '' }
+        }
+        conversationId={conversation.id}
+        subjectName={subject.isYou ? 'you' : subject.firstName}
+        isSpace={subject.isSpace}
+        isYou={subject.isYou}
+        voice={conversation.voice}
         initialMessages={messages}
+        olderPage={meta.last_page > 1 ? 2 : null}
+        canAsk={conversation.can_ask}
+        cannotAskText={cannotAsk}
       />
     </div>
   );

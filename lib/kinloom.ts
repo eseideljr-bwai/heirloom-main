@@ -1,16 +1,20 @@
 /**
- * Kinloom API client.
+ * Kinloom API client (Phase 3 social graph).
  *
- * Wraps the endpoints under `/family-spaces/{familySpace}/...` related to
- * creating + fetching kinlooms. Mirrors the mock shapes in
- * `app/lib/mock-data.ts` where possible so UI code can switch between mock
- * and live data with minimal churn.
+ * A kinloom belongs to its author and lives in their Vault. Publishing it is
+ * a separate, revocable record to a Family Home and/or Family Spaces
+ * (`/kinlooms/{id}/publications`). Nothing here takes a family-space id any
+ * more: the API decides who can read what.
+ *
+ * Calls are typed from the generated OpenAPI contract (`lib/api-schema`).
  */
 
-import { apiFetch } from './api';
-import { rememberMediaAttachmentFromGcsPath } from './media-attachments';
+import { kinloomApi } from './kinloom-api';
+import type { components } from './api-schema/typed';
 
 // ─── Types ──────────────────────────────────────────────────────────
+
+type Schemas = components['schemas'];
 
 export type KinloomTypeSlug =
   | 'story'
@@ -30,11 +34,27 @@ export type KinloomType = {
   prompt: string;
 };
 
-export type Visibility = 'family' | 'private';
-export type KinloomStatus = 'draft' | 'published';
+/** Draft stays in the author's Vault; final can be published to rooms. */
+export type KinloomStatus = Schemas['KinloomStatus'];
+export type PublishWhen = Schemas['PublishWhen'];
+export type RoomType = Schemas['RoomType'];
+export type PublicationTarget = Schemas['PublicationTarget'];
+export type RoomOption = Schemas['RoomOption'];
+export type PublicationRoom = Schemas['KinloomPublicationRoom'];
+export type KinloomPublications = Schemas['KinloomPublications'];
+export type ReachResult = Schemas['ReachResult'];
+export type KinloomDetail = Schemas['KinloomDetail'];
+export type KinloomMediaItem = Schemas['MediaItem'];
+export type KinloomComment = Schemas['Comment'];
+export type PersonCard = Schemas['PersonCard'];
+export type PersonOrNameOnly = Schemas['PersonOrNameOnly'];
+export type CreateKinloomBody = Schemas['KinloomCreateRequest'];
+export type UpdateKinloomBody = Schemas['KinloomUpdateRequest'];
+export type UploadLimits = Schemas['CreateContextUploadLimits'];
 
-/** A taggable family member, as returned by /create-context. */
+/** A taggable person, shaped for the composer's tag picker. */
 export type TaggableMember = {
+  /** The person's id (what `tagged_member_ids` takes). */
   member_id: string;
   name: string;
   role_label: string | null;
@@ -45,11 +65,12 @@ export type TaggableMember = {
   deceased: boolean;
 };
 
-export type CreateContextResponse = {
+export type CreateContext = {
   type: KinloomType;
-  /** API types this as `string` in the spec but it is actually an array. */
-  taggable_members: TaggableMember[] | string;
-  default_visibility: Visibility;
+  taggableMembers: TaggableMember[];
+  rooms: RoomOption[];
+  defaultPublishTarget: Schemas['DefaultPublishTarget'];
+  uploadLimits: UploadLimits;
 };
 
 export type KinloomAuthor = {
@@ -64,65 +85,59 @@ export type KinloomAuthor = {
 };
 
 export type KinloomMedia = {
-  /**
-   * Media attachment id. Needed for DELETE /media/{id}. OpenAPI currently
-   * omits this on kinloom.show — when absent we resolve via the
-   * upload-time localStorage map or republish the kinloom.
-   */
   id?: string | null;
   url: string | null;
   duration_seconds?: number | string | null;
   transcript_text?: string | null;
   width?: number | string | null;
   height?: number | string | null;
+  type?: string | null;
 };
 
-/** Max photo/video attachments per kinloom — matches API `photos.maxItems`. */
+/** Max files per kinloom — the API allows 20; the composer keeps photos+videos to 10. */
 export const MAX_KINLOOM_PHOTOS = 10;
 /** Soft per-photo cap used by the client picker (API allows up to 500 MB). */
 export const MAX_PHOTO_BYTES = 10 * 1024 * 1024;
 
-export type Kinloom = {
+/**
+ * Row shape the not-yet-rewired list screens (Home, Library, Family, Portrait,
+ * Tapestry) still read. Those move to the Phase 3 `KinloomCard` with their
+ * own rewiring; this goes away with the last of them.
+ */
+type LegacyKinloom = {
   ulid: string;
   type_slug: string;
   type_label: string;
   title: string;
   body_paragraphs: string[] | Record<string, unknown> | unknown[];
   created_at: string;
-  visibility: Visibility | string;
+  visibility: string;
   author: KinloomAuthor | null;
   audio: KinloomMedia | null;
-  /** Legacy single-photo field. New writes populate `photos` instead. */
   photo: KinloomMedia | null;
-  /** May be absent on kinlooms created before multi-photo support. */
   photos?: KinloomMedia[] | string;
   tagged_kin: TaggableMember[] | string;
   hold: { held_by_me: boolean; count: number };
   comments: unknown;
 };
 
-export type CreateKinloomPayload = {
+/** A row as returned from the old library list endpoint. */
+export type LibraryRow = Partial<LegacyKinloom> & {
+  ulid: string;
   type_slug: string;
+  type_label: string;
   title: string;
-  body: string;
-  visibility?: Visibility | null;
-  status?: KinloomStatus | null;
-  tagged_member_ids?: string[];
+  excerpt?: string | null;
+  created_at: string;
+  has_audio?: boolean;
+  has_photo?: boolean;
+  author: KinloomAuthor | null;
 };
 
-export type UpdateKinloomPayload = Partial<CreateKinloomPayload>;
-
-export type Comment = {
-  ulid: string;
-  body: string;
-  created_at: string;
-  author: {
-    member_id: string;
-    name: string;
-    gender: string;
-    tone: string;
-    initials: string | null;
-  } | null;
+export type LibraryResponse = {
+  total: number | string;
+  kinlooms: LibraryRow[] | string;
+  next_cursor: string | null;
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -142,154 +157,113 @@ export function normalizeList<T>(value: T[] | string | null | undefined): T[] {
   return [];
 }
 
-// ─── Endpoints ──────────────────────────────────────────────────────
 
-/** GET /family-spaces/{familySpace}/create-context/{typeSlug} */
-export async function getCreateContext(
-  familySpaceId: string,
-  typeSlug: string,
-): Promise<{ type: KinloomType; taggableMembers: TaggableMember[]; defaultVisibility: Visibility }> {
-  const res = await apiFetch<CreateContextResponse>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/create-context/${encodeURIComponent(typeSlug)}`,
-  );
+// ─── Kinloom endpoints ──────────────────────────────────────────────
+
+/** Adapt a Phase 3 person card to the composer's tag-picker shape. */
+export function personToTaggable(p: PersonCard): TaggableMember {
+  return {
+    member_id: p.id,
+    name: p.name,
+    role_label: p.label,
+    kin_term: null,
+    gender: p.gender,
+    tone: p.tone,
+    initials: p.initials,
+    deceased: p.deceased,
+  };
+}
+
+/** The `room` query value for a room: `home:ID` / `space:ID`. */
+export function roomKey(room: { type: RoomType; id: string }): string {
+  return `${room.type}:${room.id}`;
+}
+
+/** GET /create-context/{typeSlug} */
+export async function getCreateContext(typeSlug: string): Promise<CreateContext> {
+  const res = await kinloomApi.get('/create-context/{typeSlug}', { path: { typeSlug } });
   return {
     type: res.type,
-    taggableMembers: normalizeList<TaggableMember>(res.taggable_members),
-    defaultVisibility: (res.default_visibility as Visibility) || 'family',
+    taggableMembers: res.taggable_people.map(personToTaggable),
+    rooms: res.rooms,
+    defaultPublishTarget: res.default_publish_target,
+    uploadLimits: res.upload_limits,
   };
 }
 
-/** POST /family-spaces/{familySpace}/kinlooms */
-export async function createKinloom(
-  familySpaceId: string,
-  payload: CreateKinloomPayload,
-): Promise<Kinloom> {
-  return apiFetch<Kinloom>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms`,
-    { method: 'POST', body: payload },
-  );
+/** POST /kinlooms — a draft stays in the Vault; `final` can carry `publish`. */
+export async function createKinloom(body: CreateKinloomBody): Promise<KinloomDetail> {
+  return kinloomApi.post('/kinlooms', { body });
 }
 
-/** A row as returned from the library list endpoint. */
-export type LibraryRow = Partial<Kinloom> & {
-  ulid: string;
-  type_slug: string;
-  type_label: string;
-  title: string;
-  excerpt?: string | null;
-  created_at: string;
-  has_audio?: boolean;
-  has_photo?: boolean;
-  author: KinloomAuthor | null;
-};
-
-export type LibraryResponse = {
-  total: number | string;
-  kinlooms: LibraryRow[] | string;
-  next_cursor: string | null;
-};
-
-/** GET /family-spaces/{familySpace}/library */
-export async function getLibrary(familySpaceId: string): Promise<{
-  total: number;
-  kinlooms: LibraryRow[];
-  nextCursor: string | null;
-}> {
-  const res = await apiFetch<LibraryResponse>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/library`,
-  );
-  const total = typeof res.total === 'number' ? res.total : Number(res.total) || 0;
-  return {
-    total,
-    kinlooms: normalizeList<LibraryRow>(res.kinlooms),
-    nextCursor: res.next_cursor ?? null,
-  };
-}
-
-/** GET /family-spaces/{familySpace}/kinlooms/{kinloom} */
-export async function getKinloom(
-  familySpaceId: string,
-  kinloomId: string,
-): Promise<Kinloom> {
-  return apiFetch<Kinloom>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}`,
-  );
-}
-
-/** PATCH /family-spaces/{familySpace}/kinlooms/{kinloom} */
+/** PATCH /kinlooms/{id} — send only what changed. */
 export async function updateKinloom(
-  familySpaceId: string,
   kinloomId: string,
-  payload: UpdateKinloomPayload,
-): Promise<Kinloom> {
-  return apiFetch<Kinloom>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}`,
-    { method: 'PATCH', body: payload },
-  );
+  body: UpdateKinloomBody,
+): Promise<KinloomDetail> {
+  return kinloomApi.patch('/kinlooms/{kinloom}', { path: { kinloom: kinloomId }, body });
 }
 
-/** DELETE /family-spaces/{familySpace}/kinlooms/{kinloom} */
-export async function deleteKinloom(
-  familySpaceId: string,
-  kinloomId: string,
-): Promise<void> {
-  await apiFetch<void>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}`,
-    { method: 'DELETE' },
-  );
+/** DELETE /kinlooms/{id} — removes its publications, comments and holds too. */
+export async function deleteKinloom(kinloomId: string): Promise<void> {
+  await kinloomApi.delete('/kinlooms/{kinloom}', { path: { kinloom: kinloomId } });
 }
 
-/** POST /family-spaces/{familySpace}/kinlooms/{kinloom}/comments */
+/** GET /kinlooms/{id}/publications — every room you could publish to, with its state. */
+export async function getKinloomPublications(kinloomId: string): Promise<KinloomPublications> {
+  return kinloomApi.get('/kinlooms/{kinloom}/publications', { path: { kinloom: kinloomId } });
+}
+
+/** PUT /kinlooms/{id}/publications — replaces the set; `[]` makes it private. */
+export async function setKinloomPublications(
+  kinloomId: string,
+  targets: PublicationTarget[],
+): Promise<KinloomPublications> {
+  return kinloomApi.put('/kinlooms/{kinloom}/publications', {
+    path: { kinloom: kinloomId },
+    body: { targets },
+  });
+}
+
+/** GET /reach — how many accounts could read it if published to these rooms. */
+export async function getReach(targets: { type: RoomType; id: string }[]): Promise<ReachResult> {
+  return kinloomApi.get('/reach', {
+    query: targets.length > 0 ? { targets: targets.map(roomKey).join(',') } : {},
+  });
+}
+
+/** POST /kinlooms/{id}/comments — into one room's thread. */
 export async function addComment(
-  familySpaceId: string,
   kinloomId: string,
+  room: { type: RoomType; id: string },
   body: string,
-): Promise<Comment> {
-  return apiFetch<Comment>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}/comments`,
-    { method: 'POST', body: { body } },
-  );
+): Promise<KinloomComment> {
+  return kinloomApi.post('/kinlooms/{kinloom}/comments', {
+    path: { kinloom: kinloomId },
+    body: { room: { type: room.type, id: room.id }, body },
+  });
 }
 
-/** DELETE /family-spaces/{familySpace}/kinlooms/{kinloom}/comments/{comment} */
-export async function deleteComment(
-  familySpaceId: string,
-  kinloomId: string,
-  commentId: string,
-): Promise<void> {
-  await apiFetch<void>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}/comments/${encodeURIComponent(commentId)}`,
-    { method: 'DELETE' },
-  );
+/** DELETE /kinlooms/{id}/comments/{comment} */
+export async function deleteComment(kinloomId: string, commentId: string): Promise<void> {
+  await kinloomApi.delete('/kinlooms/{kinloom}/comments/{comment}', {
+    path: { kinloom: kinloomId, comment: commentId },
+  });
 }
 
-/** Normalize the `comments` field on a Kinloom (the API ships it as a JSON string). */
-export function normalizeComments(value: unknown): Comment[] {
-  if (Array.isArray(value)) return value as Comment[];
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
-/** POST /family-spaces/{familySpace}/kinlooms/{kinloom}/hold — toggle */
+/** POST /kinlooms/{id}/hold — toggles your hold in one room. */
 export async function toggleHold(
-  familySpaceId: string,
   kinloomId: string,
+  room: { type: RoomType; id: string },
 ): Promise<{ held_by_me: boolean; count: number }> {
-  return apiFetch<{ held_by_me: boolean; count: number }>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/kinlooms/${encodeURIComponent(kinloomId)}/hold`,
-    { method: 'POST' },
-  );
+  return kinloomApi.post('/kinlooms/{kinloom}/hold', {
+    path: { kinloom: kinloomId },
+    body: { room: { type: room.type, id: room.id } },
+  });
 }
 
 /** Normalize `body_paragraphs` (which the spec types as array|object|array<string>). */
-export function bodyParagraphs(body: Kinloom['body_paragraphs']): string[] {
+export function bodyParagraphs(body: string[] | string | Record<string, unknown> | unknown[] | null | undefined): string[] {
   if (Array.isArray(body)) return body.map(p => typeof p === 'string' ? p : String(p ?? ''));
   if (typeof body === 'string') return (body as string).split(/\n\n+/);
   if (body && typeof body === 'object') return Object.values(body as Record<string, unknown>).map(p => String(p ?? ''));
@@ -331,40 +305,7 @@ export function formatRelativeTime(iso: string): string {
   return 'just now';
 }
 
-/** GET /kinloom-types — global list, no family space needed. */
-export async function listKinloomTypes(): Promise<KinloomType[]> {
-  const res = await apiFetch<{ types: KinloomType[] | string }>('/kinloom-types');
-  return normalizeList<KinloomType>(res.types);
-}
-
-// ─── Onboarding ─────────────────────────────────────────────────────
-
-export type OnboardingFirstKinloomPayload = {
-  title?: string | null;
-  body: string;
-  visibility?: Visibility | null;
-};
-
-export type OnboardingFirstKinloomResponse = {
-  entry: {
-    ulid: string;
-    type_slug: string;
-    title: string;
-    body: string;
-    created_at: string;
-  };
-};
-
-/** POST /family-spaces/{familySpace}/onboarding/first-kinloom */
-export async function onboardingFirstKinloom(
-  familySpaceId: string,
-  payload: OnboardingFirstKinloomPayload,
-): Promise<OnboardingFirstKinloomResponse> {
-  return apiFetch<OnboardingFirstKinloomResponse>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/onboarding/first-kinloom`,
-    { method: 'POST', body: payload },
-  );
-}
+// ─── Media uploads ──────────────────────────────────────────────────
 
 // ─── Media uploads ──────────────────────────────────────────────────
 
@@ -448,90 +389,19 @@ export function extensionForAudioMime(mime: string): string {
   }
 }
 
-/** 500 MB — matches the `file_size.maximum` in the OpenAPI spec. */
+/** 500 MB — matches the largest `max_bytes` the API will grant. */
 export const MAX_UPLOAD_BYTES = 524_288_000;
 
-export type MediaPurpose = 'audio' | 'photo';
-export type MediaType = 'audio' | 'video' | 'image';
+export type MediaPurpose = Schemas['MediaPurpose'];
 
-export type RequestUploadUrlPayload = {
-  entry_id: string;
-  filename: string;
-  mime_type: string;
-  file_size: number;
-};
-
-export type RequestUploadUrlResponse = {
-  upload_url: string;
-  gcs_path: string;
-  gcs_bucket: string;
-  media_id: string;
-};
-
-export type ConfirmMediaUploadPayload = {
-  entry_id: string;
-  purpose: MediaPurpose;
-  gcs_path: string;
-  gcs_bucket: string;
-  mime_type: string;
-  file_size: number;
-  original_filename: string;
-  type: MediaType;
-  duration_seconds?: number | null;
-  width?: number | null;
-  height?: number | null;
-};
-
-export type ConfirmMediaUploadResponse = {
-  id: string;
-  entry_id: string | null;
-  type: string;
-  purpose: string | null;
-  gcs_path: string;
-  transcript_status: string;
-};
-
-/** POST /family-spaces/{familySpace}/media/upload-url */
-export async function requestMediaUploadUrl(
-  familySpaceId: string,
-  payload: RequestUploadUrlPayload,
-): Promise<RequestUploadUrlResponse> {
-  return apiFetch<RequestUploadUrlResponse>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/media/upload-url`,
-    { method: 'POST', body: payload },
-  );
+/** DELETE /media/{id} — removes one file from its kinloom and from storage. */
+export async function deleteMedia(mediaId: string): Promise<void> {
+  await kinloomApi.delete('/media/{media}', { path: { media: mediaId } });
 }
 
-/** POST /family-spaces/{familySpace}/media (confirm upload) */
-export async function confirmMediaUpload(
-  familySpaceId: string,
-  payload: ConfirmMediaUploadPayload,
-): Promise<ConfirmMediaUploadResponse> {
-  return apiFetch<ConfirmMediaUploadResponse>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/media`,
-    { method: 'POST', body: payload },
-  );
-}
-
-/** DELETE /family-spaces/{familySpace}/media/{mediaAttachment} */
-export async function deleteMediaAttachment(
-  familySpaceId: string,
-  mediaId: string,
-): Promise<void> {
-  await apiFetch<void>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/media/${encodeURIComponent(mediaId)}`,
-    { method: 'DELETE' },
-  );
-}
-
-/** GET /family-spaces/{familySpace}/media/{mediaAttachment}/url — fresh signed URL. */
-export async function getMediaUrl(
-  familySpaceId: string,
-  mediaId: string,
-): Promise<{ url: string; expires_at: string }> {
-  return apiFetch<{ url: string; expires_at: string }>(
-    `/family-spaces/${encodeURIComponent(familySpaceId)}/media/${encodeURIComponent(mediaId)}/url`,
-  );
+/** GET /media/{id}/url — a fresh signed URL for a page that outlived the old one. */
+export async function getMediaUrl(mediaId: string): Promise<{ url: string; expires_at: string }> {
+  return kinloomApi.get('/media/{media}/url', { path: { media: mediaId } });
 }
 
 /**
@@ -669,66 +539,56 @@ export function readVideoMetadata(
   });
 }
 
+
+type AcceptedMime = Schemas['MediaUploadUrlRequest']['mime_type'];
+
 /**
- * High-level helper: upload a photo File and attach it to an existing
- * kinloom. Runs the full 3-step flow: request URL → PUT to GCS → confirm.
+ * Upload one file and attach it to a kinloom of yours. Three steps
+ * (contract §6.3): declare it, PUT the bytes, confirm. The server derives the
+ * media type from the MIME type and picks the storage path.
  */
-export async function uploadKinloomPhoto(
-  familySpaceId: string,
+async function uploadKinloomMedia(
   kinloomId: string,
   file: File,
-  options: { width?: number | null; height?: number | null } = {},
-): Promise<ConfirmMediaUploadResponse> {
-  // [CP2-diag] upload-url request — apiFetch throws on non-2xx, so reaching
-  // the log below means the request succeeded; failures are logged in the
-  // catch block up in handleSave with the ApiError's real status.
-  console.log(`[CP2-diag] requesting upload-url — entry_id=${kinloomId} file=${file.name}`);
-  const { upload_url, gcs_path, gcs_bucket } = await requestMediaUploadUrl(
-    familySpaceId,
-    {
-      entry_id: kinloomId,
+  purpose: MediaPurpose,
+  meta: { durationSeconds?: number | null; width?: number | null; height?: number | null },
+): Promise<KinloomMediaItem> {
+  const { media_id, upload_url } = await kinloomApi.post('/media/upload-url', {
+    body: {
+      purpose,
       filename: file.name,
-      mime_type: file.type,
+      mime_type: file.type as AcceptedMime,
       file_size: file.size,
     },
-  );
-  console.log(`[CP2-diag] upload-url ok — upload_url=${!!upload_url} gcs_path=${gcs_path}`);
+  });
 
   await uploadFileToSignedUrl(upload_url, file);
 
-  const { width, height } = options.width !== undefined && options.height !== undefined
-    ? options
-    : await readImageDimensions(file);
-
-  console.log(`[CP2-diag] confirming media — entry_id=${kinloomId} gcs_path=${gcs_path}`);
-  const confirmed = await confirmMediaUpload(familySpaceId, {
-    entry_id: kinloomId,
-    purpose: 'photo',
-    gcs_path,
-    gcs_bucket,
-    mime_type: file.type,
-    file_size: file.size,
-    original_filename: file.name,
-    type: 'image',
-    width,
-    height,
+  return kinloomApi.post('/media', {
+    body: {
+      media_id,
+      kinloom_id: kinloomId,
+      duration_seconds: meta.durationSeconds ?? null,
+      width: meta.width ?? null,
+      height: meta.height ?? null,
+    },
   });
-  console.log(
-    `[CP2-diag] confirm ok — media.id=${confirmed.id} media.entry_id=${confirmed.entry_id} matchesRequestedEntryId=${confirmed.entry_id === kinloomId}`,
-  );
-  // show responses omit attachment ids; cache folder→id for later deletes
-  rememberMediaAttachmentFromGcsPath(gcs_path, confirmed.id);
-  return confirmed;
 }
 
-/**
- * High-level helper: upload a video File and attach it to an existing
- * kinloom. Same 3-step flow as photos. Confirm uses `purpose: "photo"`
- * (API enum has no `video` purpose) + `type: "video"`; the attachment
- * lands in the kinloom's `photos` array.
- */
+/** Upload a photo File and attach it to an existing kinloom. */
+export async function uploadKinloomPhoto(
+  kinloomId: string,
+  file: File,
+  options: { width?: number | null; height?: number | null } = {},
+): Promise<KinloomMediaItem> {
+  const dims = options.width !== undefined && options.height !== undefined
+    ? options
+    : await readImageDimensions(file);
+  return uploadKinloomMedia(kinloomId, file, 'photo', dims);
+}
+
+/** Upload a video File and attach it to an existing kinloom. */
 export async function uploadKinloomVideo(
-  familySpaceId: string,
   kinloomId: string,
   file: File,
   options: {
@@ -736,178 +596,40 @@ export async function uploadKinloomVideo(
     width?: number | null;
     height?: number | null;
   } = {},
-): Promise<ConfirmMediaUploadResponse> {
-  const mime = file.type;
-  if (!(VIDEO_MIME_TYPES as readonly string[]).includes(mime)) {
-    throw new Error(`Video mime "${mime}" is not accepted by the API.`);
+): Promise<KinloomMediaItem> {
+  if (!(VIDEO_MIME_TYPES as readonly string[]).includes(file.type)) {
+    throw new Error(`Video mime "${file.type}" is not accepted by the API.`);
   }
-
-  const { upload_url, gcs_path, gcs_bucket } = await requestMediaUploadUrl(
-    familySpaceId,
-    {
-      entry_id: kinloomId,
-      filename: file.name,
-      mime_type: mime,
-      file_size: file.size,
-    },
-  );
-
-  await uploadFileToSignedUrl(upload_url, file);
-
-  let duration = options.durationSeconds ?? null;
-  let width = options.width ?? null;
-  let height = options.height ?? null;
-  if (duration == null || width == null || height == null) {
+  let { durationSeconds, width, height } = options;
+  if (durationSeconds == null || width == null || height == null) {
     const meta = await readVideoMetadata(file);
-    duration = duration ?? meta.durationSeconds;
+    durationSeconds = durationSeconds ?? meta.durationSeconds;
     width = width ?? meta.width;
     height = height ?? meta.height;
   }
-
-  const confirmed = await confirmMediaUpload(familySpaceId, {
-    entry_id: kinloomId,
-    // Docs only allow audio|photo; video lives under photo purpose.
-    purpose: 'photo',
-    gcs_path,
-    gcs_bucket,
-    mime_type: mime,
-    file_size: file.size,
-    original_filename: file.name,
-    type: 'video',
-    duration_seconds: duration,
-    width,
-    height,
-  });
-  rememberMediaAttachmentFromGcsPath(gcs_path, confirmed.id);
-  return confirmed;
+  return uploadKinloomMedia(kinloomId, file, 'video', { durationSeconds, width, height });
 }
 
 /**
- * High-level helper: upload an audio File and attach it to an existing
- * kinloom. Accepts an optional `durationSeconds` override — useful when
- * we already tracked the recording length in the UI (more reliable than
- * reading it back from some MediaRecorder blobs).
+ * Upload an audio File and attach it to an existing kinloom. `durationSeconds`
+ * is optional: when the UI tracked the recording length it is more reliable
+ * than reading it back from some MediaRecorder blobs.
  */
 export async function uploadKinloomAudio(
-  familySpaceId: string,
   kinloomId: string,
   file: File,
   options: { durationSeconds?: number | null } = {},
-): Promise<ConfirmMediaUploadResponse> {
-  const mime = file.type;
-  if (!(AUDIO_MIME_TYPES as readonly string[]).includes(mime)) {
-    throw new Error(`Audio mime "${mime}" is not accepted by the API.`);
+): Promise<KinloomMediaItem> {
+  if (!(AUDIO_MIME_TYPES as readonly string[]).includes(file.type)) {
+    throw new Error(`Audio mime "${file.type}" is not accepted by the API.`);
   }
-
-  const { upload_url, gcs_path, gcs_bucket } = await requestMediaUploadUrl(
-    familySpaceId,
-    {
-      entry_id: kinloomId,
-      filename: file.name,
-      mime_type: mime,
-      file_size: file.size,
-    },
-  );
-
-  await uploadFileToSignedUrl(upload_url, file);
-
-  let duration = options.durationSeconds ?? null;
-  if (duration == null) {
-    duration = await readAudioDuration(file);
-  }
-
-  const confirmed = await confirmMediaUpload(familySpaceId, {
-    entry_id: kinloomId,
-    purpose: 'audio',
-    gcs_path,
-    gcs_bucket,
-    mime_type: mime,
-    file_size: file.size,
-    original_filename: file.name,
-    type: 'audio',
-    duration_seconds: duration,
-  });
-  rememberMediaAttachmentFromGcsPath(gcs_path, confirmed.id);
-  return confirmed;
+  const durationSeconds = options.durationSeconds ?? (await readAudioDuration(file));
+  return uploadKinloomMedia(kinloomId, file, 'audio', { durationSeconds });
 }
 
-/**
- * Re-create a kinloom with a new media set. Used when edit needs to drop
- * media whose MediaAttachment ids aren't available from `kinloom.show`.
- * Returns the new kinloom ulid. Caller should delete the old row after.
- */
-export async function cloneKinloomWithMedia(
-  familySpaceId: string,
-  source: Pick<Kinloom, 'type_slug' | 'title'>,
-  options: {
-    title: string;
-    body: string;
-    visibility: Visibility;
-    tagged_member_ids: string[];
-    keptPhotoUrls: string[];
-    newPhotos: { file: File; width?: number | null; height?: number | null }[];
-    /** Existing audio URL to copy, or null to omit. */
-    keepAudioUrl: string | null;
-    /** Replacement / new voice file. Wins over keepAudioUrl when set. */
-    newAudio?: { file: File; durationSeconds?: number | null } | null;
-  },
-): Promise<Kinloom> {
-  const created = await createKinloom(familySpaceId, {
-    type_slug: source.type_slug,
-    title: options.title,
-    body: options.body,
-    visibility: options.visibility,
-    status: 'draft',
-    tagged_member_ids: options.tagged_member_ids,
-  });
-
-  try {
-    for (const url of options.keptPhotoUrls) {
-      const file = await fileFromRemoteUrl(url, 'photo');
-      await uploadKinloomPhoto(familySpaceId, created.ulid, file);
-    }
-    for (const item of options.newPhotos) {
-      await uploadKinloomPhoto(familySpaceId, created.ulid, item.file, {
-        width: item.width,
-        height: item.height,
-      });
-    }
-
-    if (options.newAudio?.file) {
-      await uploadKinloomAudio(familySpaceId, created.ulid, options.newAudio.file, {
-        durationSeconds: options.newAudio.durationSeconds,
-      });
-    } else if (options.keepAudioUrl) {
-      const file = await fileFromRemoteUrl(options.keepAudioUrl, 'audio');
-      await uploadKinloomAudio(familySpaceId, created.ulid, file);
-    }
-
-    return updateKinloom(familySpaceId, created.ulid, { status: 'published' });
-  } catch (err) {
-    // Best-effort cleanup of the draft we just created.
-    try {
-      await deleteKinloom(familySpaceId, created.ulid);
-    } catch {
-      // ignore
-    }
-    throw err;
-  }
-}
-
-async function fileFromRemoteUrl(url: string, kind: 'photo' | 'audio'): Promise<File> {
-  // Route through our BFF — browser→GCS GET is CORS-blocked.
-  const res = await fetch('/api/media-fetch-proxy', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url }),
-  });
-  if (!res.ok) {
-    throw new Error(`Could not copy existing ${kind} (${res.status}).`);
-  }
-  const blob = await res.blob();
-  const ref = url.split('?')[0] ?? url;
-  const name = decodeURIComponent(ref.split('/').pop() || (kind === 'photo' ? 'photo.jpg' : 'audio.bin'));
-  const type = blob.type
-    || (kind === 'photo' ? 'image/jpeg' : 'audio/mpeg');
-  return new File([blob], name, { type });
+/** True for a video attachment (by type, falling back to the URL extension). */
+export function isVideoMedia(media: { type?: string | null; url?: string | null } | null | undefined): boolean {
+  if (!media) return false;
+  if (media.type) return media.type === 'video';
+  return isVideoMediaUrl(media.url);
 }

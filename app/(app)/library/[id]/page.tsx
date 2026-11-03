@@ -1,17 +1,12 @@
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
-import { requireActiveSpaceId, getActiveSpace } from '../../../../lib/server/auth';
-import { getHome, getKinloomServer } from '../../../../lib/server/queries';
+import { notFound } from 'next/navigation';
+import { requireHome } from '../../../../lib/server/auth';
+import { serverKinloomApi } from '../../../../lib/server/kinloom-api';
 import { ApiError } from '../../../../lib/api';
 import {
-  bodyParagraphs,
   formatKinloomDate,
-  isVideoMediaUrl,
-  normalizeComments,
-  normalizeList,
-  type KinloomAuthor,
-  type KinloomMedia,
-  type TaggableMember,
+  roomKey,
+  type PersonOrNameOnly,
 } from '../../../../lib/kinloom';
 import { AudioPlayer } from '../../../components/AudioPlayer';
 import HoldButton from './HoldButton';
@@ -21,7 +16,13 @@ import PhotoGallery from './PhotoGallery';
 
 export const dynamic = 'force-dynamic';
 
-type AnyMember = KinloomAuthor | TaggableMember;
+type AnyMember = { name: string; gender?: string; tone?: string };
+
+/** A person card carries a face; a name-only author (outside your people) does not. */
+function personOf(p: PersonOrNameOnly): { member: AnyMember; role: string | null; key: string } {
+  if ('id' in p) return { member: p, role: p.label, key: p.id };
+  return { member: { name: p.name }, role: null, key: `name-${p.name}` };
+}
 
 function Silhouette({ member, size = 40, idKey }: { member: AnyMember; size?: number; idKey: string }) {
   const gender = member.gender || 'n';
@@ -44,112 +45,122 @@ function Silhouette({ member, size = 40, idKey }: { member: AnyMember; size?: nu
   );
 }
 
-export default async function KinloomDetailPage({ params }: { params: { id: string } }) {
-  const familySpaceId = await requireActiveSpaceId();
+export default async function KinloomDetailPage({
+  params,
+  searchParams,
+}: {
+  params: { id: string };
+  searchParams?: { room?: string };
+}) {
+  // A room is only ever one of the kinloom's own `rooms`; the API rejects
+  // anything else, so a stale or hand-edited value simply falls back.
+  const roomParam = /^(home|space):[0-9A-Za-z]{26}$/.test(searchParams?.room ?? '')
+    ? searchParams!.room
+    : undefined;
 
-  let k;
-  try {
-    k = await getKinloomServer(familySpaceId, params.id);
-  } catch (err) {
-    if (err instanceof ApiError && err.status === 404) notFound();
-    throw err;
+  const kinloomReq = serverKinloomApi
+    .get('/kinlooms/{kinloom}', {
+      path: { kinloom: params.id },
+      query: roomParam ? { room: roomParam } : {},
+    })
+    .then((data) => ({ data }), (error: unknown) => ({ error }));
+  await requireHome();
+  const result = await kinloomReq;
+  if ('error' in result) {
+    if (result.error instanceof ApiError && result.error.status === 404) notFound();
+    throw result.error;
   }
+  const k = result.data;
 
-  // /home's user_summary.member_id is authoritative for the current member;
-  // family_spaces[].member_id on /me is optional and often absent, so it's
-  // only a fallback. A failed /home must not take the page down with it.
-  const [home, activeSpace] = await Promise.all([
-    getHome(familySpaceId).catch(() => null),
-    getActiveSpace(),
-  ]);
-  const myMemberId = home?.userSummary?.member_id || activeSpace?.member_id || null;
-  const isAuthor = !!myMemberId && k.author?.member_id === myMemberId;
-
-  const author = k.author;
-  const tagged = normalizeList<TaggableMember>(k.tagged_kin);
-  const paragraphs = bodyParagraphs(k.body_paragraphs);
+  const { member: author, role: authorRole, key: authorKey } = personOf(k.author);
   const dateLabel = formatKinloomDate(k.created_at);
-  const hold = k.hold ?? { held_by_me: false, count: 0 };
-  const comments = normalizeComments(k.comments);
-  const photos = normalizeList<KinloomMedia>(k.photos);
+  const visualMedia = k.media.filter(m => m.type === 'image' || m.type === 'video');
+  const audio = k.media.filter(m => m.type === 'audio');
+  const documents = k.media.filter(m => m.type === 'document');
+  const authorFirst = author.name.split(' ')[0] || 'Voice';
+  const engagement = k.engagement;
 
   return (
     <div>
       <div className="detail-back">
         <div className="detail-back__inner">
-          <Link href="/library" className="link-back">
+          <Link href="/vault" className="link-back">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6" /></svg>
-            Library
+            Vault
           </Link>
-          {/*
-            Both actions are author-only, and we fail closed: when the
-            current member can't be identified nothing is offered rather
-            than showing controls the API would reject with a 403.
-          */}
+          {/* Author-only actions: the API says who may, never the client. */}
           <KinloomActions
-            familySpaceId={familySpaceId}
             kinloom={k}
-            canEdit={isAuthor}
-            canDelete={isAuthor}
+            canEdit={k.can_edit}
+            canDelete={k.can_delete}
+            canPublish={k.can_edit && (k.status === 'draft' || k.can_publish)}
           />
         </div>
       </div>
 
       <article className="detail-article">
         <div className="detail-meta">
-          {k.type_label && <span className="badge">{k.type_label}</span>}
+          <span className="badge">{k.type.label}</span>
+          {k.status === 'draft' && <span className="badge">Draft</span>}
           {dateLabel && <span className="detail-meta__date">{dateLabel}</span>}
+          {k.occurred_label && <span className="detail-meta__date">{k.occurred_label}</span>}
+          {k.place && <span className="detail-meta__date">{k.place}</span>}
         </div>
 
         <h1 className="detail-title">{k.title || 'Untitled'}</h1>
 
-        {author && (
-          <div className="detail-author">
-            <Silhouette member={author} size={44} idKey={author.member_id} />
-            <div>
-              <p className="detail-author__line">Kept by <strong>{author.name}</strong></p>
-              {(author.role_label || author.kin_term) && (
-                <p className="detail-author__role">{author.role_label ?? author.kin_term}</p>
-              )}
-            </div>
+        <div className="detail-author">
+          <Silhouette member={author} size={44} idKey={authorKey} />
+          <div>
+            <p className="detail-author__line">Kept by <strong>{author.name}</strong></p>
+            {authorRole && <p className="detail-author__role">{authorRole}</p>}
+          </div>
+        </div>
+
+        {k.audience.length > 0 ? (
+          <p className="detail-meta__date">
+            Published to {k.audience.map(a => (a.when === 'on_passing' ? `${a.name} (after I pass)` : a.name)).join(' · ')}
+          </p>
+        ) : k.can_edit ? (
+          <p className="detail-meta__date">{k.status === 'draft' ? 'Draft. Only you can see it.' : 'Private. Only you can see it.'}</p>
+        ) : null}
+
+        {visualMedia.length > 0 && <PhotoGallery photos={visualMedia} />}
+
+        {audio.map(a => (
+          <AudioPlayer
+            key={a.id}
+            src={a.url}
+            title={`${authorFirst}\u2019s voice`}
+            transcript={a.transcript_text}
+            fallbackDurationSeconds={a.duration_seconds}
+          />
+        ))}
+
+        <div className="detail-body">
+          {k.body_paragraphs.map((p, i) => <p key={i}>{p}</p>)}
+        </div>
+
+        {documents.length > 0 && (
+          <div className="detail-tagged">
+            <p className="eyebrow">Attachments</p>
+            <ul>
+              {documents.map(d => (
+                <li key={d.id}>
+                  <a href={d.url} target="_blank" rel="noopener noreferrer">{d.filename || 'Attachment'}</a>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
 
-        {photos.length > 0 ? (
-          <PhotoGallery photos={photos} />
-        ) : k.photo?.url && (
-          <figure className="detail-photo">
-            {isVideoMediaUrl(k.photo.url) ? (
-              <video src={k.photo.url} controls playsInline preload="metadata" />
-            ) : (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img src={k.photo.url} alt="" />
-            )}
-          </figure>
-        )}
-
-        {k.audio?.url && (
-          <AudioPlayer
-            src={k.audio.url}
-            title={`${author?.name.split(' ')[0] ?? 'Voice'}\u2019s voice`}
-            transcript={k.audio.transcript_text}
-            fallbackDurationSeconds={
-              k.audio.duration_seconds != null ? Number(k.audio.duration_seconds) || null : null
-            }
-          />
-        )}
-
-        <div className="detail-body">
-          {paragraphs.map((p, i) => <p key={i}>{p}</p>)}
-        </div>
-
-        {tagged.length > 0 && (
+        {k.tags.length > 0 && (
           <div className="detail-tagged">
             <p className="eyebrow">For</p>
             <div className="detail-tagged__row">
-              {tagged.map(m => (
-                <div key={m.member_id} className="detail-tagged__chip">
-                  <Silhouette member={m} size={28} idKey={m.member_id} />
+              {k.tags.map(m => (
+                <div key={m.id} className="detail-tagged__chip">
+                  <Silhouette member={m} size={28} idKey={m.id} />
                   <span>{m.name}</span>
                 </div>
               ))}
@@ -157,22 +168,44 @@ export default async function KinloomDetailPage({ params }: { params: { id: stri
           </div>
         )}
 
-        <div className="detail-actions">
-          <HoldButton
-            familySpaceId={familySpaceId}
-            kinloomId={k.ulid}
-            initialHeldByMe={hold.held_by_me}
-            initialCount={hold.count}
-          />
-          <Link href="/create" className="btn-outline btn-outline--sm">Reply with a kinloom</Link>
-        </div>
+        {engagement && (
+          <>
+            {k.rooms.length > 1 && (
+              <nav className="detail-tagged__row" aria-label="Conversation room">
+                {k.rooms.map(r => (
+                  <Link
+                    key={roomKey(r)}
+                    href={`/library/${k.id}?room=${roomKey(r)}`}
+                    className={`vis-chip${roomKey(r) === roomKey(engagement.room) ? ' is-active' : ''}`}
+                  >
+                    {r.name}
+                  </Link>
+                ))}
+              </nav>
+            )}
 
-        <Comments
-          familySpaceId={familySpaceId}
-          kinloomId={k.ulid}
-          initialComments={comments}
-          currentMemberId={myMemberId}
-        />
+            <div className="detail-actions">
+              <HoldButton
+                key={`hold-${roomKey(engagement.room)}`}
+                kinloomId={k.id}
+                room={engagement.room}
+                initialHeldByMe={engagement.hold.held_by_me}
+                initialCount={engagement.hold.count}
+                readOnly={engagement.read_only}
+              />
+              <Link href="/create" className="btn-outline btn-outline--sm">Reply with a kinloom</Link>
+            </div>
+
+            <Comments
+              key={`comments-${roomKey(engagement.room)}`}
+              kinloomId={k.id}
+              room={engagement.room}
+              initialComments={engagement.comments.data}
+              total={engagement.comments.meta.total}
+              readOnly={engagement.read_only}
+            />
+          </>
+        )}
       </article>
     </div>
   );

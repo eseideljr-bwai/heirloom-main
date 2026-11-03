@@ -1,15 +1,22 @@
 'use client';
 
 /**
- * Active family-space selection (Epic 2 + Epic 3).
+ * The person's Family Home and the Family Space they are looking at.
  *
- * - Initial value is provided by the server root layout (which reads
- *   `kinloom_active_family_space` cookie). No localStorage required.
- * - Switching POSTs to `/api/active-space` to update the cookie and
- *   calls `router.refresh()` so every server component on the page
- *   re-renders with the new space's data.
- * - Cross-tab sync via BroadcastChannel so opening the switcher in
- *   another tab is reflected here.
+ * - The Home is always present: it comes straight from `/me` (one Home per
+ *   person, Phase 3 contract §2.1).
+ * - Family Spaces are the ones that Home is active in. There may be none,
+ *   and nothing here assumes otherwise.
+ * - The selected Space is a preference. The server layout resolves it from
+ *   the `kinloom_active_family_space` cookie (checked against `/me`), and
+ *   switching POSTs to `/api/active-space` then `router.refresh()`es so
+ *   every server component re-renders for the new Space. Other tabs follow
+ *   through a BroadcastChannel.
+ *
+ * Names starting `activeSpace`/`spaces` below are the pre-Phase-3 API that
+ * screens not yet rewired still read. They describe the Home, because the
+ * Home is the container those screens meant. New code uses `home`,
+ * `familySpaces` and `activeFamilySpace`.
  */
 
 import {
@@ -21,14 +28,24 @@ import {
   useState,
 } from 'react';
 import { useRouter } from 'next/navigation';
-import { parseFamilySpaces, type FamilySpaceRef } from './auth';
+import { homeAsLegacyRef, type FamilySpaceRef, type HomeSummary, type SpaceSummary } from './auth';
 import { useAuth } from './auth-context';
 
 type ActiveFamilySpaceContextValue = {
+  /** The person's Family Home, or null while signed out. */
+  home: HomeSummary | null;
+  /** Family Spaces the Home is active in. Often empty. */
+  familySpaces: SpaceSummary[];
+  /** The Space in view, or null when the Home is in none. */
+  activeFamilySpace: SpaceSummary | null;
+  setActiveFamilySpaceId: (id: string) => Promise<void>;
+
+  /** @deprecated The Home as a one-item list. Use `home` / `familySpaces`. */
   spaces: FamilySpaceRef[];
+  /** @deprecated The Home id. Use `home?.id`. */
   activeSpaceId: string | null;
+  /** @deprecated The Home. Use `home`. */
   activeSpace: FamilySpaceRef | null;
-  setActiveSpaceId: (ulid: string) => Promise<void>;
 };
 
 const Ctx = createContext<ActiveFamilySpaceContextValue | null>(null);
@@ -36,48 +53,44 @@ const Ctx = createContext<ActiveFamilySpaceContextValue | null>(null);
 export type ActiveFamilySpaceProviderProps = {
   children: React.ReactNode;
   /** Resolved by the server layout from the active-space cookie. */
-  initialActiveSpaceId?: string | null;
+  initialActiveFamilySpaceId?: string | null;
 };
 
-function resolveActiveSpaceId(
-  spaces: FamilySpaceRef[],
-  preferred: string | null,
-): string | null {
+function resolveFamilySpaceId(spaces: SpaceSummary[], preferred: string | null): string | null {
   if (spaces.length === 0) return null;
-  const ids = new Set(spaces.map(s => s.ulid));
-  if (preferred && ids.has(preferred)) return preferred;
-  return spaces[0]?.ulid ?? null;
+  if (preferred && spaces.some(s => s.id === preferred)) return preferred;
+  return spaces[0].id;
 }
 
 export function ActiveFamilySpaceProvider({
   children,
-  initialActiveSpaceId = null,
+  initialActiveFamilySpaceId = null,
 }: ActiveFamilySpaceProviderProps) {
   const { user } = useAuth();
   const router = useRouter();
-  const spaces = useMemo(() => parseFamilySpaces(user?.family_spaces), [user]);
+  const home = user?.home ?? null;
+  const familySpaces = useMemo(() => user?.spaces ?? [], [user]);
 
-  const [preferredSpaceId, setPreferredSpaceId] = useState<string | null>(initialActiveSpaceId);
+  const [preferredId, setPreferredId] = useState<string | null>(initialActiveFamilySpaceId);
 
-  // Resolve during render so AppShell never sees a one-frame null
-  // activeSpaceId while spaces are already available (that used to
-  // paint a permanent blank page for invitees).
-  const activeSpaceId = useMemo(
-    () => (user ? resolveActiveSpaceId(spaces, preferredSpaceId) : null),
-    [user, spaces, preferredSpaceId],
+  // Resolved during render so consumers never see a one-frame null while
+  // the Spaces are already known.
+  const activeFamilySpaceId = useMemo(
+    () => (user ? resolveFamilySpaceId(familySpaces, preferredId) : null),
+    [user, familySpaces, preferredId],
   );
 
-  // Keep preferred state in sync when the resolved value changes
-  // (e.g. cookie pointed at a space the user left).
+  // Keep the preference in step with what resolved (e.g. the cookie named a
+  // Space the Home has since left).
   useEffect(() => {
     if (!user) {
-      if (preferredSpaceId != null) setPreferredSpaceId(null);
+      if (preferredId != null) setPreferredId(null);
       return;
     }
-    if (activeSpaceId && activeSpaceId !== preferredSpaceId) {
-      setPreferredSpaceId(activeSpaceId);
+    if (activeFamilySpaceId && activeFamilySpaceId !== preferredId) {
+      setPreferredId(activeFamilySpaceId);
     }
-  }, [user, activeSpaceId, preferredSpaceId]);
+  }, [user, activeFamilySpaceId, preferredId]);
 
   // Cross-tab sync.
   useEffect(() => {
@@ -85,50 +98,61 @@ export function ActiveFamilySpaceProvider({
     const bc = new BroadcastChannel('kinloom_active_space');
     bc.onmessage = (e) => {
       if (typeof e.data === 'string') {
-        setPreferredSpaceId(e.data || null);
+        setPreferredId(e.data || null);
         router.refresh();
       }
     };
     return () => bc.close();
   }, [router]);
 
-  const setActiveSpaceId = useCallback(async (ulid: string) => {
-    setPreferredSpaceId(ulid);
+  const setActiveFamilySpaceId = useCallback(async (id: string) => {
+    setPreferredId(id);
     const res = await fetch('/api/active-space', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ ulid }),
+      body: JSON.stringify({ id }),
     });
     if (!res.ok) {
-      // Revert if server rejected. Most common cause is "not a member".
-      const fallback = spaces[0]?.ulid ?? null;
-      setPreferredSpaceId(fallback);
+      // Revert if the server rejected it (the Home isn't in that Space).
+      setPreferredId(familySpaces[0]?.id ?? null);
       return;
     }
     if (typeof BroadcastChannel !== 'undefined') {
       try {
         const bc = new BroadcastChannel('kinloom_active_space');
-        bc.postMessage(ulid);
+        bc.postMessage(id);
         bc.close();
       } catch {
         // ignore
       }
     }
-    // Re-render every server component on the page with the new space.
+    // Re-render every server component on the page for the new Space.
     router.refresh();
-  }, [spaces, router]);
+  }, [familySpaces, router]);
 
-  const activeSpace = useMemo(
-    () => spaces.find(s => s.ulid === activeSpaceId) ?? null,
-    [spaces, activeSpaceId],
+  const activeFamilySpace = useMemo(
+    () => familySpaces.find(s => s.id === activeFamilySpaceId) ?? null,
+    [familySpaces, activeFamilySpaceId],
   );
 
-  return (
-    <Ctx.Provider value={{ spaces, activeSpaceId, activeSpace, setActiveSpaceId }}>
-      {children}
-    </Ctx.Provider>
+  const legacyHome = useMemo(() => (user ? homeAsLegacyRef(user) : null), [user]);
+  const legacySpaces = useMemo(() => (legacyHome ? [legacyHome] : []), [legacyHome]);
+
+  const value = useMemo<ActiveFamilySpaceContextValue>(
+    () => ({
+      home,
+      familySpaces,
+      activeFamilySpace,
+      setActiveFamilySpaceId,
+      spaces: legacySpaces,
+      activeSpaceId: legacyHome?.ulid ?? null,
+      activeSpace: legacyHome,
+    }),
+    [home, familySpaces, activeFamilySpace, setActiveFamilySpaceId, legacySpaces, legacyHome],
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 
 export function useActiveFamilySpace(): ActiveFamilySpaceContextValue {

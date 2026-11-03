@@ -34,6 +34,16 @@ const staticSecurityHeaders = [
 const nextConfig = {
   output: 'standalone',
 
+  // `/family/*` (overview, feed, members, tree, member profile) was replaced
+  // by Home, the Tapestry, Manage Home and the Legacy Portrait. Old links and
+  // bookmarks land on Home instead of a 404.
+  async redirects() {
+    return [
+      { source: '/family', destination: '/home', permanent: false },
+      { source: '/family/:path*', destination: '/home', permanent: false },
+    ];
+  },
+
   async headers() {
     return [
       {

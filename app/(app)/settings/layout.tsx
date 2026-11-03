@@ -1,11 +1,4 @@
-import Link from 'next/link';
-
-const SETTINGS_NAV = [
-  { href: '/settings',                label: 'Account' },
-  { href: '/settings/notifications',  label: 'Notifications' },
-  { href: '/settings/privacy',        label: 'Privacy & permissions' },
-  { href: '/settings/export',         label: 'Export & backup' },
-];
+import SettingsNav from './SettingsNav';
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -13,13 +6,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
       {/* Settings sub-nav */}
       <aside className="settings-layout__aside">
         <p className="settings-layout__label">Settings</p>
-        <nav className="settings-layout__nav">
-          {SETTINGS_NAV.map(item => (
-            <Link key={item.href} href={item.href} className="settings-layout__link">
-              {item.label}
-            </Link>
-          ))}
-        </nav>
+        <SettingsNav />
       </aside>
 
       {/* Page content */}

@@ -1,44 +1,41 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  cloneKinloomWithMedia,
   deleteKinloom,
-  deleteMediaAttachment,
+  deleteMedia,
   getCreateContext,
-  isVideoMediaUrl,
+  isVideoMedia,
   MAX_KINLOOM_PHOTOS,
   MAX_PHOTO_BYTES,
-  normalizeList,
   PHOTO_MIME_TYPES,
   readImageDimensions,
   updateKinloom,
   uploadKinloomAudio,
   uploadKinloomPhoto,
-  type Kinloom,
-  type KinloomMedia,
-  type UpdateKinloomPayload,
-  type Visibility,
+  type KinloomDetail,
+  type UpdateKinloomBody,
   type TaggableMember,
 } from '../../../../lib/kinloom';
-import { resolveMediaAttachmentId } from '../../../../lib/media-attachments';
 import { ApiError } from '../../../../lib/api';
 import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
 import { revalidateKinloomData } from '../../../actions';
 
 type Props = {
-  familySpaceId: string;
-  kinloom: Kinloom;
+  kinloom: KinloomDetail;
   canEdit: boolean;
   canDelete: boolean;
+  /** True for a draft or final kinloom of yours that can go to a room. */
+  canPublish: boolean;
 };
 
 export default function KinloomActions({
-  familySpaceId,
   kinloom,
   canEdit,
   canDelete,
+  canPublish,
 }: Props) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -55,7 +52,7 @@ export default function KinloomActions({
     return () => document.removeEventListener('mousedown', onClick);
   }, [menuOpen]);
 
-  if (!canEdit && !canDelete) return null;
+  if (!canEdit && !canDelete && !canPublish) return null;
 
   return (
     <div className="kinloom-menu" ref={menuRef}>
@@ -80,6 +77,16 @@ export default function KinloomActions({
               Edit
             </button>
           )}
+          {canPublish && (
+            <Link
+              href={`/create/publish?k=${kinloom.id}`}
+              role="menuitem"
+              className="kinloom-menu__item"
+              onClick={() => setMenuOpen(false)}
+            >
+              {kinloom.status === 'draft' ? 'Finish & publish' : 'Who can see it'}
+            </Link>
+          )}
           {canDelete && (
             <button
               type="button"
@@ -95,18 +102,11 @@ export default function KinloomActions({
 
       {editOpen && (
         <EditKinloomModal
-          familySpaceId={familySpaceId}
           kinloom={kinloom}
           onCancel={() => setEditOpen(false)}
-          onSaved={async (nextId) => {
+          onSaved={async () => {
             setEditOpen(false);
-            const id = nextId || kinloom.ulid;
-            await revalidateKinloomData(kinloom.ulid);
-            if (nextId && nextId !== kinloom.ulid) {
-              await revalidateKinloomData(nextId);
-              router.replace(`/library/${nextId}`);
-              return;
-            }
+            await revalidateKinloomData(kinloom.id);
             router.refresh();
           }}
         />
@@ -114,12 +114,11 @@ export default function KinloomActions({
 
       {deleteOpen && (
         <DeleteKinloomModal
-          familySpaceId={familySpaceId}
-          kinloomId={kinloom.ulid}
+          kinloomId={kinloom.id}
           onCancel={() => setDeleteOpen(false)}
           onDeleted={async () => {
-            await revalidateKinloomData(kinloom.ulid);
-            router.replace('/library');
+            await revalidateKinloomData(kinloom.id);
+            router.replace('/vault');
           }}
         />
       )}
@@ -132,7 +131,8 @@ export default function KinloomActions({
 type ExistingPhoto = {
   key: string;
   url: string;
-  mediaId: string | null;
+  mediaId: string;
+  isVideo: boolean;
   removed: boolean;
 };
 
@@ -146,44 +146,16 @@ type NewPhoto = {
   error?: string;
 };
 
-function bodyToText(body_paragraphs: Kinloom['body_paragraphs']): string {
-  if (Array.isArray(body_paragraphs)) {
-    return body_paragraphs.map(p => typeof p === 'string' ? p : String(p ?? '')).join('\n\n');
-  }
-  if (typeof body_paragraphs === 'string') return body_paragraphs;
-  if (body_paragraphs && typeof body_paragraphs === 'object') {
-    return Object.values(body_paragraphs as Record<string, unknown>).map(v => String(v ?? '')).join('\n\n');
-  }
-  return '';
-}
-
-function taggedIds(value: Kinloom['tagged_kin']): string[] {
-  if (Array.isArray(value)) return value.map(m => m.member_id);
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value);
-      if (Array.isArray(parsed)) return parsed.map((m: { member_id: string }) => m.member_id);
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
-function initialExistingPhotos(kinloom: Kinloom): ExistingPhoto[] {
-  const listed = normalizeList<KinloomMedia>(kinloom.photos).filter(p => !!p?.url);
-  const source = listed.length > 0
-    ? listed
-    : (kinloom.photo?.url ? [kinloom.photo] : []);
-  return source.map((p, i) => {
-    const mediaId = resolveMediaAttachmentId(p);
-    return {
-      key: mediaId ?? `existing-${i}-${p.url}`,
-      url: p.url as string,
-      mediaId,
+function initialExistingPhotos(kinloom: KinloomDetail): ExistingPhoto[] {
+  return kinloom.media
+    .filter(m => m.type === 'image' || m.type === 'video')
+    .map(m => ({
+      key: m.id,
+      url: m.url,
+      mediaId: m.id,
+      isVideo: isVideoMedia(m),
       removed: false,
-    };
-  });
+    }));
 }
 
 /** Order-independent equality for two lists of member ids. */
@@ -209,37 +181,26 @@ function editErrorMessage(err: unknown): string {
 }
 
 function EditKinloomModal({
-  familySpaceId,
   kinloom,
   onCancel,
   onSaved,
 }: {
-  familySpaceId: string;
-  kinloom: Kinloom;
+  kinloom: KinloomDetail;
   onCancel: () => void;
-  /** Optional new ulid when media edits required a republish. */
-  onSaved: (nextId?: string) => void | Promise<void>;
+  onSaved: () => void | Promise<void>;
 }) {
   // Snapshot the original values once so we can send only what changed on
-  // save. This is deliberate: `kinloom.show` returns no raw `body` (only
-  // `body_paragraphs`), so `bodyToText` reconstructs it lossily. Sending
-  // that reconstruction on every save — even a title-only edit — would
-  // rewrite the stored body through the lossy path. Dirty-tracking means
-  // `body` is only sent when the user actually edited it. (Backend ask:
-  // add raw `body` to the show response to remove the lossiness entirely.)
+  // save (the API takes a partial PATCH).
   const initial = useRef({
     title: kinloom.title || '',
-    body: bodyToText(kinloom.body_paragraphs),
-    visibility: ((kinloom.visibility as Visibility) || 'family') as Visibility,
-    tagged: taggedIds(kinloom.tagged_kin),
-    hasAudio: !!kinloom.audio?.url,
-    audioUrl: kinloom.audio?.url ?? null,
-    audioId: resolveMediaAttachmentId(kinloom.audio),
+    body: kinloom.body ?? '',
+    tagged: kinloom.tags.map(t => t.id),
+    audioId: kinloom.media.find(m => m.type === 'audio')?.id ?? null,
   }).current;
+  const hasAudio = initial.audioId !== null;
 
   const [title, setTitle] = useState(initial.title);
   const [body, setBody] = useState(initial.body);
-  const [visibility, setVisibility] = useState<Visibility>(initial.visibility);
   const [tagged, setTagged] = useState<string[]>(initial.tagged);
   const [taggableMembers, setTaggableMembers] = useState<TaggableMember[]>([]);
   const [existingPhotos, setExistingPhotos] = useState<ExistingPhoto[]>(() => initialExistingPhotos(kinloom));
@@ -267,14 +228,14 @@ function EditKinloomModal({
     let cancelled = false;
     (async () => {
       try {
-        const ctx = await getCreateContext(familySpaceId, kinloom.type_slug);
+        const ctx = await getCreateContext(kinloom.type.slug);
         if (!cancelled) setTaggableMembers(ctx.taggableMembers);
       } catch {
         if (!cancelled) setTaggableMembers([]);
       }
     })();
     return () => { cancelled = true; };
-  }, [familySpaceId, kinloom.type_slug]);
+  }, [kinloom.type.slug]);
 
   const keptExisting = useMemo(
     () => existingPhotos.filter(p => !p.removed),
@@ -287,12 +248,6 @@ function EditKinloomModal({
     newPhotos.length > 0 ||
     removeAudio ||
     voiceValue !== null;
-  // show omits MediaAttachment ids; when a removal has no resolvable id we
-  // republish into a new kinloom row (same content + kept/new media).
-  const needsRepublish =
-    existingPhotos.some(p => p.removed && !p.mediaId) ||
-    (removeAudio && !!initial.hasAudio && !initial.audioId);
-
   const toggleKin = (id: string) =>
     setTagged(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
@@ -372,10 +327,9 @@ function EditKinloomModal({
     const nextBody = body.trim();
 
     // Build a partial payload from only the fields the user changed.
-    const payload: UpdateKinloomPayload = {};
+    const payload: UpdateKinloomBody = {};
     if (nextTitle !== initial.title.trim()) payload.title = nextTitle;
     if (nextBody !== initial.body.trim()) payload.body = nextBody;
-    if (visibility !== initial.visibility) payload.visibility = visibility;
     if (!sameIdSet(tagged, initial.tagged)) payload.tagged_member_ids = tagged;
 
     // Nothing changed — close without hitting the API.
@@ -389,49 +343,18 @@ function EditKinloomModal({
       // Treat 404 as success so retries after a partial save stay idempotent.
       const deleteOrGone = async (mediaId: string) => {
         try {
-          await deleteMediaAttachment(familySpaceId, mediaId);
+          await deleteMedia(mediaId);
         } catch (err) {
           if (!(err instanceof ApiError) || err.status !== 404) throw err;
         }
       };
 
-      if (needsRepublish) {
-        // API show omits attachment ids, so remove/replace of pre-existing
-        // media requires cloning into a new row with the desired media set.
-        const published = await cloneKinloomWithMedia(familySpaceId, kinloom, {
-          title: nextTitle,
-          body: nextBody,
-          visibility,
-          tagged_member_ids: tagged,
-          keptPhotoUrls: keptExisting.map(p => p.url),
-          newPhotos: newPhotos.map(p => ({
-            file: p.file,
-            width: p.width,
-            height: p.height,
-          })),
-          keepAudioUrl: (!removeAudio && !voiceValue && initial.audioUrl) ? initial.audioUrl : null,
-          newAudio: voiceValue
-            ? { file: voiceValue.file, durationSeconds: voiceValue.durationSeconds }
-            : null,
-        });
-        try {
-          await deleteKinloom(familySpaceId, kinloom.ulid);
-        } catch (err) {
-          // New kinloom is live; surface cleanup failure but still navigate.
-          console.error('Failed to delete replaced kinloom', err);
-        }
-        await onSaved(published.ulid);
-        return;
-      }
-
-      // Fast path: text patch + delete-by-id + additive uploads.
       if (Object.keys(payload).length > 0) {
-        await updateKinloom(familySpaceId, kinloom.ulid, payload);
+        await updateKinloom(kinloom.id, payload);
       }
 
       for (const photo of existingPhotos) {
-        if (!photo.removed || !photo.mediaId) continue;
-        await deleteOrGone(photo.mediaId);
+        if (photo.removed) await deleteOrGone(photo.mediaId);
       }
 
       if (removeAudio && initial.audioId) {
@@ -444,7 +367,7 @@ function EditKinloomModal({
           p.key === item.key ? { ...p, status: 'uploading', error: undefined } : p,
         ));
         try {
-          await uploadKinloomPhoto(familySpaceId, kinloom.ulid, item.file, {
+          await uploadKinloomPhoto(kinloom.id, item.file, {
             width: item.width,
             height: item.height,
           });
@@ -461,11 +384,7 @@ function EditKinloomModal({
       }
 
       if (voiceValue) {
-        // Replace: drop prior audio first when we have its attachment id.
-        if (initial.audioId && !removeAudio) {
-          await deleteOrGone(initial.audioId);
-        }
-        await uploadKinloomAudio(familySpaceId, kinloom.ulid, voiceValue.file, {
+        await uploadKinloomAudio(kinloom.id, voiceValue.file, {
           durationSeconds: voiceValue.durationSeconds,
         });
       }
@@ -479,8 +398,8 @@ function EditKinloomModal({
   }
 
   const showRecorder = showVoicePicker || voiceValue !== null;
-  const showExistingAudio = initial.hasAudio && !removeAudio && !showRecorder;
-  const showAudioRemoved = initial.hasAudio && removeAudio && !showRecorder;
+  const showExistingAudio = hasAudio && !removeAudio && !showRecorder;
+  const showAudioRemoved = hasAudio && removeAudio && !showRecorder;
 
   return (
     <div
@@ -490,7 +409,7 @@ function EditKinloomModal({
       <form className="modal modal--wide" onSubmit={onSubmit}>
         <h3 className="modal-title">Edit kinloom</h3>
         <p className="modal-text">
-          Update the title, words, photos, who it&apos;s for, and who can see it. Existing media stays unless you remove it.
+          Update the title, words, photos and who it&apos;s for. Existing media stays unless you remove it.
         </p>
 
         <div className="settings-fields">
@@ -550,7 +469,7 @@ function EditKinloomModal({
                     key={photo.key}
                     className={`photo-grid__item${photo.removed ? ' photo-grid__item--removed' : ''}`}
                   >
-                    {isVideoMediaUrl(photo.url) ? (
+                    {photo.isVideo ? (
                       <video
                         src={photo.url}
                         className="photo-grid__img"
@@ -671,12 +590,12 @@ function EditKinloomModal({
                 onChange={(next) => {
                   setVoiceValue(next);
                   if (next) setRemoveAudio(true);
-                  if (!next && removeAudio && initial.hasAudio) setShowVoicePicker(false);
+                  if (!next && removeAudio && hasAudio) setShowVoicePicker(false);
                 }}
                 disabled={submitting}
               />
             )}
-            {!initial.hasAudio && !showRecorder && (
+            {!hasAudio && !showRecorder && (
               <button
                 type="button"
                 className="btn-outline btn-outline--sm"
@@ -689,20 +608,13 @@ function EditKinloomModal({
           </div>
 
           <div>
-            <p className="field-label">Visibility</p>
-            <div className="vis-row">
-              {(['family', 'private'] as Visibility[]).map(v => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => setVisibility(v)}
-                  className={`vis-chip${visibility === v ? ' is-active' : ''}`}
-                  disabled={submitting}
-                >
-                  {v === 'family' ? 'Family' : 'Only me'}
-                </button>
-              ))}
-            </div>
+            <p className="field-label">Who can see it</p>
+            <p className="modal-text">
+              Set when you publish.{' '}
+              <Link href={`/create/publish?k=${kinloom.id}`} className="link-back">
+                {kinloom.status === 'draft' ? 'Finish & publish' : 'Change who can see it'}
+              </Link>
+            </p>
           </div>
 
           {taggableMembers.length > 0 && (
@@ -746,12 +658,10 @@ function EditKinloomModal({
 // ─── Delete confirm modal ──────────────────────────────────────────
 
 function DeleteKinloomModal({
-  familySpaceId,
   kinloomId,
   onCancel,
   onDeleted,
 }: {
-  familySpaceId: string;
   kinloomId: string;
   onCancel: () => void;
   onDeleted: () => void | Promise<void>;
@@ -763,7 +673,7 @@ function DeleteKinloomModal({
     setError(null);
     setSubmitting(true);
     try {
-      await deleteKinloom(familySpaceId, kinloomId);
+      await deleteKinloom(kinloomId);
       await onDeleted();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not delete.';
@@ -780,7 +690,7 @@ function DeleteKinloomModal({
       <div className="modal">
         <h3 className="modal-title">Delete this kinloom?</h3>
         <p className="modal-text">
-          This permanently removes the kinloom, its photo, voice, and any comments. This cannot be undone.
+          This permanently removes the kinloom, its media, and everywhere it was published, with its comments and holds. This cannot be undone.
         </p>
         {error && <p className="form-status form-status--error">{error}</p>}
         <div className="modal-actions">

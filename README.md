@@ -60,9 +60,35 @@ for session-cookie minting and SSR custom-token exchange.
 | `kinloom_id_token` | 55min | yes | Raw Firebase ID token. Bearer for SSR-to-Laravel calls. Refreshed on every `onIdTokenChanged`. |
 | `kinloom_session_started_at` | 30d | no | Absolute-timeout clock (Epic 2). |
 | `kinloom_active_family_space` | 30d | no | Currently-selected family space. |
+| `kinloom_embed` | browser session | no | `ios` inside the iOS app's WebView. Hides the web chrome. |
 
 ### CSP
 
 Strict, nonce-based. Generated per-request in `middleware.ts`.
 Inline scripts are blocked unless they carry the per-response nonce.
 `'unsafe-inline'` remains on `style-src` only (React style attributes).
+
+## iOS WebView embed
+
+The iOS app hosts Talk (`/create/talk`) and Biographer (`/create/import`)
+in a WKWebView, through the publish step.
+
+1. **Sign-in.** Native POSTs its Firebase ID token to
+   `/api/auth/mobile-session` with `X-Kinloom-Client: ios` and body
+   `{ "idToken": "...", "activeFamilySpaceId": "..." }` (the space is
+   optional). It copies the `Set-Cookie` values into `WKHTTPCookieStore`
+   before the first navigation. The session lasts one hour; re-bootstrap
+   each time the WebView opens.
+2. **Shell-less mode.** Open the flow with `?embed=ios`. AppNav is hidden
+   and the web app leaves session handling to native. `?embed=off`
+   clears it.
+3. **Bridge.** The web posts `{ version: 1, type, ... }` to
+   `window.webkit.messageHandlers.kinloom`:
+   `publishComplete` (with `kinloomIds`), `cancel`, `requestClose`,
+   `sessionExpired`. Full contract in `lib/embed.ts`. Without a handler,
+   every exit navigates as it does on the web.
+4. **Expired session.** A redirect to `/` or a `sessionExpired` message
+   means re-bootstrap and reload once.
+
+Universal Links for `/invite/*` are served from
+`/.well-known/apple-app-site-association` once `APPLE_APP_IDS` is set.

@@ -4,9 +4,14 @@
  * Batch-publish endpoint for the Biographer (Import) propose path. The
  * client sends the array of refined drafts from the BiographerBatchCard;
  * this route loops the SAME single-create call the publish wizard uses
- * (POST /family-spaces/{familySpace}/kinlooms — see createKinloom /
- * lib/kinloom.ts) once per draft, server-side, attaching the Bearer via
- * the shared serverApiFetch token resolver.
+ * (POST /kinlooms — see createKinloom / lib/kinloom.ts) once per draft,
+ * server-side, attaching the Bearer via the shared token resolver.
+ *
+ * Each import is created `final` with `capture_mode: "import"`. When the
+ * request carries `publish` (the rooms the author chose on the batch card),
+ * that is where every draft goes; `[]` keeps them private. Without it there
+ * is no `publish` key, so a draft lands wherever the author's default
+ * publish target says. The kinloom belongs to the author's Vault either way.
  *
  * NOT transactional. Looping the single-create endpoint means a mid-batch
  * failure leaves some kinlooms created and some not. We therefore return a
@@ -15,30 +20,29 @@
  * no duplicates. An atomic all-or-nothing publish would be a dedicated
  * Laravel batch endpoint (JC), not this frontend loop.
  *
- * The family space id is resolved server-side from the session
- * (resolveActiveSpaceForRoute) and the author from the Bearer token —
- * neither is trusted from the request body. That resolution reaches
- * Laravel for /me, so it can fail independently of the drafts; it returns
- * a structured result rather than throwing, because an escaped error here
- * used to collapse the whole batch into an opaque 500.
+ * The author comes from the Bearer token, never from the request body.
+ * The session check reaches Laravel for /me, so it can fail independently
+ * of the drafts; it returns a structured result rather than throwing,
+ * because an escaped error here used to collapse the whole batch into an
+ * opaque 500.
  *
- * Request:  { drafts: Array<{ title; type_slug; body; visibility? }> }
+ * Request:  { drafts: Array<{ title; type_slug; body; visibility? }>,
+ *             publish?: Array<{ type: 'home' | 'space'; id; when? }> }
+ *           `publish` is the author's choice for the whole batch; the API
+ *           rejects a room that isn't theirs. `visibility: "private"` keeps
+ *           that draft out of every room when `publish` is absent.
  * Response: { results: Array<{ ok; ulid?; title; error? }> }
  */
 
 import { NextResponse } from 'next/server';
 import { resolveActiveSpaceForRoute } from '../../../../../lib/server/auth';
-import { serverApiFetch, ApiError } from '../../../../../lib/server/api';
+import { ApiError } from '../../../../../lib/server/api';
+import { serverKinloomApi } from '../../../../../lib/server/kinloom-api';
 import { KINLOOM_TYPE_SLUGS } from '../../../../../lib/agent/tools';
 import { KINLOOM_TYPES } from '../../../../lib/kinloom-types';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-// Default visibility for imported kinlooms. The single-create wizard sends
-// visibility explicitly (create-context default is 'family'); the batch
-// drafts don't carry one, so we mirror that default here.
-const DEFAULT_VISIBILITY = 'family';
 
 const VALID_SLUGS = new Set<string>(KINLOOM_TYPE_SLUGS);
 // Label → slug fallback, so a display label ("Message") that somehow reaches
@@ -63,17 +67,34 @@ type IncomingDraft = {
   visibility?: unknown;
 };
 
+type Target = { type: 'home' | 'space'; id: string; when?: 'now' | 'on_passing' };
+
+/** The batch's rooms, or null when the key is absent. Throws on a bad shape. */
+function parsePublish(value: unknown): Target[] | null {
+  if (value === undefined) return null;
+  if (!Array.isArray(value) || value.length > 50) throw new Error('`publish` must be an array of rooms.');
+  return value.map((t) => {
+    const o = (t ?? {}) as Record<string, unknown>;
+    if ((o.type !== 'home' && o.type !== 'space') || typeof o.id !== 'string' || !/^[0-9A-Za-z]{26}$/.test(o.id)) {
+      throw new Error('Each room in `publish` needs a type (home or space) and an id.');
+    }
+    if (o.when !== undefined && o.when !== 'now' && o.when !== 'on_passing') {
+      throw new Error('`when` must be now or on_passing.');
+    }
+    return { type: o.type, id: o.id, ...(o.when ? { when: o.when } : {}) } as Target;
+  });
+}
+
 type ItemResult = { ok: boolean; ulid?: string; title: string; error?: string };
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const space = await resolveActiveSpaceForRoute('agent/biographer/publish');
-  if (space.ok === false) {
+  const session = await resolveActiveSpaceForRoute('agent/biographer/publish');
+  if (session.ok === false) {
     return NextResponse.json(
-      { error: space.error, retryAfterSeconds: space.retryAfterSeconds },
-      { status: space.status },
+      { error: session.error, retryAfterSeconds: session.retryAfterSeconds },
+      { status: session.status },
     );
   }
-  const spaceId = space.spaceId;
 
   let raw: unknown;
   try {
@@ -87,6 +108,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: '`drafts` must be a non-empty array.' }, { status: 400 });
   }
 
+  let chosen: Target[] | null;
+  try {
+    chosen = parsePublish((raw as { publish?: unknown })?.publish);
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+  }
+
   const results: ItemResult[] = [];
 
   // Sequential loop — one create per draft. Kept sequential (not Promise.all)
@@ -96,10 +124,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     const title = typeof d.title === 'string' ? d.title.trim() : '';
     const body = typeof d.body === 'string' ? d.body.trim() : '';
     const slug = normalizeSlug(d.type_slug);
-    const visibility =
-      typeof d.visibility === 'string' && d.visibility.trim()
-        ? d.visibility.trim()
-        : DEFAULT_VISIBILITY;
+    const keepPrivate = typeof d.visibility === 'string' && d.visibility.trim() === 'private';
     const label = title || '(untitled)';
 
     if (!slug) {
@@ -112,20 +137,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     try {
-      const created = await serverApiFetch<{ ulid: string }>(
-        `/family-spaces/${encodeURIComponent(spaceId)}/kinlooms`,
-        {
-          method: 'POST',
-          body: {
-            type_slug: slug,
-            title: title || 'Untitled',
-            body,
-            visibility,
-            status: 'published',
-          },
+      const created = await serverKinloomApi.post('/kinlooms', {
+        body: {
+          type_slug: slug,
+          title: title || 'Untitled',
+          body,
+          status: 'final',
+          capture_mode: 'import',
+          // The author's choice wins. With none, a draft marked private stays
+          // private, and otherwise the default publish target applies.
+          ...(chosen ? { publish: chosen } : keepPrivate ? { publish: [] } : {}),
         },
-      );
-      results.push({ ok: true, ulid: created.ulid, title: label });
+      });
+      results.push({ ok: true, ulid: created.id, title: label });
     } catch (err) {
       const message =
         err instanceof ApiError
@@ -141,23 +165,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   const created = results.filter(r => r.ok).length;
   const failures = results.filter(r => !r.ok);
   if (failures.length > 0) {
-    // When creates fail, print what /me said about this membership. If /me
-    // reports a member_id for the space we posted to and Laravel's
-    // ResolveFamilySpace still can't find a FamilyMember, the two sides
-    // disagree and it isn't a question of which space we picked. If instead
-    // member_id is absent — or another space is listed — the selection is
-    // ours to fix.
     console.warn(
       `[agent/biographer/publish] ${drafts.length} draft(s): ${created} created, ${failures.length} failed — ` +
         failures.map(f => `"${f.title}": ${f.error ?? 'unknown error'}`).join('; '),
-    );
-    console.warn(
-      `[agent/biographer/publish] posted to space=${spaceId} ` +
-        `me.member_id=${space.space?.member_id ?? 'ABSENT'} ` +
-        `me.role=${space.space?.role ?? 'ABSENT'} ` +
-        `me.spaces=${JSON.stringify(
-          space.allSpaces.map(s => ({ ulid: s.ulid, member_id: s.member_id ?? null, role: s.role ?? null })),
-        )}`,
     );
   } else {
     console.log(`[agent/biographer/publish] ${drafts.length} draft(s): all ${created} created`);
