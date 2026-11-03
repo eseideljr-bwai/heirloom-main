@@ -83,20 +83,21 @@ async function handle(
   });
 
   const respHeaders = new Headers();
+  // Redirects (e.g. an export download → signed GCS URL) go back to the
+  // browser as-is so it follows them itself; the file never streams through
+  // this proxy, which buffers every body in memory.
+  const redirect = upstream.status >= 300 && upstream.status < 400 && upstream.status !== 304;
   // 204/205/304 must not carry a body (Undici throws if NextResponse gets one).
-  const nullBody = upstream.status === 204 || upstream.status === 205 || upstream.status === 304;
-  const passthrough = nullBody
-    ? ['cache-control']
-    : ['content-type', 'content-disposition', 'content-length', 'cache-control'];
+  const nullBody =
+    redirect || upstream.status === 204 || upstream.status === 205 || upstream.status === 304;
+  const passthrough = redirect
+    ? ['location', 'cache-control']
+    : nullBody
+      ? ['cache-control']
+      : ['content-type', 'content-disposition', 'content-length', 'cache-control'];
   for (const h of passthrough) {
     const v = upstream.headers.get(h);
     if (v) respHeaders.set(h, v);
-  }
-  // A redirect (the export download answers 302 to a signed file URL) is only
-  // useful to the browser if it can see where to go.
-  if (upstream.status >= 300 && upstream.status < 400) {
-    const loc = upstream.headers.get('location');
-    if (loc) respHeaders.set('location', loc);
   }
   if (nullBody) {
     // Drain upstream so the connection can be reused, then return no body.
