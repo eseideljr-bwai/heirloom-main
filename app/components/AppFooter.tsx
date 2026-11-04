@@ -37,7 +37,8 @@ export default function AppFooter({
   const pathname = usePathname();
   const { home, activeFamilySpace } = useActiveFamilySpace();
 
-  const inSpaces = pathname === '/spaces' || pathname.startsWith('/spaces/');
+  // The create wizard belongs to no Space yet, so the footer names the Home.
+  const inSpaces = (pathname === '/spaces' || pathname.startsWith('/spaces/')) && pathname !== '/spaces/new';
   // Names whichever container the page is about: the Space inside /spaces,
   // the person's Home everywhere else.
   const name = (inSpaces ? activeFamilySpace?.name : home?.name)?.trim() || null;
