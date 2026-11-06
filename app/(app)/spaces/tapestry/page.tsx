@@ -10,6 +10,7 @@ import { KINLOOM_TYPES } from '../../../lib/kinloom-types';
 import DataNotice from '../../../components/DataNotice';
 import NoFamilySpace from '../../../components/NoFamilySpace';
 import Pagination from '../../../components/Pagination';
+import EmptyTapestry from './EmptyTapestry';
 
 export const dynamic = 'force-dynamic';
 
@@ -85,7 +86,7 @@ function PersonTile({ p }: { p: TapestryPerson }) {
   );
 }
 
-type Search = { view?: string; person?: string; home?: string; type?: string; sort?: string; page?: string };
+type Search = { view?: string; person?: string; home?: string; type?: string; sort?: string; page?: string; welcome?: string };
 
 export default async function FamilyTapestryPage({ searchParams }: { searchParams?: Search }) {
   await requireHome();
@@ -135,6 +136,24 @@ export default async function FamilyTapestryPage({ searchParams }: { searchParam
   const facts = main?.facts ?? everyoneRes?.facts ?? null;
 
   const spaceName = space?.name?.trim() || 'this Family Space';
+
+  // Nothing published to the Space at all (no filter in play, so it isn't just
+  // an empty filter): show who is in it and how to invite more, in place of an
+  // empty mosaic. `?welcome=1` comes from the create wizard.
+  if (main && !isPeople && !(person || home || typeSlug) && main.meta.total === 0 && requestedPage === 1) {
+    const manage = await serverKinloomApi
+      .get('/family-spaces/{familySpace}/manage', { path: { familySpace: spaceId } })
+      .catch(orNullApi);
+    return (
+      <EmptyTapestry
+        spaceId={spaceId}
+        spaceName={spaceName}
+        description={space?.description ?? null}
+        manage={manage}
+        justCreated={searchParams?.welcome === '1'}
+      />
+    );
+  }
   const everyone = (everyoneRes?.data ?? []) as TapestryPerson[];
   // The Homes in the Space, for the Home filter, taken from its people.
   const homes = Array.from(new Map(everyone.map(p => [p.home.id, p.home.name])));
