@@ -40,6 +40,16 @@ export function stopBeingLegacyContact(personId: string): Promise<Me> {
   return kinloomApi.delete('/me/legacy-contact-for/{member}', { path: { member: personId } });
 }
 
+/**
+ * POST /me/plan: moves your own plan up at once, with no payment (contract
+ * §4.4, §6.6). There is no downgrade, and sending the plan you already have
+ * changes nothing. Answers like GET /me, so `plan` and `can_create_space` are
+ * current; callers refresh the auth user afterwards.
+ */
+export function upgradePlan(plan: 'home' | 'family'): Promise<Me> {
+  return kinloomApi.post('/me/plan', { body: { plan } });
+}
+
 /** The first thing worth showing from a failed write: the field's own message, else the API's. */
 export function errorText(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {

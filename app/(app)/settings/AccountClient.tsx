@@ -8,6 +8,7 @@ import { changePassword, deleteAccount } from '../../../lib/auth';
 import { ApiError } from '../../../lib/api';
 import { errorText, patchProfile, type Profile, type ProfileChanges } from '../../../lib/settings';
 import { revalidateAllData } from '../../actions';
+import UpgradeToFamily from '../../components/UpgradeToFamily';
 
 const PLAN_LABEL: Record<string, string> = { free: 'Free', home: 'Home', family: 'Family' };
 
@@ -173,7 +174,15 @@ export default function AccountClient({ initial, plan }: { initial: Profile; pla
           <h2 className="settings-h2 settings-h2--tight">Plan</h2>
           <p className="settings-card-text settings-card-text--flush">
             You’re on the <strong>{PLAN_LABEL[plan] ?? plan}</strong> plan.
+            {plan === 'family'
+              ? ' It includes creating Family Spaces.'
+              : ' Creating a Family Space needs the Family plan.'}
           </p>
+          {plan !== 'family' && (
+            <div className="settings-plan-action">
+              <UpgradeToFamily />
+            </div>
+          )}
         </div>
 
         {/* ─── Password ─────────────────────────────── */}

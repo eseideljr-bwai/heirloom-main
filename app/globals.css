@@ -7755,3 +7755,8 @@ img.portrait-kin__img { object-fit: cover; }
   .csw-review > div { grid-template-columns: minmax(0, 1fr) auto; }
   .csw-review dt { grid-column: 1 / -1; }
 }
+
+/* Upgrade to Family (Settings plan card, "can't create a Family Space yet") */
+.upgrade-plan { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.upgrade-plan__note { margin: 0; font-size: 13px; color: var(--fg-3); }
+.settings-plan-action { margin-top: 16px; }
