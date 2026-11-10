@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useAuth } from '../../lib/auth-context';
-import { createSpaceBlockedReason } from '../../lib/can-create-space';
+import { canUpgradeToCreateSpace, createSpaceBlockedReason } from '../../lib/can-create-space';
+import UpgradeToFamily from './UpgradeToFamily';
 
 /**
  * "Create a Family Space", shown where a Home that is in no Space lands.
@@ -14,7 +15,14 @@ export default function CreateSpaceCard() {
   if (!user) return null;
 
   const blocked = createSpaceBlockedReason(user);
-  if (blocked) return <p className="empty-card__sub">{blocked}</p>;
+  if (blocked) {
+    return (
+      <>
+        <p className="empty-card__sub">{blocked}</p>
+        {canUpgradeToCreateSpace(user) && <UpgradeToFamily />}
+      </>
+    );
+  }
 
   return (
     <>

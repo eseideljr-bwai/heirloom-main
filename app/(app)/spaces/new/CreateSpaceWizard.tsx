@@ -6,7 +6,8 @@ import { useRouter } from 'next/navigation';
 import { ApiError } from '../../../../lib/api';
 import { useActiveFamilySpace } from '../../../../lib/active-family-space';
 import { useAuth } from '../../../../lib/auth-context';
-import { createSpaceBlockedReason } from '../../../../lib/can-create-space';
+import { canUpgradeToCreateSpace, createSpaceBlockedReason } from '../../../../lib/can-create-space';
+import UpgradeToFamily from '../../../components/UpgradeToFamily';
 import { createFamilySpace, inviteHomeToSpace } from '../../../../lib/space-manage';
 
 // ─── Model ────────────────────────────────────────────────────────────
@@ -118,12 +119,15 @@ export default function CreateSpaceWizard() {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const firstRender = useRef(true);
 
-  // Move focus to the new step's heading, and to the top of the page.
+  const canCreate = user?.can_create_space ?? false;
+
+  // Move focus to the new step's heading, and to the top of the page. Also
+  // when an upgrade opens the form in place of the "can't create yet" screen.
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
     window.scrollTo({ top: 0 });
     headingRef.current?.focus();
-  }, [step, partial]);
+  }, [step, partial, canCreate]);
 
   const homeName = user?.home.name?.trim() || 'Your Family Home';
   const ideas = useMemo(
@@ -156,10 +160,8 @@ export default function CreateSpaceWizard() {
         <Link href={backHref} className="csw__back">← {backLabel}</Link>
         <p className="eyebrow">Create a Family Space</p>
         <h1 className="csw__title">You can’t create a Family Space yet.</h1>
-        <p className="csw__lead">
-          {blocked}{' '}
-          {user.plan !== 'family' && <Link href="/settings">Open Settings</Link>}
-        </p>
+        <p className="csw__lead">{blocked}</p>
+        {canUpgradeToCreateSpace(user) && <UpgradeToFamily />}
       </div>
     );
   }
