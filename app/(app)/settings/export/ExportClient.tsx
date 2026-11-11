@@ -10,30 +10,13 @@ import {
   rememberExport,
   startExport,
   type ExportFormat,
-  type ExportStatus,
+  type VaultExport,
 } from '../../../../lib/exports';
-import { ApiError } from '../../../../lib/api';
 
-const POLL_INTERVAL_MS = 2500;
-const MAX_POLLS = 60; // ~150s
+const POLL_MS = 2500;
+/** After this many polls (~10 minutes) we stop watching; the id is kept, so coming back resumes. */
+const MAX_POLLS = 240;
 
-<<<<<<< HEAD
-type Job = {
-  exportId: string;
-  format: ExportFormat;
-  status: ExportStatus;
-  error?: string | null;
-  /** Polling gave up before the job finished; the API emails a link instead. */
-  timedOut?: boolean;
-};
-
-export default function ExportClient() {
-  const { activeSpaceId } = useActiveFamilySpace();
-  const [job, setJob] = useState<Job | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-=======
 const FORMATS: { format: ExportFormat; title: string; text: string; primary?: boolean }[] = [
   {
     format: 'json',
@@ -107,7 +90,6 @@ export default function ExportClient() {
     void tick();
   }, [stop]);
 
->>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
   useEffect(() => {
     alive.current = true;
     const remembered = recallExport();
@@ -129,48 +111,24 @@ export default function ExportClient() {
       if (ex.status === 'ready' || ex.status === 'failed' || ex.status === 'expired') stop();
       else watch(ex.id);
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Could not start the export.';
-      setJob({ exportId: '', format, status: 'failed', error: msg });
+      if (err instanceof ApiError && err.status === 429) {
+        const wait = err.retryAfterSeconds;
+        setError(
+          wait
+            ? `You can start two exports an hour. Try again in ${Math.max(1, Math.ceil(wait / 60))} minutes.`
+            : 'You can start two exports an hour. Try again a little later.',
+        );
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Could not start the export.');
+      }
     } finally {
-      setSubmitting(false);
+      setStarting(null);
     }
   }
 
-<<<<<<< HEAD
-  function pollExport(spaceId: string, exportId: string) {
-    if (pollRef.current) clearInterval(pollRef.current);
-    let polls = 0;
-    pollRef.current = setInterval(async () => {
-      polls += 1;
-      try {
-        const ex = await getExport(spaceId, exportId);
-        const done = ex.status === 'ready' || ex.status === 'failed';
-        const timedOut = !done && polls >= MAX_POLLS;
-        setJob(prev => prev ? { ...prev, status: ex.status, error: ex.error_message, timedOut } : prev);
-        if (done || timedOut) {
-          if (pollRef.current) clearInterval(pollRef.current);
-          pollRef.current = null;
-        }
-      } catch (err) {
-        if (pollRef.current) clearInterval(pollRef.current);
-        pollRef.current = null;
-        const msg = err instanceof ApiError ? err.message : 'Lost contact with the export job.';
-        setJob(prev => prev ? { ...prev, status: 'failed', error: msg } : prev);
-      }
-    }, POLL_INTERVAL_MS);
-  }
-
-  const ready = job?.status === 'ready';
-  const failed = job?.status === 'failed';
-  // Once polling times out the buttons come back; clicking again returns the
-  // same in-flight export from the API and resumes polling.
-  const timedOut = !!job?.timedOut && !ready && !failed;
-  const inFlight = !!job && !ready && !failed && !timedOut;
-=======
   const running = !!job && (job.status === 'pending' || job.status === 'processing');
   const busy = starting !== null || running;
   const finished = !!job && !running;
->>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
 
   return (
     <div>
@@ -203,32 +161,53 @@ export default function ExportClient() {
             ))}
           </div>
 
-          {job && (
-            <div className={`export-status${failed ? ' export-status--error' : ''}`}>
-              {inFlight && (
-                <p>
-                  Preparing your {job.format.toUpperCase()} export… this can take a moment for larger libraries.
+          {error && <p className="export-status export-status--error" role="alert">{error}</p>}
+
+          {running && job && (
+            <div className="export-status" role="status" aria-live="polite">
+              <p>
+                <strong>Preparing your {formatLabel(job.format)}…</strong>{' '}
+                {job.format === 'json'
+                  ? 'With photos and recordings this can take a few minutes.'
+                  : 'This usually takes a moment.'}{' '}
+                You can leave this page: it keeps working, and your download will be here when you
+                come back.
+              </p>
+            </div>
+          )}
+
+          {gaveUp && job && (
+            <div className="export-status" role="status">
+              <p>
+                Still working on it. Come back to this page in a little while, and your download will be
+                here.
+              </p>
+            </div>
+          )}
+
+          {finished && job?.status === 'ready' && (
+            <div className="export-status export-status--ready" role="status" aria-live="polite">
+              <p>
+                <strong>Your {formatLabel(job.format)} is ready.</strong>
+                {job.file_size != null && <> {formatBytes(job.file_size)}.</>}
+                {job.counts && (
+                  <> {job.counts.kinlooms} {job.counts.kinlooms === 1 ? 'kinloom' : 'kinlooms'}
+                    {job.counts.drafts > 0 && <>, {job.counts.drafts} {job.counts.drafts === 1 ? 'draft' : 'drafts'}</>}.</>
+                )}
+                {job.expires_at && <> Available until {untilText(job.expires_at)}.</>}
+              </p>
+              <p>
+                <a className="btn-save export-status__download" href={exportDownloadUrl(job.id)} download={job.file_name ?? undefined}>
+                  Download{job.file_name ? ` ${job.file_name}` : ''}
+                </a>
+              </p>
+              {job.counts && job.counts.missing_files > 0 && (
+                <p className="export-status__fine">
+                  {job.counts.missing_files} {job.counts.missing_files === 1 ? 'file' : 'files'} couldn’t be
+                  read from storage and {job.counts.missing_files === 1 ? 'is' : 'are'} listed in the archive’s
+                  manifest.
                 </p>
               )}
-<<<<<<< HEAD
-              {timedOut && (
-                <p>
-                  This is taking a while. We&apos;ll email you a download link when it&apos;s ready.
-                </p>
-              )}
-              {ready && job.exportId && (
-                <p>
-                  <strong>Ready.</strong>{' '}
-                  <a
-                    href={exportDownloadUrl(activeSpaceId!, job.exportId)}
-                    download
-                  >
-                    Download {job.format.toUpperCase()}
-                  </a>
-                </p>
-              )}
-=======
->>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
             </div>
           )}
 
@@ -247,8 +226,6 @@ export default function ExportClient() {
             </div>
           )}
         </div>
-<<<<<<< HEAD
-=======
 
         <div className="privacy-note">
           <p>
@@ -257,7 +234,6 @@ export default function ExportClient() {
             seven days, and you can start two exports an hour.
           </p>
         </div>
->>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
       </div>
     </div>
   );
