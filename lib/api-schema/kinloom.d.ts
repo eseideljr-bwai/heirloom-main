@@ -57,7 +57,7 @@ export interface paths {
         };
         /**
          * Get your profile
-         * @description Every field the account form edits, to pre-fill it (contract §3.3): your account's `name`, `display_name`, `avatar_url` and `email`, your person row's `description`, and your own person card, which carries your `birth_year` and `gender`. `PATCH /me/profile` answers with the same body. Example: `docs/phase-3/examples/profile.json` (golden).
+         * @description Every field the account form edits, to pre-fill it (contract §3.3): your account's `name`, `display_name`, `avatar_url` (after S12: your uploaded avatar, signed, with `avatar_expires_at`) and `email`, your person row's `description`, and your own person card, which carries your `birth_year` and `gender`. `PATCH /me/profile` answers with the same body. Example: `docs/phase-3/examples/profile.json` (golden).
          */
         get: operations["me.profile.show"];
         put?: never;
@@ -69,13 +69,49 @@ export interface paths {
          * Update your profile
          * @description Changes any subset of your profile fields and answers with the same body as `GET /me/profile`, as it is after the change (contract §3.3).
          *
-         *     - `name`, `display_name` and `avatar_url` are your account's; `birth_year`, `description` and `gender` are your person row's. A new `name` is your person row's name too, so your person card and its initials follow. `display_name` doesn't touch your person row.
+         *     - `name` and `display_name` are your account's; `birth_year`, `description` and `gender` are your person row's. A new `name` is your person row's name too, so your person card and its initials follow. `display_name` doesn't touch your person row.
          *     - Send only the fields that changed: a field you leave out keeps its value, and null clears a field that may be empty. `name` and `gender` can't be cleared.
          *     - `birth_year` must be a JSON integer: convert the form's text to a whole number first.
          *     - Keys that aren't profile fields are ignored (unlike settings, which reject them). `email` and `timezone` are read-only: sending them changes nothing.
          *     - An invalid field gets 422 and nothing is saved.
+         *     - **BREAKING after S12: `avatar_url` is read-only.** It is the signed URL of your uploaded avatar, which the API makes (contract §6.11). `avatar_url: null` removes your avatar, as `DELETE /me/avatar` does; any other value (an `https` URL included) gets 422 on `avatar_url`, saying to use `PUT /me/avatar`, and nothing is saved. To set one: `POST /media/upload-url` with `purpose: "avatar"`, `PUT` the bytes, then `PUT /me/avatar`.
          */
         patch: operations["me.profile.update"];
+        trace?: never;
+    };
+    "/me/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set your avatar
+         * @description After S12 (contract §6.11): makes one of your uploads your account's avatar. It shows on `GET /me`, `GET /me/profile` and your person card wherever others already see you; people who can't see you never get it.
+         *
+         *     1. `POST /media/upload-url` with `purpose: "avatar"`, the file's `filename`, `mime_type` (`image/jpeg`, `image/png`, `image/gif` or `image/webp`) and `file_size` (at most 10 MiB by default: `max_bytes` says).
+         *     2. `PUT` the bytes to `upload_url` with `Content-Type` set to that `mime_type`.
+         *     3. Call this with its `media_id`. The answer is `GET /me/profile`'s body, with the new `avatar_url`: show it at once.
+         *
+         *     - The upload must be yours, of purpose `avatar`, uploaded, and not attached to a kinloom or set as an avatar already. Anything else (an unknown id, someone else's, one of your photos) is the same 422 on `media_id`: it never says whether a file exists or whose it is. Nothing uploaded yet is a 422 too; a file over the limit is `file_too_large`, and one that isn't a JPEG, PNG, GIF or WebP image is a 422, both deleting the upload.
+         *     - Your previous avatar, if any, is deleted with its file. Setting the same `media_id` again changes nothing.
+         *     - The server makes a 512 px square, centre-cropped, upright, metadata-stripped WebP in the background (seconds); until then `avatar_url` points at the image as uploaded. Crop it square in CSS meanwhile, or ask users for a square image.
+         *     - `avatar_url` is signed like any media URL (about 30 minutes, `avatar_expires_at`): read `GET /me` again for a fresh one.
+         *     - An avatar upload you never set is discarded after a day, like any upload never attached.
+         *     - Any other key is ignored. A content write (`content-write`, contract §2.7).
+         */
+        put: operations["me.avatar.update"];
+        post?: never;
+        /**
+         * Remove your avatar
+         * @description After S12 (contract §6.11): deletes your avatar and its file. Your cards show your initials or silhouette again. Removing when you have none changes nothing. `PATCH /me/profile` with `avatar_url: null` does the same. Answers `GET /me/profile`'s body. A content write (`content-write`, contract §2.7).
+         */
+        delete: operations["me.avatar.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/me/settings": {
@@ -543,6 +579,40 @@ export interface paths {
          *     - Other keys are ignored. Answers 200 with the person as Manage Family lists them.
          */
         patch: operations["family-homes.members.update"];
+        trace?: never;
+    };
+    "/family-homes/{familyHome}/members/{member}/avatar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set a family profile's avatar
+         * @description After S12 (contract §6.11): makes one of **your** uploads (`purpose: "avatar"`) the avatar of a family profile in your Home. The Home's owner and co-owner only (`people[].can_set_avatar` on Manage Family). It shows on their person card wherever others already see them.
+         *
+         *     1. `POST /media/upload-url` with `purpose: "avatar"` (your upload, in your Vault).
+         *     2. `PUT` the bytes to `upload_url` with `Content-Type` set to the `mime_type`.
+         *     3. Call this with its `media_id`. The answer is the person as Manage Family lists them, with the new `avatar_url`.
+         *
+         *     - **A family profile only.** An account sets its own with `PUT /me/avatar`: naming an account here is 403, with a message that says so.
+         *     - The same 422s as `PUT /me/avatar`: the upload must be yours, of purpose `avatar`, uploaded, an image within the limit, and not attached or set already.
+         *     - Their previous avatar is deleted with its file, whoever uploaded it. Setting the same `media_id` again changes nothing.
+         *     - The file stays in your Vault: if your account is deleted (`DELETE /me`), the avatars you set go with it, and the profiles show their silhouettes again. If the profile is claimed (an invitation turns it into an account), its avatar becomes the account's when the account has none, and is deleted otherwise. Removing the profile deletes it.
+         *     - The person is read again when the change is made: a profile removed or claimed meanwhile is the uniform 404. A read-only Home answers 423, after the 403. A content write (`content-write`, contract §2.7).
+         */
+        put: operations["family-homes.members.avatar.update"];
+        post?: never;
+        /**
+         * Remove a family profile's avatar
+         * @description After S12 (contract §6.11): deletes a family profile's avatar and its file; their card shows the silhouette again. The Home's owner and co-owner only; an account's is theirs (403). Removing when there is none changes nothing. Answers with the person as Manage Family lists them. A read-only Home answers 423, after the 403.
+         */
+        delete: operations["family-homes.members.avatar.destroy"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/family-homes/{familyHome}/roles": {
@@ -1833,12 +1903,13 @@ export interface paths {
          *     3. Attach it to one of your kinlooms with `POST /media` and the `media_id`.
          *
          *     - `upload_url` is a Google Cloud Storage upload session: use it once, right away. `expires_at` (15 minutes) is advisory. If an upload fails, ask for a new URL.
-         *     - `purpose` sets the size limit (`max_bytes`) and the accepted files: `photo` (JPEG, PNG, GIF, WebP), `audio` (MP3, WAV, OGG, AAC, M4A), `video` (MP4, WebM, QuickTime) and `document` (PDF, plain text, DOCX, Markdown; CO-1 C6). A `file_size` over the limit gets 422 `file_too_large`; a `mime_type` the purpose doesn't accept gets 422 `validation_failed`. `GET /create-context/{typeSlug}` lists the same limits. A build without CO-1 C6 answers `purpose: "document"` with 422, saying documents arrive with CO-1 C6.
+         *     - `purpose` sets the size limit (`max_bytes`) and the accepted files: `photo` (JPEG, PNG, GIF, WebP), `audio` (MP3, WAV, OGG, AAC, M4A), `video` (MP4, WebM, QuickTime), `document` (PDF, plain text, DOCX, Markdown; CO-1 C6) and, after S12, `avatar` (JPEG, PNG, GIF, WebP). A `file_size` over the limit gets 422 `file_too_large`; a `mime_type` the purpose doesn't accept gets 422 `validation_failed`. `GET /create-context/{typeSlug}` lists the same limits. A build without CO-1 C6 answers `purpose: "document"` with 422, saying documents arrive with CO-1 C6.
          *     - `file_size` is a JSON integer, at least 1: `"2483101"` is a 422.
          *     - `filename` is shown as the media item's `filename`, trimmed of leading and trailing whitespace. It may not hold a control character (tab, line feed and carriage return included, and DEL and U+0080 to U+009F) or a bidirectional embedding, override or isolate (U+202A to U+202E, U+2066 to U+2069): 422 on `filename`. Other formatting characters, such as a zero-width joiner, are accepted.
          *     - The server chooses the storage path, keyed by an opaque per-account key, never an account or person id; it uses a copy of `filename` with every character but letters, digits, `.`, `_` and `-` replaced. The client never sends a path or a bucket. Treat `upload_url` as opaque.
          *     - `origin` is for browser-direct uploads: the origin of the page that will upload (`window.location.origin`). It must match one of the API's allowed upload origins (`KINLOOM_UPLOAD_ORIGINS`, by default `FRONTEND_URL`) exactly: scheme, host and port, with no path and no trailing slash. Any other value is 422. Leave it out when uploading through the BFF proxy; `null` counts as left out.
          *     - No kinloom is named here: only `POST /media` attaches a file. An upload never attached is discarded after a day.
+         *     - **After S12, `purpose: "avatar"`** declares an image for an avatar (JPEG, PNG, GIF or WebP; 10 MiB by default, `KINLOOM_MEDIA_MAX_BYTES_AVATAR`): upload it the same way, then set it with `PUT /me/avatar` or, for a family profile in your Home, `PUT /family-homes/{familyHome}/members/{member}/avatar`, never `POST /media` (contract §6.11). `GET /create-context/{typeSlug}` doesn't list it: it is no kinloom's.
          *     - The `media-upload` limiter allows 20 calls a minute, shared with `POST /media` (contract §2.7).
          *
          *     Replaces the old `POST /family-spaces/{s}/media/upload-url` (contract §9.1), which also returned `gcs_path` and `gcs_bucket`.
@@ -1894,6 +1965,8 @@ export interface paths {
          * @description A new signed URL for one file (contract §6.3), for a page that stays open past the file's `expires_at`. You need to be able to read the kinloom it is attached to; a file not attached yet is visible only to the account that uploaded it. Anyone else gets the uniform 404, and so does a deleted file.
          *
          *     The URL works for about 30 minutes, until `expires_at`. Its storage path carries the author's opaque storage key, never an account or person id. Treat it as opaque: never parse ids or paths out of it.
+         *
+         *     After S12, an avatar upload (purpose `avatar`) is never attached, so only the account that uploaded it gets its URL here (the image as uploaded): everyone else reads an avatar through the cards' `avatar_url`.
          */
         get: operations["media.url"];
         put?: never;
@@ -1919,6 +1992,7 @@ export interface paths {
          * @description Deletes one file from its kinloom and from storage, with its transcript (contract §6.7). Only the kinloom's author, who uploaded it, may: other readers get 403 `forbidden`, anyone else the uniform 404. An upload not attached yet can be deleted too. It answers `204`, and the kinloom's `updated_at` moves. A read-only room never blocks it.
          *
          *     - A final kinloom keeps a body or a media item, as a `PATCH` must (contract §6.1). Removing the last file of a final kinloom whose `body` is null, empty or blank answers 422 on `media` ("A final kinloom needs a body or a media item."), and nothing changes: add a body with `PATCH` first, or delete the kinloom. A draft's last file goes, and so does any file of a kinloom with a body or another file.
+         *     - After S12, an upload of purpose `avatar` that is your avatar, or a family profile's you set, is refused with 422 on `media`: remove it with `DELETE /me/avatar` or `DELETE …/members/{member}/avatar`. An avatar upload you never set can be deleted here.
          *     - A deleted file's `media_id` is the uniform 404 from then on.
          *
          *     Remove media this way. Never re-create a kinloom to drop a file: deleting the original would delete its publications, comments, holds and featured choices. Owners of a Home or Space can no longer delete other people's media.
@@ -2106,7 +2180,7 @@ export interface paths {
          * Start an export of your Vault
          * @description Starts a download of everything you have written, built in the background. Poll `GET /vault/exports/{export}` until `status` is `ready`, then download it with `GET /vault/exports/{export}/download`. Any account may export. An export holds only your own content, and only you can see it.
          *
-         *     - `format: "json"` is a ZIP archive (`includes_media: true`), `kinloom-export-{name}-{date}.zip`: one folder of that name holding `README.txt` (what is here, with the counts), `kinlooms.pdf` (every kinloom in your Vault as a book, oldest first, with where each is published, the people in it and its transcripts), `export.json` (everything, as data: `export_version` 2), your files under `kinlooms/{date}-{title}/` (`photo-01.jpg`, `audio-01.wav` with `audio-01.transcript.txt` and, when stored, the word timings `audio-01.transcript.json`, `video-01.mp4`, …) and `manifest.json` (every file in the archive with its size, `pdf_volumes` and `missing_files`). `format: "pdf"` is the book alone, `kinloom-kinlooms-{name}-{date}.pdf`, with no media (`includes_media: false`). `{name}` is your name as a slug, `{date}` today in your time zone.
+         *     - `format: "json"` is a ZIP archive (`includes_media: true`), `kinloom-export-{name}-{date}.zip`: one folder of that name holding `README.txt` (what is here, with the counts), `kinlooms.pdf` (every kinloom in your Vault as a book, oldest first, with where each is published, the people in it and its transcripts), `export.json` (everything, as data: `export_version` 2), after S12 your avatar as uploaded, `profile/avatar.jpg` (or `.png`, `.gif`, `.webp`; `export.json`'s `profile.avatar.file`, and no `avatar_url`: an export holds no signed URL), your files under `kinlooms/{date}-{title}/` (`photo-01.jpg`, `audio-01.wav` with `audio-01.transcript.txt` and, when stored, the word timings `audio-01.transcript.json`, `video-01.mp4`, …) and `manifest.json` (every file in the archive with its size, `pdf_volumes` and `missing_files`). `format: "pdf"` is the book alone, `kinloom-kinlooms-{name}-{date}.pdf`, with no media (`includes_media: false`). `{name}` is your name as a slug, `{date}` today in your time zone.
          *     - **Volumes.** A Vault of more than 150 kinlooms gets its book in volumes of at most 150, oldest first: `kinlooms-01.pdf`, `kinlooms-02.pdf`, …, listed in `README.txt` and in the manifest's `pdf_volumes` (each file with the `first` and `last` kinloom it holds: their places in `export.json`'s `kinlooms`). A `pdf` export in volumes is a ZIP instead, `kinloom-kinlooms-{name}-{date}.zip`: one folder holding the volumes, and nothing else.
          *     - Some scripts and emoji (Chinese, Japanese, Korean, Arabic and Hebrew among them) can't be shown correctly in the PDF; `export.json` holds every word as written, and the README and the PDF say so.
          *     - **What it holds** (SOW D7.1): your profile, your account (time zone, plan, your Home and Spaces by name, with your role) and your settings; the legacy contact you named, and the people who named you theirs, by name only; your whole Vault, drafts, private kinlooms and pending "after I pass" publications included, each with where it is published (rooms by type and name, `when` `now` or `on_passing`), its tags as `GET /kinlooms/{kinloom}` shows them to you now (people you can't see are left out), its files and transcripts, and, per room it is live in, how many comments and holds other people left on it there; your own comments and holds, oldest first, each with its kinloom's title and room only while you can still read that kinloom in that room, otherwise "A kinloom you can no longer open" (your own kinloom is always open to you: its title, and its room while it is live there); and your Legacy Bank conversations exactly as `GET /legacy-bank/conversations/{conversation}` shows them now: an answer that cited a kinloom you can no longer read is exported redacted, with no text and no sources. The export is built as you, never in system mode. Other people's content appears only as counts: their comments and holds on your kinlooms are counted, never copied. Nothing else: not your open memorialization request, uploads you never attached, or files in another environment's bucket. A file that can't be read from storage is left out and listed in `missing_files`; the export goes on.
@@ -2196,6 +2270,14 @@ export interface components {
              * @description The address to send the reset link to.
              */
             email: string;
+        };
+        /**
+         * AvatarChange
+         * @description After S12 (contract §6.11): the upload to make the avatar.
+         */
+        AvatarChange: {
+            /** @description The `media_id` `POST /media/upload-url` gave for an upload of yours with `purpose: "avatar"`, whose bytes you have `PUT` to its `upload_url`. Not attached to a kinloom, and not some avatar already. */
+            media_id: components["schemas"]["Id"];
         };
         /**
          * CalendarDate
@@ -2541,6 +2623,8 @@ export interface components {
             can_edit: boolean;
             /** @description You may `DELETE` this person from the Home. */
             can_remove: boolean;
+            /** @description After S12: you may set or remove their avatar here (`PUT` and `DELETE …/members/{member}/avatar`): a family profile, while you are the owner or co-owner and the Home takes writes. Always `false` for an account: they set their own (`PUT /me/avatar`). */
+            can_set_avatar: boolean;
             /** @description The portrait's `can_request_memorialization`, the same rule (CO-1 C2): `POST /people/{member}/memorialization` would do something for you, an account other than you, not memorialized; with a request already open, only for their linked legacy contact who hasn't confirmed it. `false` for a family profile, and every `can_*` is `false` on a read-only Home. Drives Manage Family's "Ask to memorialize". */
             can_request_memorialization: boolean;
             /** @description Their open memorialization request (CO-1 C2), as the portrait shows it, or `null`. Manage Family is the Home's owner's and co-owner's, who always see it. */
@@ -3215,9 +3299,11 @@ export interface components {
             display_name: string | null;
             /**
              * Format: uri
-             * @description An `https` URL set with `PATCH /me/profile`, or null.
+             * @description BREAKING after S12: your uploaded avatar, a signed URL the API makes (contract §6.11), good for about 30 minutes, until `avatar_expires_at`; `null` when you have none. Set it with `POST /media/upload-url` (`purpose: "avatar"`), a `PUT` of the bytes, then `PUT /me/avatar`; remove it with `DELETE /me/avatar`. It points at a 512 px square WebP once the server has made it, and at the image as uploaded until then. It is no longer a URL you send: `PATCH /me/profile` takes only `null` for it.
              */
             avatar_url: string | null;
+            /** @description After S12: when `avatar_url` stops working; `null` with it. Read the screen again for a fresh URL. */
+            avatar_expires_at: components["schemas"]["Timestamp"] | null;
             /** @description IANA timezone, for display. `America/New_York` on a new account. Read-only: no route changes it. */
             timezone: string;
             /** @description **Your own** plan, `free` on a new account. Don't gate Home invitations on it: inviting checks the Home owner's plan (the Home's `plan` and `viewer.can_invite`, contract §5.7). Upgrade with `POST /me/plan`. */
@@ -3345,10 +3431,10 @@ export interface components {
         };
         /**
          * MediaPurpose
-         * @description Its role in the kinloom. `document` is CO-1 C6.
+         * @description Its role: in the kinloom (`photo`, `audio`, `video`, `document`; `document` is CO-1 C6), or, after S12, `avatar`: an image for your own avatar or a family profile's, set with `PUT /me/avatar` or `PUT …/members/{member}/avatar` and never attached to a kinloom (contract §6.11).
          * @enum {string}
          */
-        MediaPurpose: "photo" | "audio" | "video" | "document";
+        MediaPurpose: "photo" | "audio" | "video" | "document" | "avatar";
         /**
          * MediaType
          * @description What the file is.
@@ -3536,7 +3622,7 @@ export interface components {
         };
         /**
          * PersonCard
-         * @description A person you can see (contract §5.2). The same person id everywhere: `person_id` on `GET /me`, `{member}` in paths, the `person` filter and `*_member_id` in bodies.
+         * @description A person you can see (contract §5.2). The same person id everywhere: `person_id` on `GET /me`, `{member}` in paths, the `person` filter and `*_member_id` in bodies. After S12 it carries their uploaded avatar, `avatar_url` and `avatar_expires_at` (contract §6.11).
          */
         PersonCard: {
             id: components["schemas"]["Id"];
@@ -3552,6 +3638,13 @@ export interface components {
             /** @description `false` for a family profile, who has no login and never writes kinlooms. */
             has_account: boolean;
             is_you: boolean;
+            /**
+             * Format: uri
+             * @description After S12: their uploaded avatar (contract §6.11), a signed URL good for about 30 minutes, until `avatar_expires_at`: the account's own avatar for someone with an account, the profile's for a family profile. It points at a 512 px square WebP once the server has made it (seconds after the avatar is set), and at the image as uploaded until then: crop it to a square (`object-fit: cover`) and show it in a circle. `null` when they have none: show the initials or silhouette from `initials`, `tone` and `gender`, as before. Only full cards carry it: a name-only card never shows a photo. Opaque: never parse ids or paths out of it.
+             */
+            avatar_url: string | null;
+            /** @description When `avatar_url` stops working; `null` with it. Read the screen again for a fresh URL once it has passed (a URL handed out has at least 10 minutes left). */
+            avatar_expires_at: components["schemas"]["Timestamp"] | null;
         };
         /**
          * PersonOrNameOnly
@@ -3612,7 +3705,7 @@ export interface components {
         };
         /**
          * Profile
-         * @description The body of `GET` and `PATCH /me/profile` (contract §3.3): every field the account form edits.
+         * @description The body of `GET` and `PATCH /me/profile` (contract §3.3), and, after S12, of `PUT` and `DELETE /me/avatar`: every field the account form edits.
          */
         Profile: {
             /** @description Your account id, as on `GET /me`. */
@@ -3623,9 +3716,11 @@ export interface components {
             display_name: string | null;
             /**
              * Format: uri
-             * @description As on `GET /me`.
+             * @description As on `GET /me`: your uploaded avatar, signed, or `null` (contract §6.11).
              */
             avatar_url: string | null;
+            /** @description As on `GET /me`. */
+            avatar_expires_at: components["schemas"]["Timestamp"] | null;
             /**
              * Format: email
              * @description As on `GET /me`. Read-only: it follows your Firebase login.
@@ -3645,11 +3740,8 @@ export interface components {
             name?: string;
             /** @description Your account's display name, or null (an empty string counts as null). It doesn't change your person row. */
             display_name?: string | null;
-            /**
-             * Format: uri
-             * @description An `https` URL, or null. Any other scheme gets 422.
-             */
-            avatar_url?: string | null;
+            /** @description BREAKING after S12: only `null`, which removes your avatar (as `DELETE /me/avatar` does). Any other value, an `https` URL included, gets 422: upload the image and set it with `PUT /me/avatar` (contract §6.11). */
+            avatar_url?: null;
             /** @description Your person row's birth year: a JSON integer, or null. `"1990"` and `true` get 422. */
             birth_year?: number | null;
             /** @description Your person row's description (the form's "About"), or null. */
@@ -4330,6 +4422,7 @@ export interface operations {
                      *       "name": "Eli Seidel",
                      *       "display_name": "Eli",
                      *       "avatar_url": null,
+                     *       "avatar_expires_at": null,
                      *       "timezone": "America/New_York",
                      *       "plan": "home",
                      *       "can_create_space": false,
@@ -4603,7 +4696,8 @@ export interface operations {
                      *       "id": "01M5FC9VS9BB5X72GR478DNV4E",
                      *       "name": "Eli Seidel",
                      *       "display_name": "Eli",
-                     *       "avatar_url": "https://images.kinloom.test/avatars/eli.jpg",
+                     *       "avatar_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/avatars/01m9av4t4r3k1s3gd3ksq7k2xz.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b",
+                     *       "avatar_expires_at": "2026-11-21T10:00:00Z",
                      *       "email": "eli@seidel.kinloom.test",
                      *       "description": "Builds furniture and keeps the family recipes.",
                      *       "person": {
@@ -4616,7 +4710,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/avatars/01m9av4t4r3k1s3gd3ksq7k2xz.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b",
+                     *         "avatar_expires_at": "2026-11-21T10:00:00Z"
                      *       }
                      *     }
                      */
@@ -4726,7 +4822,6 @@ export interface operations {
             content: {
                 /**
                  * @example {
-                 *       "avatar_url": "https://images.kinloom.test/avatars/eli.jpg",
                  *       "birth_year": 1984,
                  *       "description": "Builds furniture and keeps the family recipes.",
                  *       "gender": "m"
@@ -4749,7 +4844,8 @@ export interface operations {
                      *       "id": "01M5FC9VS9BB5X72GR478DNV4E",
                      *       "name": "Eli Seidel",
                      *       "display_name": "Eli",
-                     *       "avatar_url": "https://images.kinloom.test/avatars/eli.jpg",
+                     *       "avatar_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/avatars/01m9av4t4r3k1s3gd3ksq7k2xz.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b",
+                     *       "avatar_expires_at": "2026-11-21T10:00:00Z",
                      *       "email": "eli@seidel.kinloom.test",
                      *       "description": "Builds furniture and keeps the family recipes.",
                      *       "person": {
@@ -4762,7 +4858,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/avatars/01m9av4t4r3k1s3gd3ksq7k2xz.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b",
+                     *         "avatar_expires_at": "2026-11-21T10:00:00Z"
                      *       }
                      *     }
                      */
@@ -4839,8 +4937,345 @@ export interface operations {
             /**
              * @description Invalid input. On every write, a string anywhere in the input (the body, a form field or the query string; a value or a key) that holds NUL or another control character from U+0000 to U+001F, other than tab, line feed and carriage return, or that is not valid UTF-8, is refused before anything else is validated; `errors` names each such field by its dot path, such as `tags.0.name` (at most 20 of them).
              *
-             *     A field is invalid: a null or empty `name`, a `gender` that isn't `m`, `f` or `n` (or is null), a `birth_year` that isn't a JSON integer from 1 to 9999, an `avatar_url` that isn't an `https` URL, or a string over its limit. Nothing is saved.
+             *     A field is invalid: a null or empty `name`, a `gender` that isn't `m`, `f` or `n` (or is null), a `birth_year` that isn't a JSON integer from 1 to 9999, or a string over its limit. After S12, also an `avatar_url` that isn't `null` ("avatar_url is read-only: upload an image with POST /media/upload-url (purpose \"avatar\"), then set it with PUT /me/avatar. …"). Nothing is saved.
              */
+            422: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "validation_failed";
+                        /** @description The first validation error; `errors` has them all. */
+                        message: string;
+                        /** @description Every invalid field, with its messages: `{ "field": ["message", …] }`. Always an object. */
+                        errors: {
+                            [key: string]: string[];
+                        };
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /** @description Too many requests: wait `retry_after` seconds, then retry. */
+            429: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "rate_limited";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description Whole seconds to wait before retrying. */
+                        retry_after: number;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+        };
+    };
+    "me.avatar.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "media_id": "01m9av4t4r3k1s3gd3ksq7k2xz"
+                 *     }
+                 */
+                "application/json": components["schemas"]["AvatarChange"];
+            };
+        };
+        responses: {
+            /** @description Your profile, with your new avatar. */
+            200: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "01M5FC9VS9BB5X72GR478DNV4E",
+                     *       "name": "Eli Seidel",
+                     *       "display_name": "Eli",
+                     *       "avatar_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/avatars/01m9av4t4r3k1s3gd3ksq7k2xz.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b",
+                     *       "avatar_expires_at": "2026-11-21T10:00:00Z",
+                     *       "email": "eli@seidel.kinloom.test",
+                     *       "description": "Builds furniture and keeps the family recipes.",
+                     *       "person": {
+                     *         "id": "01m5fc9vxn02q3r3fs6kj6n49b",
+                     *         "name": "Eli Seidel",
+                     *         "label": "You",
+                     *         "initials": "ES",
+                     *         "tone": "#556b5b",
+                     *         "gender": "m",
+                     *         "deceased": false,
+                     *         "birth_year": 1984,
+                     *         "has_account": true,
+                     *         "is_you": true,
+                     *         "avatar_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/avatars/01m9av4t4r3k1s3gd3ksq7k2xz.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b5b1f0c7a9e2d4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b",
+                     *         "avatar_expires_at": "2026-11-21T10:00:00Z"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            /** @description The body is not a JSON object sent with `Content-Type: application/json`. Send an object, `{}` for no fields, or no body at all. */
+            400: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "invalid_json";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description Unauthenticated: the Firebase ID token is missing, invalid or expired, or has no email address, or one at the reserved kinloom.invalid domain. Refresh the token once and retry; if that fails, sign out.
+             *
+             *     Your account was deleted (`DELETE /me`, from another tab or device) while this request was on its way. The write reads your account again as it saves, answers "This account was deleted." and writes nothing. Sign out: after a deletion kinloom-web deletes the login, so a refreshed token can't be had (contract §2.1, §2.5).
+             */
+            401: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "unauthenticated";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /** @description The account is memorialized (CO-1 C2). Every authenticated route but GET /me answers this; public routes answer as usual. */
+            403: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "account_memorialized";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description Invalid input. On every write, a string anywhere in the input (the body, a form field or the query string; a value or a key) that holds NUL or another control character from U+0000 to U+001F, other than tab, line feed and carriage return, or that is not valid UTF-8, is refused before anything else is validated; `errors` names each such field by its dot path, such as `tags.0.name` (at most 20 of them).
+             *
+             *     `validation_failed`: `media_id` is missing, or isn't an avatar upload of yours that is free to use ("media_id must be an avatar upload of yours (POST /media/upload-url with purpose \"avatar\") that is not attached to a kinloom or set already."), nothing was uploaded to it yet, or the file isn't a JPEG, PNG, GIF or WebP image (the upload is deleted). `file_too_large`: the uploaded file is over the `avatar` limit, and the upload is deleted. Nothing changes.
+             */
+            422: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @enum {string}
+                         */
+                        error: "validation_failed" | "file_too_large";
+                        /** @description The first validation error; `errors` has them all. */
+                        message: string;
+                        /** @description Every invalid field, with its messages: `{ "field": ["message", …] }`. Always an object. */
+                        errors: {
+                            [key: string]: string[];
+                        };
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /** @description Too many requests: wait `retry_after` seconds, then retry. */
+            429: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "rate_limited";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description Whole seconds to wait before retrying. */
+                        retry_after: number;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+        };
+    };
+    "me.avatar.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Your profile, with no avatar. */
+            200: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "01M5FC9VS9BB5X72GR478DNV4E",
+                     *       "name": "Eli Seidel",
+                     *       "display_name": "Eli",
+                     *       "avatar_url": null,
+                     *       "avatar_expires_at": null,
+                     *       "email": "eli@seidel.kinloom.test",
+                     *       "description": "Builds furniture and keeps the family recipes.",
+                     *       "person": {
+                     *         "id": "01m5fc9vxn02q3r3fs6kj6n49b",
+                     *         "name": "Eli Seidel",
+                     *         "label": "You",
+                     *         "initials": "ES",
+                     *         "tone": "#556b5b",
+                     *         "gender": "m",
+                     *         "deceased": false,
+                     *         "birth_year": 1984,
+                     *         "has_account": true,
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Profile"];
+                };
+            };
+            /** @description The body is not a JSON object sent with `Content-Type: application/json`. Send an object, `{}` for no fields, or no body at all. */
+            400: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "invalid_json";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description Unauthenticated: the Firebase ID token is missing, invalid or expired, or has no email address, or one at the reserved kinloom.invalid domain. Refresh the token once and retry; if that fails, sign out.
+             *
+             *     Your account was deleted (`DELETE /me`, from another tab or device) while this request was on its way. The write reads your account again as it saves, answers "This account was deleted." and writes nothing. Sign out: after a deletion kinloom-web deletes the login, so a refreshed token can't be had (contract §2.1, §2.5).
+             */
+            401: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "unauthenticated";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /** @description The account is memorialized (CO-1 C2). Every authenticated route but GET /me answers this; public routes answer as usual. */
+            403: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "account_memorialized";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /** @description Invalid input. On every write, a string anywhere in the input (the body, a form field or the query string; a value or a key) that holds NUL or another control character from U+0000 to U+001F, other than tab, line feed and carriage return, or that is not valid UTF-8, is refused before anything else is validated; `errors` names each such field by its dot path, such as `tags.0.name` (at most 20 of them). */
             422: {
                 headers: {
                     /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
@@ -5213,6 +5648,7 @@ export interface operations {
                      *       "name": "Eli Seidel",
                      *       "display_name": "Eli",
                      *       "avatar_url": null,
+                     *       "avatar_expires_at": null,
                      *       "timezone": "America/New_York",
                      *       "plan": "family",
                      *       "can_create_space": true,
@@ -5413,6 +5849,7 @@ export interface operations {
                      *       "name": "Eli Seidel",
                      *       "display_name": "Eli",
                      *       "avatar_url": null,
+                     *       "avatar_expires_at": null,
                      *       "timezone": "America/New_York",
                      *       "plan": "home",
                      *       "can_create_space": false,
@@ -5606,6 +6043,7 @@ export interface operations {
                      *       "name": "Eli Seidel",
                      *       "display_name": "Eli",
                      *       "avatar_url": null,
+                     *       "avatar_expires_at": null,
                      *       "timezone": "America/New_York",
                      *       "plan": "home",
                      *       "can_create_space": false,
@@ -5834,7 +6272,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": null,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       }
                      *     }
                      */
@@ -6009,7 +6449,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1951,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "can_delete": false
                      *         },
@@ -6027,7 +6469,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1981,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "can_delete": false
                      *         },
@@ -6045,7 +6489,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1953,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "can_delete": false
                      *         }
@@ -6230,7 +6676,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "can_delete": true
                      *     }
@@ -6834,7 +7282,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1984,
                      *           "has_account": true,
-                     *           "is_you": true
+                     *           "is_you": true,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -6846,7 +7296,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1986,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w016tjgr7d552m9r3sg",
@@ -6858,7 +7310,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 2019,
                      *           "has_account": false,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         }
                      *       ],
                      *       "spaces": [
@@ -6906,7 +7360,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1984,
                      *           "has_account": true,
-                     *           "is_you": true
+                     *           "is_you": true,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         "has_audio": false,
                      *         "has_photo": false,
@@ -6936,7 +7392,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -6979,7 +7437,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -7009,7 +7469,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -7053,7 +7515,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1986,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": false,
@@ -7082,7 +7546,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": false,
@@ -7111,7 +7577,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1986,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -7307,7 +7775,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1984,
                      *           "has_account": true,
-                     *           "is_you": true
+                     *           "is_you": true,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -7319,7 +7789,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1986,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w016tjgr7d552m9r3sg",
@@ -7331,7 +7803,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 2019,
                      *           "has_account": false,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         }
                      *       ],
                      *       "spaces": [
@@ -7379,7 +7853,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1984,
                      *           "has_account": true,
-                     *           "is_you": true
+                     *           "is_you": true,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         "has_audio": false,
                      *         "has_photo": false,
@@ -7409,7 +7885,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -7452,7 +7930,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -7482,7 +7962,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -7526,7 +8008,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1986,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": false,
@@ -7555,7 +8039,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": false,
@@ -7584,7 +8070,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1986,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -7831,7 +8319,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1986,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -7860,7 +8350,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -7889,7 +8381,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": false,
@@ -7918,7 +8412,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1986,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": true,
@@ -7947,7 +8443,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -8140,6 +8638,8 @@ export interface operations {
                      *           "birth_year": 1984,
                      *           "has_account": true,
                      *           "is_you": true,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "role": "owner",
                      *           "is_successor": false,
                      *           "relationship_label": "Husband",
@@ -8147,6 +8647,7 @@ export interface operations {
                      *           "date_of_death": null,
                      *           "can_edit": true,
                      *           "can_remove": false,
+                     *           "can_set_avatar": false,
                      *           "can_request_memorialization": false,
                      *           "memorialization": null
                      *         },
@@ -8161,6 +8662,8 @@ export interface operations {
                      *           "birth_year": 1986,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "role": "member",
                      *           "is_successor": false,
                      *           "relationship_label": "Wife",
@@ -8168,6 +8671,7 @@ export interface operations {
                      *           "date_of_death": null,
                      *           "can_edit": true,
                      *           "can_remove": true,
+                     *           "can_set_avatar": false,
                      *           "can_request_memorialization": true,
                      *           "memorialization": null
                      *         },
@@ -8182,6 +8686,8 @@ export interface operations {
                      *           "birth_year": 2019,
                      *           "has_account": false,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "role": null,
                      *           "is_successor": false,
                      *           "relationship_label": "Son",
@@ -8189,6 +8695,7 @@ export interface operations {
                      *           "date_of_death": null,
                      *           "can_edit": true,
                      *           "can_remove": true,
+                     *           "can_set_avatar": true,
                      *           "can_request_memorialization": false,
                      *           "memorialization": null
                      *         }
@@ -8209,7 +8716,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "claim_profile": null
                      *         }
@@ -8381,7 +8890,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "claim_profile": null,
                      *       "invite_token": "9f2c4e6a8b0d1f3e5a7c9b1d3f5e7a9c2b4d6f8a0c1e3b5d7f9a2c4e6b8d0f1a"
@@ -8864,6 +9375,8 @@ export interface operations {
                      *       "birth_year": 2026,
                      *       "has_account": false,
                      *       "is_you": false,
+                     *       "avatar_url": null,
+                     *       "avatar_expires_at": null,
                      *       "role": null,
                      *       "is_successor": false,
                      *       "relationship_label": "Daughter",
@@ -8871,6 +9384,7 @@ export interface operations {
                      *       "date_of_death": null,
                      *       "can_edit": true,
                      *       "can_remove": true,
+                     *       "can_set_avatar": true,
                      *       "can_request_memorialization": false,
                      *       "memorialization": null
                      *     }
@@ -9295,6 +9809,8 @@ export interface operations {
                      *       "birth_year": 2019,
                      *       "has_account": false,
                      *       "is_you": false,
+                     *       "avatar_url": null,
+                     *       "avatar_expires_at": null,
                      *       "role": null,
                      *       "is_successor": false,
                      *       "relationship_label": "Son",
@@ -9302,6 +9818,7 @@ export interface operations {
                      *       "date_of_death": null,
                      *       "can_edit": true,
                      *       "can_remove": true,
+                     *       "can_set_avatar": true,
                      *       "can_request_memorialization": false,
                      *       "memorialization": null
                      *     }
@@ -9480,6 +9997,463 @@ export interface operations {
             };
         };
     };
+    "family-homes.members.avatar.update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Your Family Home's id (`GET /me` → `home.id`). Anyone who isn't in this Home gets the uniform 404. */
+                familyHome: string;
+                /** @description A person in this Home: an account or a family profile (the person id of contract §2.2). A person in any other Home is the uniform 404. */
+                member: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                /**
+                 * @example {
+                 *       "media_id": "01m9av5a5a7p0f1k3m3dgr4k6t"
+                 *     }
+                 */
+                "application/json": components["schemas"]["AvatarChange"];
+            };
+        };
+        responses: {
+            /** @description The person, with the new avatar. */
+            200: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "01m5fc9w016tjgr7d552m9r3sg",
+                     *       "name": "Asa Seidel",
+                     *       "label": "Son",
+                     *       "initials": "AS",
+                     *       "tone": "#4f6d8c",
+                     *       "gender": "m",
+                     *       "deceased": false,
+                     *       "birth_year": 2019,
+                     *       "has_account": false,
+                     *       "is_you": false,
+                     *       "avatar_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/7e3fb9ea4d6f6666e4404b3c5a/avatars/01m9av5a5a7p0f1k3m3dgr4k6t.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=9c3e5a7b1d0f4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b9c3e5a7b1d0f4c6b8a0f1e3d5c7b9a1f2e4d6c8b0a1f3e5d7c9b1a3f5e7d9c1b",
+                     *       "avatar_expires_at": "2026-11-21T10:00:00Z",
+                     *       "role": null,
+                     *       "is_successor": false,
+                     *       "relationship_label": "Son",
+                     *       "description": "Loves fishing with his dad.",
+                     *       "date_of_death": null,
+                     *       "can_edit": true,
+                     *       "can_remove": true,
+                     *       "can_set_avatar": true,
+                     *       "can_request_memorialization": false,
+                     *       "memorialization": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["HomeMember"];
+                };
+            };
+            /** @description The body is not a JSON object sent with `Content-Type: application/json`. Send an object, `{}` for no fields, or no body at all. */
+            400: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "invalid_json";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description Unauthenticated: the Firebase ID token is missing, invalid or expired, or has no email address, or one at the reserved kinloom.invalid domain. Refresh the token once and retry; if that fails, sign out.
+             *
+             *     Your account was deleted (`DELETE /me`, from another tab or device) while this request was on its way. The write reads your account again as it saves, answers "This account was deleted." and writes nothing. Sign out: after a deletion kinloom-web deletes the login, so a refreshed token can't be had (contract §2.1, §2.5).
+             */
+            401: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "unauthenticated";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description The account is memorialized (CO-1 C2). Every authenticated route but GET /me answers this; public routes answer as usual.
+             *
+             *     You're in the Home but aren't its owner or co-owner (`forbidden`). Or `{member}` has an account (`forbidden`, "This person has an account: only they set its avatar, with PUT /me/avatar. …"): the Home sets avatars for family profiles only. Or your account was memorialized while the request waited (`account_memorialized`): nothing is written.
+             */
+            403: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @enum {string}
+                         */
+                        error: "account_memorialized" | "forbidden";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description Not found: it does not exist, or you may not see it. The body is the same either way.
+             *
+             *     `{member}` is not a person in this Home, or no longer is: they left, were removed or moved Home, or the family profile was deleted or claimed (it is an account now), while the request ran. The body never names them.
+             */
+            404: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "not_found";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description Invalid input. On every write, a string anywhere in the input (the body, a form field or the query string; a value or a key) that holds NUL or another control character from U+0000 to U+001F, other than tab, line feed and carriage return, or that is not valid UTF-8, is refused before anything else is validated; `errors` names each such field by its dot path, such as `tags.0.name` (at most 20 of them).
+             *
+             *     `validation_failed`: `media_id` is missing, or isn't an avatar upload of yours that is free to use, nothing was uploaded to it yet, or the file isn't a JPEG, PNG, GIF or WebP image (the upload is deleted). `file_too_large`: over the `avatar` limit (the upload is deleted). Nothing changes.
+             */
+            422: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @enum {string}
+                         */
+                        error: "validation_failed" | "file_too_large";
+                        /** @description The first validation error; `errors` has them all. */
+                        message: string;
+                        /** @description Every invalid field, with its messages: `{ "field": ["message", …] }`. Always an object. */
+                        errors: {
+                            [key: string]: string[];
+                        };
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description The Family Home or Family Space is read-only. Reads still work.
+             *
+             *     The Home is read-only (contract §4.6), after the 403.
+             */
+            423: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "container_read_only";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /** @description Too many requests: wait `retry_after` seconds, then retry. */
+            429: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "rate_limited";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description Whole seconds to wait before retrying. */
+                        retry_after: number;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+        };
+    };
+    "family-homes.members.avatar.destroy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Your Family Home's id (`GET /me` → `home.id`). Anyone who isn't in this Home gets the uniform 404. */
+                familyHome: string;
+                /** @description A person in this Home: an account or a family profile (the person id of contract §2.2). A person in any other Home is the uniform 404. */
+                member: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The person, with no avatar. */
+            200: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "id": "01m5fc9w016tjgr7d552m9r3sg",
+                     *       "name": "Asa Seidel",
+                     *       "label": "Son",
+                     *       "initials": "AS",
+                     *       "tone": "#4f6d8c",
+                     *       "gender": "m",
+                     *       "deceased": false,
+                     *       "birth_year": 2019,
+                     *       "has_account": false,
+                     *       "is_you": false,
+                     *       "avatar_url": null,
+                     *       "avatar_expires_at": null,
+                     *       "role": null,
+                     *       "is_successor": false,
+                     *       "relationship_label": "Son",
+                     *       "description": "Loves fishing with his dad.",
+                     *       "date_of_death": null,
+                     *       "can_edit": true,
+                     *       "can_remove": true,
+                     *       "can_set_avatar": true,
+                     *       "can_request_memorialization": false,
+                     *       "memorialization": null
+                     *     }
+                     */
+                    "application/json": components["schemas"]["HomeMember"];
+                };
+            };
+            /** @description The body is not a JSON object sent with `Content-Type: application/json`. Send an object, `{}` for no fields, or no body at all. */
+            400: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "invalid_json";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description Unauthenticated: the Firebase ID token is missing, invalid or expired, or has no email address, or one at the reserved kinloom.invalid domain. Refresh the token once and retry; if that fails, sign out.
+             *
+             *     Your account was deleted (`DELETE /me`, from another tab or device) while this request was on its way. The write reads your account again as it saves, answers "This account was deleted." and writes nothing. Sign out: after a deletion kinloom-web deletes the login, so a refreshed token can't be had (contract §2.1, §2.5).
+             */
+            401: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "unauthenticated";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description The account is memorialized (CO-1 C2). Every authenticated route but GET /me answers this; public routes answer as usual.
+             *
+             *     You're in the Home but aren't its owner or co-owner (`forbidden`). Or `{member}` has an account (`forbidden`, "This person has an account: only they set its avatar, with PUT /me/avatar. …"): the Home sets avatars for family profiles only. Or your account was memorialized while the request waited (`account_memorialized`): nothing is written.
+             */
+            403: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @enum {string}
+                         */
+                        error: "account_memorialized" | "forbidden";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description Not found: it does not exist, or you may not see it. The body is the same either way.
+             *
+             *     `{member}` is not a person in this Home, or no longer is: they left, were removed or moved Home, or the family profile was deleted or claimed (it is an account now), while the request ran. The body never names them.
+             */
+            404: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "not_found";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /** @description Invalid input. On every write, a string anywhere in the input (the body, a form field or the query string; a value or a key) that holds NUL or another control character from U+0000 to U+001F, other than tab, line feed and carriage return, or that is not valid UTF-8, is refused before anything else is validated; `errors` names each such field by its dot path, such as `tags.0.name` (at most 20 of them). */
+            422: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "validation_failed";
+                        /** @description The first validation error; `errors` has them all. */
+                        message: string;
+                        /** @description Every invalid field, with its messages: `{ "field": ["message", …] }`. Always an object. */
+                        errors: {
+                            [key: string]: string[];
+                        };
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /**
+             * @description The Family Home or Family Space is read-only. Reads still work.
+             *
+             *     The Home is read-only (contract §4.6), after the 403.
+             */
+            423: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "container_read_only";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+            /** @description Too many requests: wait `retry_after` seconds, then retry. */
+            429: {
+                headers: {
+                    /** @description This request's id: the one the client sent (8 to 128 characters of letters, digits, `.`, `_` and `-`), else a generated lowercase ULID. Error bodies repeat it as `request_id`. */
+                    "X-Request-Id"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /**
+                         * @description A stable machine code: branch on it (contract §2.5).
+                         * @constant
+                         */
+                        error: "rate_limited";
+                        /** @description Plain English, safe to show; it may change. */
+                        message: string;
+                        /** @description Whole seconds to wait before retrying. */
+                        retry_after: number;
+                        /** @description This request's id (also the X-Request-Id header). Quote it when reporting a problem. */
+                        request_id: string;
+                    };
+                };
+            };
+        };
+    };
     "family-homes.roles.update": {
         parameters: {
             query?: never;
@@ -9522,7 +10496,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "co_owner": {
                      *         "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -9534,7 +10510,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1986,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "successor": {
                      *         "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -9546,7 +10524,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1986,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       }
                      *     }
                      */
@@ -9765,7 +10745,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1986,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "co_owner": {
                      *         "id": "01m5fc9vxn02q3r3fs6kj6n49b",
@@ -9777,7 +10759,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "successor": null
                      *     }
@@ -10194,7 +11178,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1986,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -10225,7 +11211,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -10260,7 +11248,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -10296,7 +11286,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -10331,7 +11323,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1986,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": false,
@@ -10360,7 +11354,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -10389,7 +11385,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": false,
@@ -10582,7 +11580,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1986,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -10613,7 +11613,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -10648,7 +11650,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -10684,7 +11688,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -10719,7 +11725,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1986,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": false,
@@ -10748,7 +11756,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -10777,7 +11787,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": false,
@@ -11212,7 +12224,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -11243,7 +12257,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1986,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": true,
@@ -11431,7 +12447,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1958,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "home_slots": {
                      *         "used": 1,
@@ -11645,7 +12663,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1951,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "home_slots": {
                      *         "used": 6,
@@ -11893,7 +12913,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1951,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         "home_slots": {
                      *           "used": 6,
@@ -11926,7 +12948,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1981,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -11959,7 +12983,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -11992,7 +13018,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1980,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -12025,7 +13053,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1951,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": false,
@@ -12058,7 +13088,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1953,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -12104,7 +13136,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -12151,7 +13185,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -12186,7 +13222,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1951,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -12219,7 +13257,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -12404,7 +13444,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1953,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9vw5a351r94rpgph4kka",
@@ -12416,7 +13458,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1951,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 }
                      *               ],
                      *               "kinlooms": 3
@@ -12442,7 +13486,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1981,
                      *                   "has_account": true,
-                     *                   "is_you": true
+                     *                   "is_you": true,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9w1ezkt08m18fc53hm3d",
@@ -12454,7 +13500,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1980,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9xx0jd2k8fywshfbt0v7",
@@ -12466,7 +13514,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 2025,
                      *                   "has_account": false,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9wdy1xbhfr886k22rpft",
@@ -12478,7 +13528,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 2014,
                      *                   "has_account": false,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 }
                      *               ],
                      *               "kinlooms": 2
@@ -12499,7 +13551,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1984,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -12511,7 +13565,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1986,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9w016tjgr7d552m9r3sg",
@@ -12523,7 +13579,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 2019,
                      *                   "has_account": false,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 }
                      *               ],
                      *               "kinlooms": 3
@@ -12558,7 +13616,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1972,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "kinlooms": 1
@@ -12579,7 +13639,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1979,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "kinlooms": 1
@@ -12600,7 +13662,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": null,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "kinlooms": 0
@@ -12762,7 +13826,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1951,
                      *           "has_account": true,
-                     *           "is_you": true
+                     *           "is_you": true,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         "home_slots": {
                      *           "used": 6,
@@ -12784,7 +13850,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "homes": [
                      *         {
@@ -12804,7 +13872,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1953,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             {
                      *               "id": "01m5fc9vw5a351r94rpgph4kka",
@@ -12816,7 +13886,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1951,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "parents": [],
@@ -12840,7 +13912,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1972,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "parents": [],
@@ -12864,7 +13938,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1979,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "parents": [],
@@ -12888,7 +13964,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": null,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "parents": [],
@@ -12912,7 +13990,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1981,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             {
                      *               "id": "01m5fc9w1ezkt08m18fc53hm3d",
@@ -12924,7 +14004,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1980,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "parents": [
@@ -12953,7 +14035,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             {
                      *               "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -12965,7 +14049,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1986,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "parents": [
@@ -13006,7 +14092,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1951,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           }
                      *         }
                      *       ]
@@ -13173,7 +14261,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1951,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "invite_token": "4b7e1d9a3c5f8e2b6d0a4c8f1e5b9d3a7c2f6e0b4d8a1c5f9e3b7d2a6c0f4e8b"
                      *     }
@@ -13631,7 +14721,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1952,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9xpftxx0jd2k8fywshfb",
@@ -13643,7 +14735,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1949,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         }
                      *       ],
                      *       "parents": [],
@@ -14109,7 +15203,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1953,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9vw5a351r94rpgph4kka",
@@ -14121,7 +15217,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1951,
                      *                   "has_account": true,
-                     *                   "is_you": true
+                     *                   "is_you": true,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 }
                      *               ],
                      *               "kinlooms": 3
@@ -14147,7 +15245,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1979,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 }
                      *               ],
                      *               "kinlooms": 1
@@ -14168,7 +15268,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1981,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9w1ezkt08m18fc53hm3d",
@@ -14180,7 +15282,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1980,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9xx0jd2k8fywshfbt0v7",
@@ -14192,7 +15296,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 2025,
                      *                   "has_account": false,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9wdy1xbhfr886k22rpft",
@@ -14204,7 +15310,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 2014,
                      *                   "has_account": false,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 }
                      *               ],
                      *               "kinlooms": 2
@@ -14225,7 +15333,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1984,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -14237,7 +15347,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 1986,
                      *                   "has_account": true,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 },
                      *                 {
                      *                   "id": "01m5fc9w016tjgr7d552m9r3sg",
@@ -14249,7 +15361,9 @@ export interface operations {
                      *                   "deceased": false,
                      *                   "birth_year": 2019,
                      *                   "has_account": false,
-                     *                   "is_you": false
+                     *                   "is_you": false,
+                     *                   "avatar_url": null,
+                     *                   "avatar_expires_at": null
                      *                 }
                      *               ],
                      *               "kinlooms": 3
@@ -14288,7 +15402,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1972,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "kinlooms": 1
@@ -14309,7 +15425,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": null,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             }
                      *           ],
                      *           "kinlooms": 0
@@ -14716,7 +15834,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "successor": null
                      *     }
@@ -14936,7 +16056,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1951,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "successor": {
                      *         "id": "01m5fc9vxn02q3r3fs6kj6n49b",
@@ -14948,7 +16070,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       }
                      *     }
                      */
@@ -15172,7 +16296,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -15211,7 +16337,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -15250,7 +16378,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1951,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -15283,7 +16413,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -15482,7 +16614,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -15521,7 +16655,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": true,
                      *             "has_photo": true,
@@ -15560,7 +16696,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1951,
                      *               "has_account": true,
-                     *               "is_you": true
+                     *               "is_you": true,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -15593,7 +16731,9 @@ export interface operations {
                      *               "deceased": false,
                      *               "birth_year": 1984,
                      *               "has_account": true,
-                     *               "is_you": false
+                     *               "is_you": false,
+                     *               "avatar_url": null,
+                     *               "avatar_expires_at": null
                      *             },
                      *             "has_audio": false,
                      *             "has_photo": true,
@@ -16033,7 +17173,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1981,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -16068,7 +17210,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -16103,7 +17247,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1980,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -16138,7 +17284,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1951,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": false,
@@ -16173,7 +17321,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1953,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -17329,7 +18479,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "tags": [
                      *         {
@@ -17342,7 +18494,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 2019,
                      *           "has_account": false,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -17354,7 +18508,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1986,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         }
                      *       ],
                      *       "audience": [],
@@ -17387,7 +18543,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": false,
@@ -17416,7 +18574,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -17445,7 +18605,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -17702,7 +18864,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "tags": [
                      *         {
@@ -17715,7 +18879,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1953,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w1kyhzetkkypj1d8634",
@@ -17727,7 +18893,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1958,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w016tjgr7d552m9r3sg",
@@ -17739,7 +18907,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 2019,
                      *           "has_account": false,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         }
                      *       ],
                      *       "audience": [
@@ -17807,7 +18977,9 @@ export interface operations {
                      *                 "deceased": false,
                      *                 "birth_year": 1986,
                      *                 "has_account": true,
-                     *                 "is_you": false
+                     *                 "is_you": false,
+                     *                 "avatar_url": null,
+                     *                 "avatar_expires_at": null
                      *               },
                      *               "can_delete": true
                      *             },
@@ -17825,7 +18997,9 @@ export interface operations {
                      *                 "deceased": false,
                      *                 "birth_year": 1984,
                      *                 "has_account": true,
-                     *                 "is_you": true
+                     *                 "is_you": true,
+                     *                 "avatar_url": null,
+                     *                 "avatar_expires_at": null
                      *               },
                      *               "can_delete": true
                      *             }
@@ -17897,7 +19071,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": false,
@@ -17926,7 +19102,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -17955,7 +19133,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": true,
@@ -18327,7 +19507,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "tags": [
                      *         {
@@ -18340,7 +19522,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 2019,
                      *           "has_account": false,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -18352,7 +19536,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1986,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         }
                      *       ],
                      *       "audience": [
@@ -18448,7 +19634,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": false,
@@ -18477,7 +19665,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -18506,7 +19696,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -19352,7 +20544,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1955,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w016tjgr7d552m9r3sg",
@@ -19364,7 +20558,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 2019,
                      *           "has_account": false,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9vxn02q3r3fs6kj6n49b",
@@ -19376,7 +20572,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1984,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9vywqpbm7s86dhb721ym",
@@ -19388,7 +20586,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1986,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         {
                      *           "id": "01m5fc9w1qmeg1tptkndt5nxhh",
@@ -19400,7 +20600,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1990,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         }
                      *       ],
                      *       "rooms": [
@@ -19765,7 +20967,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1984,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "space": null,
                      *       "enabled": true,
@@ -19933,6 +21137,8 @@ export interface operations {
                      *           "birth_year": 1984,
                      *           "has_account": true,
                      *           "is_you": true,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 5
                      *         },
                      *         {
@@ -19946,6 +21152,8 @@ export interface operations {
                      *           "birth_year": 1958,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 1
                      *         },
                      *         {
@@ -19959,6 +21167,8 @@ export interface operations {
                      *           "birth_year": 1981,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 1
                      *         },
                      *         {
@@ -19972,6 +21182,8 @@ export interface operations {
                      *           "birth_year": 1953,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 1
                      *         },
                      *         {
@@ -19985,6 +21197,8 @@ export interface operations {
                      *           "birth_year": 1955,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 1
                      *         },
                      *         {
@@ -19998,6 +21212,8 @@ export interface operations {
                      *           "birth_year": 1979,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 1
                      *         },
                      *         {
@@ -20011,6 +21227,8 @@ export interface operations {
                      *           "birth_year": 1986,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 3
                      *         },
                      *         {
@@ -20024,6 +21242,8 @@ export interface operations {
                      *           "birth_year": 1990,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 1
                      *         },
                      *         {
@@ -20037,6 +21257,8 @@ export interface operations {
                      *           "birth_year": 1972,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 1
                      *         },
                      *         {
@@ -20050,6 +21272,8 @@ export interface operations {
                      *           "birth_year": 1951,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 2
                      *         },
                      *         {
@@ -20063,6 +21287,8 @@ export interface operations {
                      *           "birth_year": 1980,
                      *           "has_account": true,
                      *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null,
                      *           "kinlooms": 1
                      *         }
                      *       ],
@@ -20220,7 +21446,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1951,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "space": null,
                      *           "title": "What was Ray's grandmother Marta like?",
@@ -20417,7 +21645,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1951,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "space": null,
                      *       "title": null,
@@ -20618,7 +21848,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1951,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         "space": null,
                      *         "title": "What was Ray's grandmother Marta like?",
@@ -21350,7 +22582,7 @@ export interface operations {
             /**
              * @description Invalid input. On every write, a string anywhere in the input (the body, a form field or the query string; a value or a key) that holds NUL or another control character from U+0000 to U+001F, other than tab, line feed and carriage return, or that is not valid UTF-8, is refused before anything else is validated; `errors` names each such field by its dot path, such as `tags.0.name` (at most 20 of them).
              *
-             *     `validation_failed`: a field is invalid; nothing (or an empty file) was uploaded to `media_id`; it is already attached to another kinloom; or the kinloom already holds 20 files. `file_too_large`: the uploaded file is over its purpose's limit, and the upload has been deleted (its `media_id` is then the uniform 404).
+             *     `validation_failed`: a field is invalid; nothing (or an empty file) was uploaded to `media_id`; it is already attached to another kinloom; or the kinloom already holds 20 files; or (after S12) `media_id` is an upload of purpose `avatar`, which is never attached (set it with `PUT /me/avatar`). `file_too_large`: the uploaded file is over its purpose's limit, and the upload has been deleted (its `media_id` is then the uniform 404).
              */
             422: {
                 headers: {
@@ -21659,7 +22891,7 @@ export interface operations {
             /**
              * @description Invalid input. On every write, a string anywhere in the input (the body, a form field or the query string; a value or a key) that holds NUL or another control character from U+0000 to U+001F, other than tab, line feed and carriage return, or that is not valid UTF-8, is refused before anything else is validated; `errors` names each such field by its dot path, such as `tags.0.name` (at most 20 of them).
              *
-             *     The last file of a final kinloom whose `body` is null or blank: a final kinloom needs a body or a media item. `errors.media` says so, and nothing changes.
+             *     The last file of a final kinloom whose `body` is null or blank: a final kinloom needs a body or a media item. `errors.media` says so, and nothing changes. After S12, also a file that is an avatar now ("This file is an avatar: remove it with DELETE /me/avatar, or the family profile's DELETE …/members/{member}/avatar.").
              */
             422: {
                 headers: {
@@ -21752,7 +22984,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1953,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "legacy_contact_confirmed": true,
                      *       "date_of_death": "2026-11-19",
@@ -21785,7 +23019,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1952,
                      *         "has_account": true,
-                     *         "is_you": true
+                     *         "is_you": true,
+                     *         "avatar_url": null,
+                     *         "avatar_expires_at": null
                      *       },
                      *       "legacy_contact_confirmed": true,
                      *       "date_of_death": "2026-11-19",
@@ -22533,7 +23769,9 @@ export interface operations {
                      *         "deceased": false,
                      *         "birth_year": 1951,
                      *         "has_account": true,
-                     *         "is_you": false
+                     *         "is_you": false,
+                     *         "avatar_url": "https://storage.googleapis.com/bw-heirloom-private-phase3/vaults/3c1f7d2e9a4b6c8d0e1f2a3b4c/avatars/01m9av6r4y5k0p2q3t7w8x9z1c.webp?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Credential=kinloom-api-phase3%40bw-heirloom-dev.iam.gserviceaccount.com%2F20261121%2Fauto%2Fstorage%2Fgoog4_request&X-Goog-Date=20261121T093000Z&X-Goog-Expires=1800&X-Goog-SignedHeaders=host&X-Goog-Signature=7d2c4e6a8b0f1d3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c3a5b7d9f1e7d2c4e6a8b0f1d3e5c7a9b1d3f5e7c9a1b3d5f7e9c1a3b5d7f9e1c3a5b7d9f1e",
+                     *         "avatar_expires_at": "2026-11-21T10:00:00Z"
                      *       },
                      *       "description": null,
                      *       "date_of_death": null,
@@ -22561,7 +23799,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1951,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         "has_audio": false,
                      *         "has_photo": true,
@@ -22592,7 +23832,9 @@ export interface operations {
                      *           "deceased": false,
                      *           "birth_year": 1953,
                      *           "has_account": true,
-                     *           "is_you": false
+                     *           "is_you": false,
+                     *           "avatar_url": null,
+                     *           "avatar_expires_at": null
                      *         },
                      *         "legacy_contact_confirmed": false,
                      *         "date_of_death": "2026-11-19",
@@ -22621,7 +23863,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1951,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": false,
@@ -22650,7 +23894,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1951,
                      *             "has_account": true,
-                     *             "is_you": false
+                     *             "is_you": false,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": true,
@@ -22851,7 +24097,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -22882,7 +24130,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": true,
@@ -22932,7 +24182,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": true,
                      *           "has_photo": false,
@@ -22970,7 +24222,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -23001,7 +24255,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": false,
@@ -23045,7 +24301,9 @@ export interface operations {
                      *             "deceased": false,
                      *             "birth_year": 1984,
                      *             "has_account": true,
-                     *             "is_you": true
+                     *             "is_you": true,
+                     *             "avatar_url": null,
+                     *             "avatar_expires_at": null
                      *           },
                      *           "has_audio": false,
                      *           "has_photo": true,
