@@ -23,6 +23,7 @@ import { postToNative } from '../../lib/embed';
 import { useEmbedded } from '../../lib/embed-context';
 import AppNav from './AppNav';
 import AppFooter from './AppFooter';
+import GetStartedTip from './GetStartedTip';
 import { FeedbackProvider } from './feedback/FeedbackContext';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
@@ -58,6 +59,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     <FeedbackProvider>
       <div className={embedded ? 'app-shell app-shell--embedded' : 'app-shell'}>
         {!embedded && <AppNav user={user} />}
+        {!embedded && <GetStartedTip user={user} />}
         <main className="app-shell__main">{children}</main>
         {/* The native app supplies its own chrome, footer included. */}
         {!embedded && <AppFooter />}

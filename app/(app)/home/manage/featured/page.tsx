@@ -2,7 +2,9 @@ import { ApiError } from '../../../../../lib/api';
 import { requireHome } from '../../../../../lib/server/auth';
 import { serverKinloomApi } from '../../../../../lib/server/kinloom-api';
 import type { components } from '../../../../../lib/api-schema/typed';
+import { getFamilyHome } from '../../../../../lib/server/queries';
 import ManageTabs from '../../../../components/ManageTabs';
+import HomeProfileForm from './HomeProfileForm';
 import HomeFeaturedClient, { type FeaturedCard, type SlotData } from './HomeFeaturedClient';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +26,8 @@ function toCard(c: Card, quote: string | null = null, slot: Slot = 'lately'): Fe
 }
 
 /**
- * Featured on Home: what the owner or co-owner picks for the four slots.
+ * Featured on Home: the Home's profile (name, motto, description, year
+ * established) and what the owner or co-owner picks for the four slots.
  * Picks, the automatic fallback and the eligible cards per slot all come from
  * the API; nothing is stored in the browser. Members who can't edit get a
  * plain explanation (403), since they see the result on Home itself.
@@ -33,8 +36,10 @@ export default async function FeaturedOnHomePage() {
   const { homeId, home } = await requireHome();
   const homeName = home.name?.trim() || 'your Family Home';
 
-  // Five independent reads, one round of waiting.
+  // Six independent reads, one round of waiting. The Home's profile is apart
+  // from the featured reads: when it fails, only its form is left out.
   const slotsList: Slot[] = ['hero', 'quote', 'voice', 'lately'];
+  const familyHomeP = getFamilyHome(homeId).catch(() => null);
   const [editorRes, ...candidateRes] = await Promise.all([
     serverKinloomApi
       .get('/family-homes/{familyHome}/featured', { path: { familyHome: homeId } })
@@ -48,6 +53,8 @@ export default async function FeaturedOnHomePage() {
         .then((data) => ({ data }), (error: unknown) => ({ error })),
     ),
   ]);
+
+  const familyHome = await familyHomeP;
 
   let forbidden = false;
   let failed = false;
@@ -103,6 +110,17 @@ export default async function FeaturedOnHomePage() {
       <p className="eyebrow">Manage your Family Home</p>
       <h1 className="mg-page__title">Featured on Home</h1>
       <ManageTabs />
+      {familyHome?.viewer.can_edit && (
+        <HomeProfileForm
+          homeId={homeId}
+          initial={{
+            name: familyHome.name,
+            motto: familyHome.motto,
+            description: familyHome.description,
+            established_year: familyHome.established_year,
+          }}
+        />
+      )}
       <p className="feat-lead">
         Choose what the people in your home see first. Kinloom decides how it
         sits on the page.

@@ -1,8 +1,12 @@
 /**
+<<<<<<< HEAD
  * Personal exports: everything the signed-in user created, across every
  * family space they belong to. `json` produces a ZIP archive with media,
  * `pdf` a printable book of their kinlooms. The family space in the URL is
  * only the route the request goes through.
+=======
+ * Vault exports (contract §9.1): everything you've written, as a ZIP or a PDF.
+>>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
  *
  *   1. startExport(format)  → 202 with the export (a double click returns the running one)
  *   2. pollExport(id)       → until `status` is `ready` or `failed`
@@ -19,6 +23,7 @@ import type { components } from './api-schema/typed';
 export type VaultExport = components['schemas']['VaultExport'];
 export type ExportFormat = VaultExport['format'];
 
+<<<<<<< HEAD
 export type CreateExportPayload = {
   format: ExportFormat;
   schedule?: ExportSchedule | null;
@@ -43,6 +48,15 @@ export type Export = {
   expires_at?: string | null;
   counts?: ExportCounts | null;
 };
+=======
+export function startExport(format: ExportFormat): Promise<VaultExport> {
+  return kinloomApi.post('/vault/exports', { body: { format } });
+}
+
+export function getExport(id: string): Promise<VaultExport> {
+  return kinloomApi.get('/vault/exports/{export}', { path: { export: id } });
+}
+>>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
 
 /** Same-origin, so the session reaches the API; the API answers 302 to the file. */
 export function exportDownloadUrl(id: string): string {

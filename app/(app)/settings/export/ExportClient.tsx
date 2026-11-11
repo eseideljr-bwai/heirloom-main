@@ -17,6 +17,7 @@ import { ApiError } from '../../../../lib/api';
 const POLL_INTERVAL_MS = 2500;
 const MAX_POLLS = 60; // ~150s
 
+<<<<<<< HEAD
 type Job = {
   exportId: string;
   format: ExportFormat;
@@ -32,6 +33,81 @@ export default function ExportClient() {
   const [submitting, setSubmitting] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+=======
+const FORMATS: { format: ExportFormat; title: string; text: string; primary?: boolean }[] = [
+  {
+    format: 'json',
+    title: 'Everything (ZIP)',
+    text: 'Your kinlooms as a printable book, plus your data and every photo, recording and film.',
+    primary: true,
+  },
+  {
+    format: 'pdf',
+    title: 'Just the book (PDF)',
+    text: 'Your kinlooms as a printable book. No photos, recordings or films.',
+  },
+];
+
+function formatLabel(format: ExportFormat) {
+  return format === 'json' ? 'archive' : 'book';
+}
+
+function untilText(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? ''
+    : d.toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+}
+
+export default function ExportClient() {
+  const [job, setJob] = useState<VaultExport | null>(null);
+  const [starting, setStarting] = useState<ExportFormat | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [gaveUp, setGaveUp] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const alive = useRef(true);
+
+  const stop = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = null;
+  }, []);
+
+  /** Poll one export until it settles. A reload resumes from the remembered id. */
+  const watch = useCallback((id: string, polls = 0) => {
+    setGaveUp(false);
+    const tick = async () => {
+      if (!alive.current) return;
+      try {
+        const ex = await getExport(id);
+        if (!alive.current) return;
+        setJob(ex);
+        if (ex.status === 'ready' || ex.status === 'failed' || ex.status === 'expired') {
+          stop();
+          return;
+        }
+        if (polls + 1 >= MAX_POLLS) {
+          stop();
+          setGaveUp(true);
+          return;
+        }
+        timer.current = setTimeout(() => watch(id, polls + 1), POLL_MS);
+      } catch (err) {
+        if (!alive.current) return;
+        stop();
+        if (err instanceof ApiError && err.status === 404) {
+          // It was cleaned up (expired a while ago): forget it.
+          rememberExport(null);
+          setJob(null);
+        } else {
+          setError('We lost contact with your export. Reload the page to check on it.');
+        }
+      }
+    };
+    void tick();
+  }, [stop]);
+
+>>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
   useEffect(() => {
     alive.current = true;
     const remembered = recallExport();
@@ -60,6 +136,7 @@ export default function ExportClient() {
     }
   }
 
+<<<<<<< HEAD
   function pollExport(spaceId: string, exportId: string) {
     if (pollRef.current) clearInterval(pollRef.current);
     let polls = 0;
@@ -89,6 +166,11 @@ export default function ExportClient() {
   // same in-flight export from the API and resumes polling.
   const timedOut = !!job?.timedOut && !ready && !failed;
   const inFlight = !!job && !ready && !failed && !timedOut;
+=======
+  const running = !!job && (job.status === 'pending' || job.status === 'processing');
+  const busy = starting !== null || running;
+  const finished = !!job && !running;
+>>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
 
   return (
     <div>
@@ -128,6 +210,7 @@ export default function ExportClient() {
                   Preparing your {job.format.toUpperCase()} export… this can take a moment for larger libraries.
                 </p>
               )}
+<<<<<<< HEAD
               {timedOut && (
                 <p>
                   This is taking a while. We&apos;ll email you a download link when it&apos;s ready.
@@ -144,6 +227,8 @@ export default function ExportClient() {
                   </a>
                 </p>
               )}
+=======
+>>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
             </div>
           )}
 
@@ -162,6 +247,17 @@ export default function ExportClient() {
             </div>
           )}
         </div>
+<<<<<<< HEAD
+=======
+
+        <div className="privacy-note">
+          <p>
+            An export holds only what you wrote, along with your settings and the people you named.
+            Other people’s comments on your kinlooms are counted, never copied. Downloads are kept for
+            seven days, and you can start two exports an hour.
+          </p>
+        </div>
+>>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
       </div>
     </div>
   );
