@@ -2448,6 +2448,13 @@ button {
   color: var(--foreground);
   border-bottom-color: var(--primary);
 }
+/* Sets Family Spaces apart from the Home links. */
+.topnav__divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
 
 /* Row 2 is subordinate to row 1: same treatment, one step quieter. */
 .topnav__links--scope { font-size: 13px; }
@@ -2615,9 +2622,65 @@ button {
 .space-switcher__item:hover { background: var(--secondary); }
 .space-switcher__item.is-active { color: var(--primary); font-weight: 500; }
 .space-switcher__item-name {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.space-switcher__heading {
+  margin: 0;
+  padding: 10px 12px 6px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-4);
+}
+.space-switcher__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.space-switcher__role {
+  flex: none;
+  font-size: 12px;
+  color: var(--fg-4);
+}
+.space-switcher__item.is-active .space-switcher__role { color: inherit; }
+.space-switcher__create {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--fg-2);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.space-switcher__create.has-rule {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 8px 8px;
+  padding-top: 12px;
+}
+.space-switcher__create:hover { background: var(--secondary); color: var(--primary); }
+.space-switcher__plus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--primary);
 }
 
 /* ─── Paper texture (optional, toggled via .has-texture) ───── */
@@ -3322,6 +3385,24 @@ body.has-texture::before {
 
 /* Settings screens */
 .settings-card-text--flush { margin: 0; }
+.settings-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.settings-check input {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin: 3px 0 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+.settings-check__label { color: var(--fg-1); font-weight: 500; }
 .settings-card-text a, .modal-text a, .privacy-note a { color: var(--primary); }
 .field-hint { margin: 6px 0 0; font-size: 12px; color: var(--fg-3); line-height: 1.5; }
 .field-input--area { resize: vertical; min-height: 96px; line-height: 1.5; }
@@ -5047,6 +5128,14 @@ body.has-texture::before {
   margin: 0;
   max-width: 40ch;
 }
+.home-hero__about {
+  font-size: clamp(14px, 1.5vw, 16px);
+  line-height: 1.6;
+  color: var(--fg-3);
+  margin: clamp(10px, 1.3vw, 14px) 0 0;
+  max-width: 54ch;
+  white-space: pre-line;
+}
 
 .home-stats {
   display: flex;
@@ -6398,6 +6487,9 @@ body.has-texture::before {
 /* ─── Featured on Home ───────────────────────────────────────────
    Curation: the manager chooses what matters, the Home page decides
    how it sits. Nothing here is persisted server-side yet. */
+.home-profile { margin-top: clamp(16px, 2.2vw, 26px); }
+.home-profile__body { padding: clamp(16px, 2.2vw, 26px); }
+
 .feat-lead {
   font-size: clamp(14px, 1.5vw, 17px);
   line-height: 1.6;
@@ -7404,3 +7496,541 @@ img.portrait-kin__img { object-fit: cover; }
   color: var(--fg-4);
 }
 .mg-modal__alt { margin-top: 16px; }
+
+/* ─── Create a Family Space (wizard) ────────────────────────────── */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.csw {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: clamp(24px, 3.6vw, 56px) clamp(16px, 3vw, 40px) clamp(30px, 4vw, 64px);
+}
+.csw__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 clamp(14px, 2vw, 22px);
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg-3);
+  text-decoration: none;
+  cursor: pointer;
+}
+.csw__back:hover { color: var(--foreground); }
+.csw__back:disabled { opacity: 0.5; cursor: default; }
+.csw__steps { margin-bottom: clamp(24px, 3.4vw, 44px); }
+.csw__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: clamp(24px, 4vw, 56px);
+  align-items: start;
+}
+.csw__main { min-width: 0; }
+.csw__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(30px, 4.4vw, 48px);
+  line-height: 1.08;
+  letter-spacing: -0.015em;
+  color: var(--foreground);
+  margin: clamp(10px, 1.4vw, 16px) 0 0;
+  outline: none;
+}
+.csw__lead {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: clamp(15px, 1.6vw, 18px);
+  line-height: 1.55;
+  color: var(--fg-3);
+  margin: 12px 0 clamp(22px, 3vw, 32px);
+  max-width: 460px;
+}
+.csw__name { font-family: var(--font-serif); font-size: 17px; }
+.csw__optional { color: var(--fg-5); }
+.csw__ideas { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.csw__idea {
+  padding: 6px 14px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg-2);
+  cursor: pointer;
+}
+.csw__idea:hover { background: var(--secondary); color: var(--primary); }
+.csw__hint { font-size: 12px; color: var(--fg-4); margin: 8px 0 0; line-height: 1.5; }
+.csw__hint--note {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 14px;
+  max-width: 440px;
+  margin-top: 20px;
+}
+.csw__group {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-5);
+  margin: 0 0 10px;
+}
+.csw__link {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--primary);
+  cursor: pointer;
+  text-decoration: none;
+}
+.csw__link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.csw__main .form-status { margin: 16px 0 0; }
+.csw__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 22px;
+  margin-top: clamp(22px, 3vw, 32px);
+  padding-top: clamp(18px, 2.4vw, 26px);
+  border-top: 1px solid var(--border);
+}
+
+.csw-invites { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
+.csw-invite {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+.csw-invite:not(:has(.csw-invite__remove)) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); }
+.csw-invite__remove {
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--fg-4);
+  cursor: pointer;
+}
+.csw-invite__remove:hover { background: var(--secondary); color: var(--foreground); }
+
+.csw-review { margin: 0; border-top: 1px solid var(--border); }
+.csw-review > div {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: baseline;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.csw-review dt {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-5);
+}
+.csw-review dd { margin: 0; font-size: 15px; color: var(--foreground); overflow-wrap: anywhere; }
+.csw-review__edit button {
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--fg-4);
+  cursor: pointer;
+}
+.csw-review__edit button:hover { color: var(--primary); }
+
+.csw-failed { margin: 0 0 8px; padding: 0 0 0 18px; font-size: 14px; line-height: 1.7; color: var(--fg-2); }
+
+.csw-preview {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: clamp(16px, 2.2vw, 24px);
+  position: sticky;
+  top: 24px;
+}
+.csw-preview__label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg-5);
+  margin: 0 0 10px;
+}
+.csw-preview__label--homes { margin-top: 20px; }
+.csw-preview__pill {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  background: var(--background);
+}
+.csw-preview__name {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.csw-preview__pill.is-empty .csw-preview__name { color: var(--fg-5); }
+.csw-preview__count { flex: none; font-size: 12px; color: var(--fg-4); }
+.csw-preview__homes { list-style: none; margin: 0; padding: 0; }
+.csw-preview__homes li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.csw-preview__home { flex: 1 1 auto; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csw-preview__role { flex: none; font-size: 12px; color: var(--fg-4); }
+.csw-preview__note {
+  margin: 16px 0 0;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-4);
+}
+.csw-avatar {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(85, 107, 91, 0.14);
+  color: var(--primary);
+  font-family: var(--font-serif);
+  font-size: 15px;
+}
+.csw-avatar--invited { background: var(--secondary); color: var(--fg-4); }
+
+/* A Family Space nothing is published to yet */
+.sp-empty {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: clamp(16px, 2.4vw, 32px);
+  align-items: start;
+  padding: 0 clamp(16px, 3vw, 40px) clamp(30px, 4vw, 64px);
+}
+.sp-empty__card {
+  border: 1px dashed var(--border);
+  border-radius: 20px;
+  background: rgba(245, 244, 241, 0.4);
+  padding: clamp(32px, 6vw, 80px) clamp(18px, 4vw, 48px);
+  text-align: center;
+}
+.sp-empty__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-4);
+  margin: 0 0 14px;
+}
+.sp-empty__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(22px, 3vw, 32px);
+  line-height: 1.2;
+  max-width: 420px;
+  margin: 0 auto 14px;
+  color: var(--foreground);
+}
+.sp-empty__text { font-size: 14px; line-height: 1.6; color: var(--fg-4); max-width: 380px; margin: 0 auto 22px; }
+.sp-empty__actions { display: flex; flex-wrap: wrap; gap: 14px 22px; align-items: center; justify-content: center; }
+.sp-empty__link { font-size: 14px; color: var(--foreground); text-decoration: none; }
+.sp-empty__link:hover { color: var(--primary); }
+
+.sp-homes {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: clamp(16px, 2.2vw, 24px);
+}
+.sp-homes__head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.sp-homes__label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-5); margin: 0; }
+.sp-homes__count { font-size: 12px; color: var(--fg-4); margin: 0; }
+.sp-homes__list { list-style: none; margin: 0; padding: 0; }
+.sp-homes__list li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.sp-homes__text { display: flex; flex-direction: column; min-width: 0; }
+.sp-homes__name { font-size: 14px; color: var(--foreground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-homes__sub { font-size: 12px; color: var(--fg-4); }
+.sp-homes__invite { display: flex; gap: 10px; margin-top: 16px; }
+.sp-homes__invite .field-input { flex: 1 1 auto; min-width: 0; }
+.sp-homes .form-status { margin: 10px 0 0; }
+.sp-homes__note { margin: 12px 0 0; font-family: var(--font-serif); font-style: italic; font-size: 12px; line-height: 1.5; color: var(--fg-4); }
+
+@media (max-width: 860px) {
+  .csw__grid, .sp-empty { grid-template-columns: minmax(0, 1fr); }
+  .csw-preview { position: static; }
+  .csw-invite, .csw-invite:not(:has(.csw-invite__remove)) { grid-template-columns: minmax(0, 1fr); }
+  .csw-invite__remove { justify-self: end; }
+  .csw-review > div { grid-template-columns: minmax(0, 1fr) auto; }
+  .csw-review dt { grid-column: 1 / -1; }
+}
+
+/* Upgrade to Family (Settings plan card, "can't create a Family Space yet") */
+.upgrade-plan { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.upgrade-plan__note { margin: 0; font-size: 13px; color: var(--fg-3); }
+.settings-plan-action { margin-top: 16px; }
+
+/* ─── Get started on Kinloom ─────────────────────────────────────
+   The checklist at the top of My Home, and the tip each step's page
+   shows under the nav item it lives behind. */
+.home-gs {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: clamp(16px, 2.2vw, 26px) clamp(16px, 3vw, 40px) 0;
+}
+.home-gs:empty { display: none; }
+
+.gs {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 2fr);
+  gap: clamp(20px, 3vw, 44px);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-2xl);
+  padding: clamp(18px, 2.2vw, 26px);
+}
+.gs__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-4);
+  margin: 0;
+}
+.gs__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(22px, 2.3vw, 30px);
+  line-height: 1.2;
+  color: var(--foreground);
+  margin: 10px 0 8px;
+}
+.gs__lede { font-size: 13px; line-height: 1.6; color: var(--fg-3); margin: 0; max-width: 46ch; }
+.gs__count { font-size: 12px; color: var(--fg-4); margin: 18px 0 6px; }
+.gs__bar {
+  height: 6px;
+  max-width: 290px;
+  border-radius: var(--radius-full);
+  background: var(--muted);
+  overflow: hidden;
+}
+.gs__bar-fill { display: block; height: 100%; background: var(--primary); transition: width 300ms ease; }
+.gs__hide {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  font-size: 13px;
+  color: var(--fg-3);
+  cursor: pointer;
+}
+.gs__hide input, .gs__check, .gs-tip__done input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--primary);
+  cursor: pointer;
+}
+
+.gs__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+.gs__step {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 0 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  transition: border-color 160ms ease;
+}
+.gs__step:hover { border-color: var(--fg-5); }
+.gs__n { font-family: var(--font-serif); font-size: 14px; color: var(--fg-4); }
+.gs__link {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 10px 14px 10px 4px;
+  color: inherit;
+  text-decoration: none;
+}
+.gs__step-title { font-size: 14px; color: var(--foreground); }
+.gs__path {
+  grid-column: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--fg-4);
+}
+.gs__arrow { grid-column: 2; grid-row: 1 / span 2; color: var(--fg-4); display: flex; }
+.gs__link:hover .gs__arrow { color: var(--primary); }
+.gs__step.is-done { border-color: rgba(85, 107, 91, 0.35); background: rgba(85, 107, 91, 0.05); }
+.gs__step.is-done .gs__step-title { opacity: 0.6; text-decoration: line-through; }
+
+@media (max-width: 900px) {
+  .gs { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  .gs__steps { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The tip: dark, so it reads as guidance laid over the page rather than
+   part of it. Rendered inside the sticky header (see GetStartedTip), so it
+   is positioned against it: above the bar's contents, below its menus. */
+.gs-tip {
+  position: absolute;
+  z-index: 45;
+  width: min(340px, calc(100vw - 24px));
+  padding: 16px;
+  border-radius: 12px;
+  background: #1a1a1a;
+  color: rgba(253, 252, 250, 0.88);
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35);
+  animation: gs-tip-in 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes gs-tip-in {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .gs-tip { animation: none; }
+}
+.gs-tip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: calc(var(--gs-arrow) - 6px);
+  width: 12px;
+  height: 12px;
+  background: inherit;
+  transform: rotate(45deg);
+}
+.gs-tip--end::before { left: auto; right: calc(var(--gs-arrow) - 6px); }
+.gs-tip__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.gs-tip__eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(253, 252, 250, 0.72);
+  margin: 0;
+}
+.gs-tip__close {
+  display: flex;
+  padding: 4px;
+  margin: -4px -4px -4px 0;
+  border: 0;
+  background: none;
+  color: rgba(253, 252, 250, 0.8);
+  cursor: pointer;
+}
+.gs-tip__close:hover { color: #fdfcfa; }
+.gs-tip__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: 21px;
+  line-height: 1.25;
+  color: #fdfcfa;
+  margin: 8px 0 6px;
+}
+.gs-tip__body { font-size: 13.5px; line-height: 1.55; margin: 0; }
+.gs-tip__where { font-size: 12px; line-height: 1.5; color: rgba(253, 252, 250, 0.75); margin: 10px 0 0; }
+/* Done on its own line; Previous left, Next right beneath it. */
+.gs-tip__foot {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(253, 252, 250, 0.18);
+}
+.gs-tip__done { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; font-size: 13px; color: #fdfcfa; cursor: pointer; }
+.gs-tip__done input { accent-color: #8fa596; }
+.gs-tip__nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.gs-tip__prev {
+  flex: none;
+  font: inherit;
+  font-size: 13px;
+  color: #fdfcfa;
+  background: transparent;
+  border: 1px solid rgba(253, 252, 250, 0.4);
+  border-radius: 8px;
+  padding: 7px 12px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.gs-tip__prev:hover { border-color: #fdfcfa; }
+.gs-tip__prev[aria-disabled="true"] { opacity: 0.4; cursor: default; }
+.gs-tip__prev[aria-disabled="true"]:hover { border-color: rgba(253, 252, 250, 0.4); }
+.gs-tip__next {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1a1a1a;
+  background: #fdfcfa;
+  padding: 8px 12px;
+  border-radius: 8px;
+  text-decoration: none;
+  text-align: right;
+}
+.gs-tip__next:hover { background: var(--secondary); }
+
+/* ─── My Home, before anything is published ────────────────────── */
+.home-first {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: clamp(280px, 32vw, 440px);
+  padding: clamp(24px, 3.2vw, 40px);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-2xl);
+  background: var(--secondary);
+}
+.home-first__title {
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(24px, 2.6vw, 34px);
+  line-height: 1.2;
+  color: var(--foreground);
+  margin: 12px 0 10px;
+  max-width: 20ch;
+}
+.home-first__text { font-size: 15px; line-height: 1.6; color: var(--fg-3); margin: 0 0 22px; max-width: 46ch; }
+.home-first__cta { align-self: flex-start; padding: 9px 18px; font-size: 13px; }

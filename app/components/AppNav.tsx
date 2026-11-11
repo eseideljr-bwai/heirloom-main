@@ -6,9 +6,9 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { useActiveFamilySpace } from '../../lib/active-family-space';
 import type { AuthUser } from '../../lib/auth';
+import type { TipAnchor } from '../../lib/get-started';
 import { useFeedback } from './feedback/FeedbackContext';
 import { FeedbackNavItem } from './feedback/FeedbackTrigger';
-
 // ─── Icons ────────────────────────────────────────────────────────────
 
 const ChevronDownIcon = () => (
@@ -61,14 +61,18 @@ type NavLink = {
    * clicked from is never the path they land on.
    */
   match?: string;
+  /** What a Get started tip points at (see lib/get-started). */
+  tour?: TipAnchor;
 };
 
 const HOME_NAV: NavLink[] = [
-  { href: '/home',        label: 'My Home', exact: true },
-  { href: '/spaces',      label: 'Family Spaces' },
-  { href: '/library',     label: 'Our Library' },
-  { href: '/home/manage', label: 'Manage Home' },
+  { href: '/home',        label: 'My Home', exact: true, tour: 'home' },
+  { href: '/library',     label: 'Our Library', tour: 'library' },
+  { href: '/home/manage', label: 'Manage Home', tour: 'manage' },
 ];
+
+/** Row 1's way into row 2, set off from the Home links by a divider. */
+const SPACES_LINK: NavLink = { href: '/spaces', label: 'Family Spaces', tour: 'spaces' };
 
 const ACCOUNT_NAV: NavLink[] = [
   { href: '/vault',          label: 'My Vault' },
@@ -93,10 +97,17 @@ const ACTIVE_CONTAINER_HAS_LINEAGE = true;
 
 // ─── Family space switcher ────────────────────────────────────────────
 
-/** Row 2 only. Lists Family Spaces; never Homes. */
+/**
+ * Row 2 only. Lists Family Spaces; never Homes. Ends with "Create a Family
+ * Space" for people `GET /me` says may create one (`can_create_space`), so
+ * it is also how a Home in no Space, or in just one, finds the way to start
+ * another.
+ */
 function FamilySpaceSwitcher() {
+  const { user } = useAuth();
   const { familySpaces: spaces, activeFamilySpace: activeSpace, setActiveFamilySpaceId } = useActiveFamilySpace();
   const activeSpaceId = activeSpace?.id ?? null;
+  const canCreate = user?.can_create_space === true;
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -116,49 +127,73 @@ function FamilySpaceSwitcher() {
     };
   }, [open]);
 
-  if (spaces.length === 0) return null;
+  // Nothing to switch to and nothing to create: no switcher at all.
+  if (spaces.length === 0 && !canCreate) return null;
 
-  const label = activeSpace?.name?.trim() || 'Family space';
-  const single = spaces.length === 1;
+  const label = spaces.length === 0
+    ? 'No Family Spaces yet'
+    : activeSpace?.name?.trim() || 'Family space';
+  // A lone Space has nothing to switch to, unless there is also "Create".
+  const interactive = spaces.length > 1 || canCreate;
 
   return (
     <div className="space-switcher" ref={wrapRef}>
       <button
         type="button"
         className="space-switcher__trigger"
-        aria-haspopup="listbox"
+        aria-haspopup="true"
         aria-expanded={open}
-        disabled={single}
-        onClick={() => !single && setOpen(o => !o)}
+        disabled={!interactive}
+        onClick={() => interactive && setOpen(o => !o)}
       >
         <span className="space-switcher__label">{label}</span>
-        {!single && <ChevronDownIcon />}
+        {interactive && <ChevronDownIcon />}
       </button>
-      {open && !single && (
-        <ul className="space-switcher__menu" role="listbox">
-          {spaces.map(s => {
-            const isActive = s.id === activeSpaceId;
-            return (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={isActive}
-                  className={`space-switcher__item${isActive ? ' is-active' : ''}`}
-                  onClick={() => {
-                    setActiveFamilySpaceId(s.id);
-                    setOpen(false);
-                  }}
-                >
-                  <span className="space-switcher__item-name">
-                    {s.name?.trim() || s.id}
-                  </span>
-                  {isActive && <CheckIcon />}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+      {open && interactive && (
+        <div className="space-switcher__menu">
+          {spaces.length > 0 && (
+            <>
+              <p className="space-switcher__heading">Family Spaces</p>
+              <ul className="space-switcher__list" role="listbox" aria-label="Family Spaces">
+                {spaces.map(s => {
+                  const isActive = s.id === activeSpaceId;
+                  return (
+                    <li key={s.id} role="presentation">
+                      <button
+                        type="button"
+                        role="option"
+                        aria-selected={isActive}
+                        className={`space-switcher__item${isActive ? ' is-active' : ''}`}
+                        onClick={() => {
+                          setActiveFamilySpaceId(s.id);
+                          setOpen(false);
+                        }}
+                      >
+                        <span className="space-switcher__item-name">
+                          {s.name?.trim() || s.id}
+                        </span>
+                        <span className="space-switcher__role">
+                          {s.role === 'owner' ? 'Owner' : 'Member'}
+                        </span>
+                        {isActive && <CheckIcon />}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+          {canCreate && (
+            <Link
+              href="/spaces/new"
+              className={`space-switcher__create${spaces.length > 0 ? ' has-rule' : ''}`}
+              onClick={() => setOpen(false)}
+            >
+              <span className="space-switcher__plus" aria-hidden="true">+</span>
+              Create a Family Space
+            </Link>
+          )}
+        </div>
       )}
     </div>
   );
@@ -197,7 +232,9 @@ export default function AppNav({ user }: { user: AuthUser }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const wasOpen = useRef(false);
 
-  const inSpaces = pathname === '/spaces' || pathname.startsWith('/spaces/');
+  // The create wizard is a Family Space screen on row 1 ("Family Spaces"
+  // stays lit) but belongs to no Space yet, so row 2 isn't shown on it.
+  const inSpaces = (pathname === '/spaces' || pathname.startsWith('/spaces/')) && pathname !== '/spaces/new';
 
   const isActive = (l: NavLink) => {
     const base = l.match ?? l.href;
@@ -298,6 +335,7 @@ export default function AppNav({ user }: { user: AuthUser }) {
             aria-label="Open navigation"
             aria-expanded={drawer}
             aria-controls="app-drawer"
+            data-tour="menu"
             onClick={() => setDrawer(true)}
           >
             <MenuIcon />
@@ -315,14 +353,24 @@ export default function AppNav({ user }: { user: AuthUser }) {
                 href={l.href}
                 className={`topnav__link${isActive(l) ? ' is-active' : ''}`}
                 aria-current={isActive(l) ? 'page' : undefined}
+                data-tour={l.tour}
               >
                 {l.label}
               </Link>
             ))}
+            <span className="topnav__divider" aria-hidden="true" />
+            <Link
+              href={SPACES_LINK.href}
+              className={`topnav__link${isActive(SPACES_LINK) ? ' is-active' : ''}`}
+              aria-current={isActive(SPACES_LINK) ? 'page' : undefined}
+              data-tour={SPACES_LINK.tour}
+            >
+              {SPACES_LINK.label}
+            </Link>
           </nav>
 
           <div className="topnav__right">
-            <Link href="/create" className="topnav__create">Create a Kinloom</Link>
+            <Link href="/create" className="topnav__create" data-tour="create">Create a Kinloom</Link>
             <div className="topnav__account" ref={menuRef}>
               <button
                 type="button"
@@ -330,6 +378,7 @@ export default function AppNav({ user }: { user: AuthUser }) {
                 aria-haspopup="menu"
                 aria-expanded={menu}
                 aria-label="Account"
+                data-tour="account"
                 onClick={() => setMenu(o => !o)}
               >
                 <Avatar user={user} />
@@ -431,9 +480,16 @@ export default function AppNav({ user }: { user: AuthUser }) {
             </Link>
           ))}
 
+          <div className="app-drawer__rule" />
+          <Link
+            href={SPACES_LINK.href}
+            className={`app-drawer__link${isActive(SPACES_LINK) ? ' is-active' : ''}`}
+          >
+            {SPACES_LINK.label}
+          </Link>
+
           {inSpaces && (
             <>
-              <div className="app-drawer__rule" />
               <div className="app-drawer__scope">
                 <FamilySpaceSwitcher />
               </div>

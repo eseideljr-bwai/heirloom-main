@@ -16,6 +16,16 @@ export type HomeInvitation = Schemas['HomeInvitation'];
 export type HomeInvitationCreated = Schemas['HomeInvitationCreated'];
 export type HomeProfileBody = Schemas['HomeProfileRequest'];
 export type HomeMemberUpdateBody = Schemas['HomeMemberUpdateRequest'];
+export type Home = Schemas['Home'];
+export type HomeUpdateBody = Schemas['HomeUpdateRequest'];
+
+/** PATCH /family-homes/{id}: send only what changed. Answers with the Home as `GET` does. */
+export function updateHome(homeId: string, body: HomeUpdateBody): Promise<Home> {
+  return kinloomApi.patch('/family-homes/{familyHome}', {
+    path: { familyHome: homeId },
+    body,
+  });
+}
 
 /** POST /family-homes/{id}/invitations. `invite_token` is in this response only. */
 export function inviteToHome(
