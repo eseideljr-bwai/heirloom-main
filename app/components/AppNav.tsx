@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { useActiveFamilySpace } from '../../lib/active-family-space';
 import type { AuthUser } from '../../lib/auth';
+import type { TipAnchor } from '../../lib/get-started';
 import { useFeedback } from './feedback/FeedbackContext';
 import { FeedbackNavItem } from './feedback/FeedbackTrigger';
 // ─── Icons ────────────────────────────────────────────────────────────
@@ -60,14 +61,18 @@ type NavLink = {
    * clicked from is never the path they land on.
    */
   match?: string;
+  /** What a Get started tip points at (see lib/get-started). */
+  tour?: TipAnchor;
 };
 
 const HOME_NAV: NavLink[] = [
-  { href: '/home',        label: 'My Home', exact: true },
-  { href: '/spaces',      label: 'Family Spaces' },
-  { href: '/library',     label: 'Our Library' },
-  { href: '/home/manage', label: 'Manage Home' },
+  { href: '/home',        label: 'My Home', exact: true, tour: 'home' },
+  { href: '/library',     label: 'Our Library', tour: 'library' },
+  { href: '/home/manage', label: 'Manage Home', tour: 'manage' },
 ];
+
+/** Row 1's way into row 2, set off from the Home links by a divider. */
+const SPACES_LINK: NavLink = { href: '/spaces', label: 'Family Spaces', tour: 'spaces' };
 
 const ACCOUNT_NAV: NavLink[] = [
   { href: '/vault',          label: 'My Vault' },
@@ -330,6 +335,7 @@ export default function AppNav({ user }: { user: AuthUser }) {
             aria-label="Open navigation"
             aria-expanded={drawer}
             aria-controls="app-drawer"
+            data-tour="menu"
             onClick={() => setDrawer(true)}
           >
             <MenuIcon />
@@ -347,14 +353,24 @@ export default function AppNav({ user }: { user: AuthUser }) {
                 href={l.href}
                 className={`topnav__link${isActive(l) ? ' is-active' : ''}`}
                 aria-current={isActive(l) ? 'page' : undefined}
+                data-tour={l.tour}
               >
                 {l.label}
               </Link>
             ))}
+            <span className="topnav__divider" aria-hidden="true" />
+            <Link
+              href={SPACES_LINK.href}
+              className={`topnav__link${isActive(SPACES_LINK) ? ' is-active' : ''}`}
+              aria-current={isActive(SPACES_LINK) ? 'page' : undefined}
+              data-tour={SPACES_LINK.tour}
+            >
+              {SPACES_LINK.label}
+            </Link>
           </nav>
 
           <div className="topnav__right">
-            <Link href="/create" className="topnav__create">Create a Kinloom</Link>
+            <Link href="/create" className="topnav__create" data-tour="create">Create a Kinloom</Link>
             <div className="topnav__account" ref={menuRef}>
               <button
                 type="button"
@@ -362,6 +378,7 @@ export default function AppNav({ user }: { user: AuthUser }) {
                 aria-haspopup="menu"
                 aria-expanded={menu}
                 aria-label="Account"
+                data-tour="account"
                 onClick={() => setMenu(o => !o)}
               >
                 <Avatar user={user} />
@@ -463,9 +480,16 @@ export default function AppNav({ user }: { user: AuthUser }) {
             </Link>
           ))}
 
+          <div className="app-drawer__rule" />
+          <Link
+            href={SPACES_LINK.href}
+            className={`app-drawer__link${isActive(SPACES_LINK) ? ' is-active' : ''}`}
+          >
+            {SPACES_LINK.label}
+          </Link>
+
           {inSpaces && (
             <>
-              <div className="app-drawer__rule" />
               <div className="app-drawer__scope">
                 <FamilySpaceSwitcher />
               </div>
