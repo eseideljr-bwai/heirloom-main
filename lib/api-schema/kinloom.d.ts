@@ -3319,6 +3319,8 @@ export interface components {
              * @enum {string}
              */
             onboarding_state: "profile_pending" | "complete";
+            /** @description After S12: whether to show you the frontend's training wizard. `true` for a new account. The setting of the same name: turn it off (or on again) with `PATCH /me/settings`, then refetch or update your copy. */
+            training_wizard_active: boolean;
             /** @description CO-1 C2. The legacy contact you named, `pending` until someone signs in with that address, verified, then `linked`; or null when you have none. */
             legacy_contact: components["schemas"]["MeLegacyContact"] | null;
             /** @description CO-1 C2. The people who named you their legacy contact, once the link is active (you signed in with the address they gave, verified), by name (ignoring case, then by id). Usually empty. This is how a legacy contact finds `GET /legacy/{member}` and their memorialization request. No fixed cap. */
@@ -3846,6 +3848,8 @@ export interface components {
             notify_create_reminders: boolean;
             /** @description Default `true`. Stored only. */
             notify_legacy_bank_responses: boolean;
+            /** @description After S12. Default `true`: whether the frontend shows you its training wizard. Send `false` when the person finishes or dismisses it, `true` to show it again. `GET /me` carries the same value. */
+            training_wizard_active: boolean;
         };
         /**
          * SettingsChanges
@@ -3870,6 +3874,8 @@ export interface components {
             notify_create_reminders?: boolean;
             /** @description Default `true`. Stored only. */
             notify_legacy_bank_responses?: boolean;
+            /** @description After S12. Default `true`: whether the frontend shows you its training wizard. Send `false` when the person finishes or dismisses it, `true` to show it again. `GET /me` carries the same value. */
+            training_wizard_active?: boolean;
         };
         /** SpaceApproveRequest */
         SpaceApproveRequest: {
@@ -4448,6 +4454,7 @@ export interface operations {
                      *         }
                      *       ],
                      *       "onboarding_state": "complete",
+                     *       "training_wizard_active": true,
                      *       "legacy_contact": null,
                      *       "legacy_contact_for": [
                      *         {
@@ -5352,7 +5359,8 @@ export interface operations {
                      *       "notify_family_activity": true,
                      *       "notify_new_members": true,
                      *       "notify_create_reminders": true,
-                     *       "notify_legacy_bank_responses": true
+                     *       "notify_legacy_bank_responses": true,
+                     *       "training_wizard_active": true
                      *     }
                      */
                     "application/json": components["schemas"]["Settings"];
@@ -5487,7 +5495,8 @@ export interface operations {
                      *       "notify_family_activity": true,
                      *       "notify_new_members": true,
                      *       "notify_create_reminders": false,
-                     *       "notify_legacy_bank_responses": true
+                     *       "notify_legacy_bank_responses": true,
+                     *       "training_wizard_active": true
                      *     }
                      */
                     "application/json": components["schemas"]["Settings"];
@@ -5674,6 +5683,7 @@ export interface operations {
                      *         }
                      *       ],
                      *       "onboarding_state": "complete",
+                     *       "training_wizard_active": true,
                      *       "legacy_contact": null,
                      *       "legacy_contact_for": [
                      *         {
@@ -5875,6 +5885,7 @@ export interface operations {
                      *         }
                      *       ],
                      *       "onboarding_state": "complete",
+                     *       "training_wizard_active": true,
                      *       "legacy_contact": {
                      *         "email": "maria@seidel.kinloom.test",
                      *         "status": "pending"
@@ -6069,6 +6080,7 @@ export interface operations {
                      *         }
                      *       ],
                      *       "onboarding_state": "complete",
+                     *       "training_wizard_active": true,
                      *       "legacy_contact": null,
                      *       "legacy_contact_for": [],
                      *       "memorialization_pending": null,
