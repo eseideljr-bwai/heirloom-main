@@ -17,23 +17,6 @@ import { ApiError } from '../../../../lib/api';
 const POLL_INTERVAL_MS = 2500;
 const MAX_POLLS = 60; // ~150s
 
-<<<<<<< HEAD
-type Job = {
-  exportId: string;
-  format: ExportFormat;
-  status: ExportStatus;
-  error?: string | null;
-  /** Polling gave up before the job finished; the API emails a link instead. */
-  timedOut?: boolean;
-};
-
-export default function ExportClient() {
-  const { activeSpaceId } = useActiveFamilySpace();
-  const [job, setJob] = useState<Job | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-=======
 const FORMATS: { format: ExportFormat; title: string; text: string; primary?: boolean }[] = [
   {
     format: 'json',
@@ -107,7 +90,6 @@ export default function ExportClient() {
     void tick();
   }, [stop]);
 
->>>>>>> 6a93207d32d0d7a79549fcf5b506a44ac4105680
   useEffect(() => {
     alive.current = true;
     const remembered = recallExport();
