@@ -5,6 +5,7 @@ import { formatKinloomDate, isVideoMedia, type PersonOrNameOnly } from '../../..
 import type { components } from '../../../lib/api-schema/typed';
 import { orNull } from '../../../lib/server/safe';
 import DataNotice from '../../components/DataNotice';
+import GetStarted from '../../components/GetStarted';
 import HomeVoicePlayer from './HomeVoicePlayer';
 
 export const dynamic = 'force-dynamic';
@@ -101,8 +102,16 @@ export default async function HomePage() {
 
   const triptychCount = (quote ? 1 : 0) + (voice ? 1 : 0);
 
+  // Nothing published here yet: the hero becomes an invitation to write the
+  // first kinloom rather than a home name over an empty page.
+  const isEmpty = home !== null && kinloomTotal === 0 && !hero;
+
   return (
     <div className="home-page">
+
+      <div className="home-gs">
+        <GetStarted />
+      </div>
 
       {home === null && (
         <section className="home-section">
@@ -111,11 +120,24 @@ export default async function HomePage() {
       )}
 
       {/* ── Hero ─────────────────────────────────────────────────── */}
-      <section className={`home-hero${hero ? '' : ' home-hero--solo'}`}>
+      <section className={`home-hero${hero || isEmpty ? '' : ' home-hero--solo'}`}>
         <div>
           <p className="eyebrow">Your Family Home</p>
-          <h1 className="home-hero__title">{homeName}</h1>
-          {home?.motto && <p className="home-hero__moral">{home.motto}</p>}
+          {isEmpty ? (
+            <>
+              <h1 className="home-hero__title">A home, ready for its first story.</h1>
+              <p className="home-hero__moral">
+                This is where the people under your roof keep what matters most. Nothing is
+                here yet — the first kinloom is yours to write.
+              </p>
+            </>
+          ) : (
+            <>
+              <h1 className="home-hero__title">{homeName}</h1>
+              {home?.motto && <p className="home-hero__moral">{home.motto}</p>}
+              {home?.description && <p className="home-hero__about">{home.description}</p>}
+            </>
+          )}
 
           {home && (
             <div className="home-stats">
@@ -136,6 +158,18 @@ export default async function HomePage() {
             </div>
           )}
         </div>
+
+        {isEmpty && (
+          <div className="home-first">
+            <p className="home-section__label">Nothing here yet</p>
+            <h2 className="home-first__title">Your first kinloom will open this page.</h2>
+            <p className="home-first__text">
+              A photograph, a short film, a story — whatever you publish to your home first is
+              what everyone here sees when they arrive.
+            </p>
+            <Link href="/create?from=home" className="btn btn-primary home-first__cta">Create a kinloom</Link>
+          </div>
+        )}
 
         {hero && (
           <Link href={cardHref(hero.id, homeId)} className="home-hero__media home-hero__media--link">
@@ -262,26 +296,29 @@ export default async function HomePage() {
       )}
 
       {/* ── Closing band ─────────────────────────────────────────── */}
-      <section className="home-band">
-        <div className="home-band__inner">
-        <div>
-          <p className="home-band__eyebrow">Add to your family’s story</p>
-          <h2 className="home-band__head">
-            {kinloomTotal > 0 ? `${plural(kinloomTotal, 'kinloom', 'kinlooms')}. ` : ''}Yours would be the next.
-          </h2>
-          <p className="home-band__sub">Every one you add makes the portrait of this home a little more complete.</p>
-          <Link href="/create?from=home" className="home-band__cta">Create a kinloom</Link>
-        </div>
-        <div>
-          <div className="home-band__strip">
-            <Link href="/create?from=home" className="home-band__tile home-band__tile--add" aria-label="Create a kinloom">+</Link>
+      {/* The empty hero already asks for the first kinloom. */}
+      {!isEmpty && (
+        <section className="home-band">
+          <div className="home-band__inner">
+          <div>
+            <p className="home-band__eyebrow">Add to your family’s story</p>
+            <h2 className="home-band__head">
+              {kinloomTotal > 0 ? `${plural(kinloomTotal, 'kinloom', 'kinlooms')}. ` : ''}Yours would be the next.
+            </h2>
+            <p className="home-band__sub">Every one you add makes the portrait of this home a little more complete.</p>
+            <Link href="/create?from=home" className="home-band__cta">Create a kinloom</Link>
           </div>
-          {countParts.length > 0 && (
-            <p className="home-band__note">{countParts.join(', ')} in this home.</p>
-          )}
-        </div>
-        </div>
-      </section>
+          <div>
+            <div className="home-band__strip">
+              <Link href="/create?from=home" className="home-band__tile home-band__tile--add" aria-label="Create a kinloom">+</Link>
+            </div>
+            {countParts.length > 0 && (
+              <p className="home-band__note">{countParts.join(', ')} in this home.</p>
+            )}
+          </div>
+          </div>
+        </section>
+      )}
 
     </div>
   );

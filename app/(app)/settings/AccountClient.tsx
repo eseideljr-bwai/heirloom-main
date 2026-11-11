@@ -9,12 +9,14 @@ import { ApiError } from '../../../lib/api';
 import { errorText, patchProfile, type Profile, type ProfileChanges } from '../../../lib/settings';
 import { revalidateAllData } from '../../actions';
 import UpgradeToFamily from '../../components/UpgradeToFamily';
+import { useGetStarted } from '../../../lib/get-started';
 
 const PLAN_LABEL: Record<string, string> = { free: 'Free', home: 'Home', family: 'Family' };
 
 export default function AccountClient({ initial, plan }: { initial: Profile; plan: string }) {
-  const { refresh, logout } = useAuth();
+  const { user, refresh, logout } = useAuth();
   const router = useRouter();
+  const gs = useGetStarted(user?.person_id ?? '');
 
   // Profile form: `saved` is what the API last returned, so the Save button
   // only lights up for a real change and only changed fields are sent.
@@ -184,6 +186,24 @@ export default function AccountClient({ initial, plan }: { initial: Profile; pla
             </div>
           )}
         </div>
+
+        {/* ─── Get started ──────────────────────────── */}
+        {user && gs.ready && (
+          <div className="card">
+            <h2 className="settings-h2 settings-h2--tight">Get started</h2>
+            <label className="settings-check">
+              <input
+                type="checkbox"
+                checked={gs.complete}
+                onChange={e => gs.setComplete(e.target.checked)}
+              />
+              <span>
+                <span className="settings-check__label">Onboarding complete.</span>{' '}
+                Uncheck if you want to go through training again.
+              </span>
+            </label>
+          </div>
+        )}
 
         {/* ─── Password ─────────────────────────────── */}
         <div className="card">
