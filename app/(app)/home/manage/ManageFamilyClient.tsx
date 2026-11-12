@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -21,6 +21,8 @@ import { useAuth } from '../../../../lib/auth-context';
 import { firebaseAuth } from '../../../../lib/firebase-client';
 import { syncSessionRefresh } from '../../../../lib/auth';
 import { revalidateFamilyData } from '../../../actions';
+import { removeMemberAvatar, setMemberAvatar } from '../../../../lib/avatar';
+import { useAvatarPicker } from '../../../components/useAvatarPicker';
 
 type Gender = 'f' | 'm' | 'n';
 
@@ -94,6 +96,16 @@ export default function ManageFamilyClient({ homeId, manage }: Props) {
     router.refresh();
   };
 
+  // A photo just set or removed shows from the API's answer at once; the
+  // refetched page replaces it.
+  const [photos, setPhotos] = useState<Record<string, string | null>>({});
+  useEffect(() => setPhotos({}), [manage]);
+  const photoOf = (m: HomeMember) => (m.id in photos ? photos[m.id] : m.avatar_url);
+  const setPhoto = (id: string, url: string | null) => {
+    setPhotos(p => ({ ...p, [id]: url }));
+    void refresh();
+  };
+
   const canAdd = viewer.can_add_profile;
   const canInvite = viewer.can_invite;
 
@@ -120,13 +132,12 @@ export default function ManageFamilyClient({ homeId, manage }: Props) {
 
         {people.map(m => (
           <div key={m.id} className="mg-row">
-            <span
-              className="mg-row__avatar"
-              style={{ background: `${m.tone || '#a39376'}28`, color: m.tone || '#556b5b' }}
-              aria-hidden="true"
-            >
-              {m.initials || m.name?.charAt(0) || '?'}
-            </span>
+            <MemberAvatar
+              homeId={homeId}
+              member={m}
+              url={photoOf(m)}
+              onChange={url => setPhoto(m.id, url)}
+            />
             <div className="mg-row__body">
               <p className="mg-row__name">{m.name}{m.is_you ? ' · You' : ''}</p>
               <p className="mg-row__sub">
@@ -205,6 +216,8 @@ export default function ManageFamilyClient({ homeId, manage }: Props) {
           mode="edit"
           homeId={homeId}
           member={modal.member}
+          photo={photoOf(people.find(p => p.id === modal.member.id) ?? modal.member)}
+          onPhotoChange={url => setPhoto(modal.member.id, url)}
           onClose={close}
           onDone={async () => { close(); await refresh(); }}
         />
@@ -271,6 +284,117 @@ export default function ManageFamilyClient({ homeId, manage }: Props) {
         />
       )}
     </>
+  );
+}
+
+// ─── Photos ─────────────────────────────────────────────────────────
+
+function AvatarFace({ member, url }: { member: HomeMember; url: string | null }) {
+  return url
+    ? <img className="mg-row__avatar-img" src={url} alt="" />
+    : <>{member.initials || member.name?.charAt(0) || '?'}</>;
+}
+
+/**
+ * The row's avatar. Where the API allows it (`can_set_avatar`: a family
+ * profile, for the owner or co-owner) it is also the button that adds or
+ * changes their photo, in one click. Removing is in Edit.
+ */
+function MemberAvatar({
+  homeId,
+  member,
+  url,
+  onChange,
+}: {
+  homeId: string;
+  member: HomeMember;
+  url: string | null;
+  onChange: (url: string | null) => void;
+}) {
+  const picker = useAvatarPicker({
+    onUpload: async file => onChange((await setMemberAvatar(homeId, member.id, file)).avatar_url),
+  });
+  const style = { background: `${member.tone || '#a39376'}28`, color: member.tone || '#556b5b' };
+
+  // The bubble floats over the next row, so it doesn't stay.
+  const { error, clearError } = picker;
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(clearError, 6000);
+    return () => clearTimeout(t);
+  }, [error, clearError]);
+
+  if (!member.can_set_avatar) {
+    return (
+      <span className="mg-row__avatar" style={style} aria-hidden="true">
+        <AvatarFace member={member} url={url} />
+      </span>
+    );
+  }
+
+  return (
+    <span className="mg-avatar">
+      {picker.input}
+      <button
+        type="button"
+        className={`mg-row__avatar mg-row__avatar--edit${picker.busy ? ' is-busy' : ''}`}
+        style={style}
+        onClick={picker.open}
+        disabled={!!picker.busy}
+        aria-label={url ? `Change ${member.name}’s photo` : `Add a photo of ${member.name}`}
+        title={url ? 'Change photo' : 'Add a photo'}
+      >
+        <AvatarFace member={member} url={url} />
+        <span className="mg-row__avatar-badge" aria-hidden="true">+</span>
+      </button>
+      {picker.error && <span className="mg-avatar__error" role="alert">{picker.error}</span>}
+    </span>
+  );
+}
+
+/** Edit's photo field for a family profile: takes effect at once, not on Save. */
+function PhotoField({
+  homeId,
+  member,
+  url,
+  onChange,
+  disabled,
+}: {
+  homeId: string;
+  member: HomeMember;
+  url: string | null;
+  onChange: (url: string | null) => void;
+  disabled: boolean;
+}) {
+  const picker = useAvatarPicker({
+    onUpload: async file => onChange((await setMemberAvatar(homeId, member.id, file)).avatar_url),
+    onRemove: async () => onChange((await removeMemberAvatar(homeId, member.id)).avatar_url),
+  });
+  const off = disabled || !!picker.busy;
+
+  return (
+    <div>
+      <p className="field-label">Photo</p>
+      <div className="mg-photo">
+        <span
+          className="mg-row__avatar mg-photo__face"
+          style={{ background: `${member.tone || '#a39376'}28`, color: member.tone || '#556b5b' }}
+          aria-hidden="true"
+        >
+          <AvatarFace member={member} url={url} />
+        </span>
+        {picker.input}
+        <button type="button" className="mg-btn" onClick={picker.open} disabled={off}>
+          {picker.busy === 'upload' ? 'Uploading…' : url ? 'Change photo' : 'Add a photo'}
+        </button>
+        {url && picker.remove && (
+          <button type="button" className="mg-btn mg-btn--danger" onClick={picker.remove} disabled={off}>
+            {picker.busy === 'remove' ? 'Removing…' : 'Remove photo'}
+          </button>
+        )}
+      </div>
+      {picker.error && <p className="form-status form-status--error" role="alert">{picker.error}</p>}
+    </div>
   );
 }
 
@@ -583,12 +707,16 @@ function ProfileModal({
   mode,
   homeId,
   member,
+  photo = null,
+  onPhotoChange,
   onClose,
   onDone,
 }: {
   mode: 'add' | 'edit';
   homeId: string;
   member?: HomeMember;
+  photo?: string | null;
+  onPhotoChange?: (url: string | null) => void;
   onClose: () => void;
   onDone: () => Promise<void>;
 }) {
@@ -657,6 +785,15 @@ function ProfileModal({
         </p>
 
         <div className="settings-fields">
+          {member?.can_set_avatar && onPhotoChange && (
+            <PhotoField
+              homeId={homeId}
+              member={member}
+              url={photo}
+              onChange={onPhotoChange}
+              disabled={submitting}
+            />
+          )}
           {!labelOnly && (
             <div>
               <label className="field-label" htmlFor="m-name">Name</label>
