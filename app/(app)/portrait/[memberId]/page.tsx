@@ -9,6 +9,7 @@ import { parsePageParam } from '../../../../lib/pagination';
 import type { components } from '../../../../lib/api-schema/typed';
 import Pagination from '../../../components/Pagination';
 import MemorializationNotice from '../MemorializationNotice';
+import PortraitPhoto from '../PortraitPhoto';
 
 export const dynamic = 'force-dynamic';
 
@@ -113,9 +114,9 @@ export default async function PortraitPage({
       )}
 
       <section className="portrait-head">
-        <div className="portrait__frame">
+        <PortraitPhoto name={person.name} avatarUrl={person.avatar_url} editable={isMe}>
           <PortraitFace member={person} />
-        </div>
+        </PortraitPhoto>
 
         <div>
           <div className="portrait__eyebrow-row">

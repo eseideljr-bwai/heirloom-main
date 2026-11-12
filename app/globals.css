@@ -8034,3 +8034,51 @@ img.portrait-kin__img { object-fit: cover; }
 }
 .home-first__text { font-size: 15px; line-height: 1.6; color: var(--fg-3); margin: 0 0 22px; max-width: 46ch; }
 .home-first__cta { align-self: flex-start; padding: 9px 18px; font-size: 13px; }
+
+/* ─── Avatars: the portrait photo and Manage Family's row photos ─── */
+.portrait__photo { width: 100%; aspect-ratio: 4 / 5; object-fit: cover; display: block; }
+.portrait__frame.is-busy,
+.mg-row__avatar.is-busy { opacity: 0.6; }
+.portrait-photo__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.portrait-photo__actions .form-status { flex-basis: 100%; margin: 0; }
+
+.mg-row__avatar { overflow: hidden; }
+.mg-row__avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mg-avatar { position: relative; flex: 0 0 auto; }
+.mg-row__avatar--edit { position: relative; overflow: visible; padding: 0; font-family: inherit; cursor: pointer; }
+.mg-row__avatar--edit .mg-row__avatar-img { border-radius: var(--radius-full); }
+.mg-row__avatar--edit:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.mg-row__avatar--edit:disabled { cursor: wait; }
+.mg-row__avatar-badge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: 11px;
+  line-height: 1;
+  border: 1.5px solid var(--card);
+}
+.mg-avatar__error {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  width: max-content;
+  max-width: 240px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--card);
+  border: 1px solid rgba(212,24,61,0.30);
+  color: var(--destructive);
+  font-size: 12px;
+  box-shadow: var(--shadow-2xl);
+}
+.mg-photo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.mg-photo__face { width: 48px; height: 48px; font-size: 16px; }
