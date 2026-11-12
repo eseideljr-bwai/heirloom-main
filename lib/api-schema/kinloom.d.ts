@@ -123,7 +123,7 @@ export interface paths {
         };
         /**
          * Get your settings
-         * @description Every account-level setting, as one flat object of nine keys (contract §3.3). Each key is stored and in effect (`legacy_bank_voice` with CO-1 C4, the `posthumous_*` keys with CO-1 C3). The `notify_*` keys are stored only. An account with no settings saved yet reads the defaults. Example: `docs/phase-3/examples/settings.json` (golden), every key at its default.
+         * @description Every account-level setting, as one object of ten keys (contract §3.3): nine flat ones and, after S12, `training_wizard` (`{active, steps}`). Each key is stored and in effect (`legacy_bank_voice` with CO-1 C4, the `posthumous_*` keys with CO-1 C3). The `notify_*` keys are stored only. An account with no settings saved yet reads the defaults. Example: `docs/phase-3/examples/settings.json` (golden), every key at its default.
          *
          *     Settings are account-level: the old `?family_space_id=` is gone.
          */
@@ -135,11 +135,12 @@ export interface paths {
         head?: never;
         /**
          * Change your settings
-         * @description Changes any subset of the settings and answers with all nine keys, as they are after the change (contract §3.3).
+         * @description Changes any subset of the settings and answers with all ten keys, as they are after the change (contract §3.3).
          *
          *     - A key you leave out keeps its value; `{}` (or `[]`) changes nothing.
          *     - The enum keys take only their listed values; the booleans take only JSON `true` or `false`, so `1`, `"true"` and `"false"` get 422; a key you send can't be null.
          *     - **A key that isn't a setting gets 422** ("The {key} field is not a setting."), so a typo never looks like a saved change. A `_method` in the body (a `POST` routed as this `PATCH`) isn't one. The query string is ignored, as on every write (contract §2.5): a leftover `?family_space_id=` changes nothing.
+         *     - **`training_wizard`** (after S12) is an object: `active` replaces the stored value; `steps` is **merged** into the stored steps (a step sent is set, a step left out is kept, a step sent as `null` is removed). For example `{"training_wizard": {"steps": {"home": true}}}` as the person finishes the Home step, `{"training_wizard": {"active": false}}` when they finish or dismiss the wizard. More than 100 steps after the merge is 422. The flat `training_wizard_active` of 2026-11-11 is gone: sending it is 422, naming `training_wizard.active` (`TrainingWizardChanges`).
          *     - An invalid request saves nothing.
          */
         patch: operations["me.settings.update"];
@@ -3319,8 +3320,8 @@ export interface components {
              * @enum {string}
              */
             onboarding_state: "profile_pending" | "complete";
-            /** @description After S12: whether to show you the frontend's training wizard. `true` for a new account. The setting of the same name: turn it off (or on again) with `PATCH /me/settings`, then refetch or update your copy. */
-            training_wizard_active: boolean;
+            /** @description After S12: the training wizard setting, as in `GET /me/settings`: whether to show the wizard, and the steps already done, so the app knows at sign-in. Change it with `PATCH /me/settings`. */
+            training_wizard: components["schemas"]["TrainingWizard"];
             /** @description CO-1 C2. The legacy contact you named, `pending` until someone signs in with that address, verified, then `linked`; or null when you have none. */
             legacy_contact: components["schemas"]["MeLegacyContact"] | null;
             /** @description CO-1 C2. The people who named you their legacy contact, once the link is active (you signed in with the address they gave, verified), by name (ignoring case, then by id). Usually empty. This is how a legacy contact finds `GET /legacy/{member}` and their memorialization request. No fixed cap. */
@@ -3848,8 +3849,8 @@ export interface components {
             notify_create_reminders: boolean;
             /** @description Default `true`. Stored only. */
             notify_legacy_bank_responses: boolean;
-            /** @description After S12. Default `true`: whether the frontend shows you its training wizard. Send `false` when the person finishes or dismisses it, `true` to show it again. `GET /me` carries the same value. */
-            training_wizard_active: boolean;
+            /** @description After S12. Default `{"active": true, "steps": {}}`. `GET /me` carries the same value. */
+            training_wizard: components["schemas"]["TrainingWizard"];
         };
         /**
          * SettingsChanges
@@ -3874,8 +3875,8 @@ export interface components {
             notify_create_reminders?: boolean;
             /** @description Default `true`. Stored only. */
             notify_legacy_bank_responses?: boolean;
-            /** @description After S12. Default `true`: whether the frontend shows you its training wizard. Send `false` when the person finishes or dismisses it, `true` to show it again. `GET /me` carries the same value. */
-            training_wizard_active?: boolean;
+            /** @description After S12: `{"active": false}` when the wizard is finished or dismissed; `{"steps": {"home": true}}` as the person goes through it. `steps` is merged; `null` removes a step. The flat `training_wizard_active` of 2026-11-11 is gone: sending it is 422, naming this key. */
+            training_wizard?: components["schemas"]["TrainingWizardChanges"];
         };
         /** SpaceApproveRequest */
         SpaceApproveRequest: {
@@ -4271,6 +4272,34 @@ export interface components {
          */
         Timestamp: string;
         /**
+         * TrainingWizard
+         * @description After S12: the training wizard setting (contract §3.3). `active`: whether to show the wizard (`true` for a new account). `steps`: the steps the person has been through, step name → `true`/`false`, `{}` to start, in name order. The step names are the frontend's own: the API stores any name of the right shape, so steps can be added or retired without an API change. On `GET /me` and in `GET`/`PATCH /me/settings`; it follows the account across devices and browsers.
+         */
+        TrainingWizard: {
+            /** @description Whether to show the training wizard. `true` for a new account; set `false` when the person finishes or dismisses it, `true` to replay it. */
+            active: boolean;
+            steps: components["schemas"]["TrainingWizardSteps"];
+        };
+        /**
+         * TrainingWizardChanges
+         * @description After S12. Either key, or both. `active` replaces the stored value. `steps` is **merged** into the stored steps (JSON Merge Patch, RFC 7396): a step you send is set, a step you leave out is kept, and a step sent as `null` is removed. So two devices marking different steps never undo each other's, and `{"steps": {}}` changes nothing. More than 100 steps after the merge is 422 on `training_wizard.steps`, and nothing changes. 422 too for anything but an object here, an unknown key, a non-boolean `active`, a step name of the wrong shape, or a step value that isn't `true`, `false` or `null`.
+         */
+        TrainingWizardChanges: {
+            /** @description `false` when the person finishes or dismisses the wizard; `true` to show it again. */
+            active?: boolean;
+            /** @description Step name → `true`, `false`, or `null` to remove the step. Merged into the stored steps. */
+            steps?: {
+                [key: string]: boolean | null;
+            };
+        };
+        /**
+         * TrainingWizardSteps
+         * @description Step name → `true` (done) or `false` (not done). Always an object, `{}` when empty. At most 100 steps.
+         */
+        TrainingWizardSteps: {
+            [key: string]: boolean;
+        };
+        /**
          * UpgradeBy
          * @description `self`: you can upgrade (`POST /me/plan`) and retry. `home_owner`: only the Home owner's upgrade helps, so show a message instead of an upgrade button (contract §6.6).
          * @enum {string}
@@ -4454,7 +4483,10 @@ export interface operations {
                      *         }
                      *       ],
                      *       "onboarding_state": "complete",
-                     *       "training_wizard_active": true,
+                     *       "training_wizard": {
+                     *         "active": true,
+                     *         "steps": []
+                     *       },
                      *       "legacy_contact": null,
                      *       "legacy_contact_for": [
                      *         {
@@ -5360,7 +5392,10 @@ export interface operations {
                      *       "notify_new_members": true,
                      *       "notify_create_reminders": true,
                      *       "notify_legacy_bank_responses": true,
-                     *       "training_wizard_active": true
+                     *       "training_wizard": {
+                     *         "active": true,
+                     *         "steps": []
+                     *       }
                      *     }
                      */
                     "application/json": components["schemas"]["Settings"];
@@ -5496,7 +5531,10 @@ export interface operations {
                      *       "notify_new_members": true,
                      *       "notify_create_reminders": false,
                      *       "notify_legacy_bank_responses": true,
-                     *       "training_wizard_active": true
+                     *       "training_wizard": {
+                     *         "active": true,
+                     *         "steps": []
+                     *       }
                      *     }
                      */
                     "application/json": components["schemas"]["Settings"];
@@ -5683,7 +5721,10 @@ export interface operations {
                      *         }
                      *       ],
                      *       "onboarding_state": "complete",
-                     *       "training_wizard_active": true,
+                     *       "training_wizard": {
+                     *         "active": true,
+                     *         "steps": []
+                     *       },
                      *       "legacy_contact": null,
                      *       "legacy_contact_for": [
                      *         {
@@ -5885,7 +5926,10 @@ export interface operations {
                      *         }
                      *       ],
                      *       "onboarding_state": "complete",
-                     *       "training_wizard_active": true,
+                     *       "training_wizard": {
+                     *         "active": true,
+                     *         "steps": []
+                     *       },
                      *       "legacy_contact": {
                      *         "email": "maria@seidel.kinloom.test",
                      *         "status": "pending"
@@ -6080,7 +6124,10 @@ export interface operations {
                      *         }
                      *       ],
                      *       "onboarding_state": "complete",
-                     *       "training_wizard_active": true,
+                     *       "training_wizard": {
+                     *         "active": true,
+                     *         "steps": []
+                     *       },
                      *       "legacy_contact": null,
                      *       "legacy_contact_for": [],
                      *       "memorialization_pending": null,

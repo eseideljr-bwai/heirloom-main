@@ -25,7 +25,7 @@ function headline(left: number, total: number) {
  */
 export default function GetStarted() {
   const { user } = useAuth();
-  const gs = useGetStarted(user?.person_id ?? '');
+  const gs = useGetStarted(user);
 
   if (!user || !gs.ready || gs.hidden) return null;
   const total = GET_STARTED_STEPS.length;
@@ -57,6 +57,7 @@ export default function GetStarted() {
           <input type="checkbox" checked={gs.hidden} onChange={e => gs.setHidden(e.target.checked)} />
           Don’t show again
         </label>
+        <p className="gs__hide-note">Bring it back anytime in Settings → Account.</p>
       </div>
 
       <ol className="gs__steps">
