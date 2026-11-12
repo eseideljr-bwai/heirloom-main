@@ -130,7 +130,9 @@ export default async function KinloomDetailPage({
         {audio.map(a => (
           <AudioPlayer
             key={a.id}
+            mediaId={a.id}
             src={a.url}
+            expiresAt={a.expires_at}
             title={`${authorFirst}\u2019s voice`}
             transcript={a.transcript_text}
             fallbackDurationSeconds={a.duration_seconds}
