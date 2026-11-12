@@ -4,27 +4,30 @@
  * Get started on Kinloom: eight steps, each opening the page it describes
  * with a short tip anchored to where that page lives in the navigation.
  *
- * Nothing on the API records this yet, so progress is kept in this browser,
- * per person:
+ * Progress lives on the account, so it follows the person across devices:
  *
- *   localStorage   which steps are checked off (by step key, so reordering
- *                  the steps never scrambles them), and "Don't show again"
- *   sessionStorage the step the person is walking through from the
- *                  checklist or Previous/Next
+ *   training_wizard.active  false once "Don't show again" is checked
+ *                           (GET /me, PATCH /me/settings)
+ *   training_wizard.steps   step key → true when checked off; PATCH merges
+ *                           it, so each change sends only its own step
+ *   sessionStorage          the step the person is walking through from the
+ *                           checklist or Previous/Next, in this tab only
  *
- * A tip shows on its step's page until that step is checked off, here or in
- * the tip's Done box: the two are the same state. × closes it on the page
- * you are on and nothing more: it is back the next time you open that page
- * (GetStartedTip keeps that, not storage). "Don't show again" hides the
- * checklist and every tip. Settings → Account shows the same flag as
- * "Onboarding complete".
- *
- * TODO: the API is getting its own field for this (not `onboarding_state`,
- * which only tracks the sign-up profile step). Move `done` and `hidden`
- * there once it lands so they follow the person across devices.
+ * A tip shows on its step's page until that step is checked off, in the
+ * checklist or in the tip's Done box: the two are the same state, and a
+ * checked-off step is struck through in the checklist. × closes a tip on the
+ * page you are on and nothing more (GetStartedTip keeps that). "Don't show
+ * again" hides the checklist and every tip; Settings → Account shows the
+ * same value as "Onboarding complete", and unchecking it there starts over.
  */
 
 import { useCallback, useSyncExternalStore } from 'react';
+import type { AuthUser } from './auth';
+import { patchSettings } from './settings';
+import type { components } from './api-schema/typed';
+
+type TrainingWizard = components['schemas']['TrainingWizard'];
+type TrainingWizardChanges = components['schemas']['TrainingWizardChanges'];
 
 export type TipAnchor = 'create' | 'account' | 'home' | 'library' | 'manage' | 'spaces';
 
@@ -140,62 +143,55 @@ const STEPS: Omit<GetStartedStep, 'n'>[] = [
 
 export const GET_STARTED_STEPS: GetStartedStep[] = STEPS.map((s, i) => ({ ...s, n: i + 1 }));
 
-type Progress = { done: StepKey[]; hidden: boolean };
+type Wizard = { active: boolean; steps: Partial<Record<string, boolean>> };
 type Session = { walking: StepKey | null };
 
-const EMPTY_PROGRESS: Progress = { done: [], hidden: false };
+const NEW_WIZARD: Wizard = { active: true, steps: {} };
 const EMPTY_SESSION: Session = { walking: null };
-
-const progressKey = (personId: string) => `kinloom-get-started-v2:${personId}`;
 const SESSION_KEY = 'kinloom-get-started-session-v2';
 
 /**
- * v1 saved steps by number, in the old order (Home was step 5, "Review your
- * Family Home"). Carried over once, then v1 is removed.
+ * The API answers `steps: {}`, but PHP can encode an empty map as `[]`, and
+ * an account from before the field existed has no `training_wizard` at all.
+ * Both read as a new wizard.
  */
-const LEGACY_PROGRESS_KEY = (personId: string) => `kinloom-get-started-v1:${personId}`;
-const V1_ORDER: StepKey[] = ['create', 'vault', 'portrait', 'bank', 'home', 'library', 'manage', 'spaces'];
-
-function migrateV1(personId: string) {
-  try {
-    const store = window.localStorage;
-    const old = store.getItem(LEGACY_PROGRESS_KEY(personId));
-    if (old === null) return;
-    store.removeItem(LEGACY_PROGRESS_KEY(personId));
-    if (store.getItem(progressKey(personId)) !== null) return;
-    const v1 = JSON.parse(old) as { done?: number[]; hidden?: boolean };
-    const done = (v1.done ?? []).map(n => V1_ORDER[n - 1]).filter(Boolean);
-    store.setItem(progressKey(personId), JSON.stringify({ done, hidden: v1.hidden === true }));
-  } catch { /* blocked or corrupt storage: start over */ }
+function normalize(w: TrainingWizard | null | undefined): Wizard {
+  if (!w) return NEW_WIZARD;
+  const steps = w.steps && typeof w.steps === 'object' && !Array.isArray(w.steps) ? w.steps : {};
+  return { active: w.active !== false, steps };
 }
 
-// useSyncExternalStore needs a stable snapshot, so parsed values are cached
-// against the raw string they came from.
-const cache = new Map<string, { raw: string | null; value: unknown }>();
+// ─── The wizard, from the API ──────────────────────────────────────────────
+//
+// `base` is the `training_wizard` the auth user carried when this browser
+// last changed something. While the auth user still carries that same
+// object, what we changed since wins; once the user is refetched (a newer
+// object), the server's copy wins, since it already includes our changes.
 
-function read<T>(storage: () => Storage, key: string, fallback: T): T {
-  let raw: string | null = null;
-  try { raw = storage().getItem(key); } catch { /* blocked storage */ }
-  const hit = cache.get(key);
-  if (hit && hit.raw === raw) return hit.value as T;
-  let value = fallback;
-  if (raw) {
-    try { value = { ...fallback, ...JSON.parse(raw) }; } catch { /* corrupt: start over */ }
-  }
-  cache.set(key, { raw, value });
-  return value;
+let mine: { personId: string; base: TrainingWizard | undefined; value: Wizard; confirmed: Wizard } | null = null;
+/** Bumped by every change, so only the newest answer is applied. */
+let seq = 0;
+const normalized = new WeakMap<object, Wizard>();
+
+function fromUser(user: AuthUser): Wizard {
+  const w = user.training_wizard;
+  if (!w) return NEW_WIZARD;
+  let v = normalized.get(w);
+  if (!v) { v = normalize(w); normalized.set(w, v); }
+  return v;
+}
+
+function current(user: AuthUser): Wizard {
+  if (mine && mine.personId === user.person_id && mine.base === user.training_wizard) return mine.value;
+  return fromUser(user);
 }
 
 const listeners = new Set<() => void>();
-
-function write(storage: () => Storage, key: string, value: unknown) {
-  try { storage().setItem(key, JSON.stringify(value)); } catch { /* blocked storage: lasts this render only */ }
-  listeners.forEach(l => l());
-}
+const notify = () => listeners.forEach(l => l());
 
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  // Another tab checking a step off.
+  // Another tab walking the steps.
   window.addEventListener('storage', listener);
   return () => {
     listeners.delete(listener);
@@ -203,61 +199,108 @@ function subscribe(listener: () => void) {
   };
 }
 
-const local = () => window.localStorage;
-const session = () => window.sessionStorage;
+/**
+ * Shows `next` at once and sends `changes`. The server's answer replaces it,
+ * unless a newer change is already on its way; a failure goes back to what
+ * the server last confirmed.
+ */
+async function change(user: AuthUser, next: Wizard, changes: TrainingWizardChanges) {
+  const confirmed = mine && mine.personId === user.person_id && mine.base === user.training_wizard
+    ? mine.confirmed
+    : fromUser(user);
+  const base = user.training_wizard;
+  mine = { personId: user.person_id, base, value: next, confirmed };
+  notify();
+
+  const id = ++seq;
+  try {
+    const saved = await patchSettings({ training_wizard: changes });
+    const value = normalize(saved.training_wizard);
+    if (mine?.base !== base) return; // the user was refetched meanwhile
+    mine = { ...mine, confirmed: value, value: id === seq ? value : mine.value };
+  } catch (err) {
+    console.error('Saving Get started progress failed', err);
+    if (mine?.base !== base || id !== seq) return;
+    mine = { ...mine, value: mine.confirmed };
+  }
+  notify();
+}
+
+// ─── The walk, in this tab only ────────────────────────────────────────────
+
+let sessionCache: { raw: string | null; value: Session } | null = null;
+
+function readSession(): Session {
+  let raw: string | null = null;
+  try { raw = window.sessionStorage.getItem(SESSION_KEY); } catch { /* blocked storage */ }
+  if (sessionCache && sessionCache.raw === raw) return sessionCache.value;
+  let value = EMPTY_SESSION;
+  if (raw) {
+    try { value = { ...EMPTY_SESSION, ...JSON.parse(raw) }; } catch { /* corrupt: start over */ }
+  }
+  sessionCache = { raw, value };
+  return value;
+}
+
+function writeSession(value: Session) {
+  try { window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(value)); } catch { /* blocked storage */ }
+  notify();
+}
+
+const noWizard = () => NEW_WIZARD;
 
 /**
- * Progress through the steps. `ready` is false on the server and the first
- * client render, when storage cannot be read: render nothing until then.
+ * Progress through the steps, for the signed-in person. `ready` is false on
+ * the server and the first client render, when the walk in sessionStorage
+ * cannot be read yet: render nothing until then.
  */
-export function useGetStarted(personId: string) {
-  const key = progressKey(personId);
-  // Migrating writes storage without notifying anyone: it is idempotent,
-  // and the read right after it already sees the result.
-  const progress = useSyncExternalStore(subscribe, () => {
-    if (personId) migrateV1(personId);
-    return read(local, key, EMPTY_PROGRESS);
-  }, () => null);
-  const sess = useSyncExternalStore(subscribe, () => read(session, SESSION_KEY, EMPTY_SESSION), () => null);
+export function useGetStarted(user: AuthUser | null) {
+  const wizard = useSyncExternalStore(
+    subscribe,
+    user ? () => current(user) : noWizard,
+    user ? () => fromUser(user) : noWizard,
+  );
+  const sess = useSyncExternalStore(subscribe, readSession, () => null);
 
-  const setDone = useCallback((step: StepKey, done: boolean) => {
-    const p = read(local, key, EMPTY_PROGRESS);
-    const next = done ? Array.from(new Set([...p.done, step])) : p.done.filter(x => x !== step);
-    write(local, key, { ...p, done: next });
-  }, [key]);
+  // Only `true` counts: a step sent back as `false` is not done.
+  const done = GET_STARTED_STEPS.filter(s => wizard.steps[s.key] === true).map(s => s.key);
 
-  const setHidden = useCallback((hidden: boolean) => {
-    write(local, key, { ...read(local, key, EMPTY_PROGRESS), hidden });
-  }, [key]);
+  /** The checklist row or the tip's Done box: one step on or off. */
+  const setDone = useCallback((step: StepKey, isDone: boolean) => {
+    if (!user) return;
+    const w = current(user);
+    change(user, { ...w, steps: { ...w.steps, [step]: isDone } }, { steps: { [step]: isDone } });
+  }, [user]);
 
   /**
-   * "Onboarding complete" in Settings. Checking it hides the checklist and
-   * every tip; unchecking starts the steps over from nothing.
+   * "Don't show again" (hidden = true), and Settings → Account, whose box
+   * shows the same value. Showing it again starts the steps over: every
+   * stored step is sent as `null`, which removes it.
    */
-  const setComplete = useCallback((complete: boolean) => {
-    if (complete) {
-      write(local, key, { ...read(local, key, EMPTY_PROGRESS), hidden: true });
-    } else {
-      write(local, key, EMPTY_PROGRESS);
-      write(session, SESSION_KEY, EMPTY_SESSION);
+  const setHidden = useCallback((hidden: boolean) => {
+    if (!user) return;
+    const w = current(user);
+    if (hidden) {
+      change(user, { ...w, active: false }, { active: false });
+      return;
     }
-  }, [key]);
+    const cleared = Object.fromEntries(Object.keys(w.steps).map(k => [k, null]));
+    change(user, { active: true, steps: {} }, { active: true, steps: cleared });
+    writeSession(EMPTY_SESSION);
+  }, [user]);
 
   /** Opening a step from the checklist or Previous/Next. */
   const walkTo = useCallback((step: StepKey | null) => {
-    write(session, SESSION_KEY, { walking: step });
+    writeSession({ walking: step });
   }, []);
 
   return {
-    ready: progress !== null && sess !== null,
-    done: progress?.done ?? [],
-    hidden: progress?.hidden ?? false,
-    /** Hidden, or every step checked off. */
-    complete: !!progress && (progress.hidden || GET_STARTED_STEPS.every(s => progress.done.includes(s.key))),
+    ready: !!user && sess !== null,
+    done,
+    hidden: !wizard.active,
     walking: sess?.walking ?? null,
     setDone,
     setHidden,
-    setComplete,
     walkTo,
   };
 }

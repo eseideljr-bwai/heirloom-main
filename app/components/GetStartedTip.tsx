@@ -58,7 +58,7 @@ function place(anchor: string, header: HTMLElement): Place | null {
  */
 export default function GetStartedTip({ user }: { user: AuthUser }) {
   const pathname = usePathname();
-  const gs = useGetStarted(user.person_id);
+  const gs = useGetStarted(user);
 
   // Checking "Done" leaves the tip up until you move on, so Next stays in
   // reach; it is from the next visit on that it stops appearing. The pin

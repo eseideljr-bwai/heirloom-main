@@ -16,7 +16,7 @@ const PLAN_LABEL: Record<string, string> = { free: 'Free', home: 'Home', family:
 export default function AccountClient({ initial, plan }: { initial: Profile; plan: string }) {
   const { user, refresh, logout } = useAuth();
   const router = useRouter();
-  const gs = useGetStarted(user?.person_id ?? '');
+  const gs = useGetStarted(user);
 
   // Profile form: `saved` is what the API last returned, so the Save button
   // only lights up for a real change and only changed fields are sent.
@@ -194,8 +194,8 @@ export default function AccountClient({ initial, plan }: { initial: Profile; pla
             <label className="settings-check">
               <input
                 type="checkbox"
-                checked={gs.complete}
-                onChange={e => gs.setComplete(e.target.checked)}
+                checked={gs.hidden}
+                onChange={e => gs.setHidden(e.target.checked)}
               />
               <span>
                 <span className="settings-check__label">Onboarding complete.</span>{' '}

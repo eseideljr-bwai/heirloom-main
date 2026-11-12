@@ -7850,6 +7850,13 @@ img.portrait-kin__img { object-fit: cover; }
   color: var(--fg-3);
   cursor: pointer;
 }
+/* Lines up with the label text, past the 15px box and its 8px gap. */
+.gs__hide-note {
+  margin: 4px 0 0 23px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--fg-3);
+}
 .gs__hide input, .gs__check, .gs-tip__done input {
   width: 15px;
   height: 15px;
