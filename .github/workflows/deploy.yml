@@ -39,6 +39,7 @@ jobs:
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
           NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
           NEXT_PUBLIC_FEEDBACK_TOOL=0
+          NEXT_PUBLIC_GTM_ID=${{ vars.DEV_GTM_ID }}
           EOF
           echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
 
@@ -79,6 +80,7 @@ jobs:
             # PROD_KINLOOM_API_URL repository variable) and refuses to start
             # serving without one.
             echo "NEXT_PUBLIC_FEEDBACK_TOOL=0" > .env.production
+            echo "NEXT_PUBLIC_GTM_ID=${{ vars.PROD_GTM_ID }}" >> .env.production
 
         - name: 'Deploy to Cloud Run (Prod)'
           uses: 'google-github-actions/deploy-cloudrun@v2'
@@ -112,6 +114,7 @@ jobs:
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
           NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
           NEXT_PUBLIC_FEEDBACK_TOOL=0
+          NEXT_PUBLIC_GTM_ID=${{ vars.DEV_GTM_ID }}
           EOF
           echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
 

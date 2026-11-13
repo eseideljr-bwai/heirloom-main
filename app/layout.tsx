@@ -6,6 +6,7 @@ import { ActiveFamilySpaceProvider } from '../lib/active-family-space';
 import { EmbedProvider } from '../lib/embed-context';
 import { getInitialAuthState } from '../lib/server/auth';
 import { isEmbeddedRequest } from '../lib/server/embed';
+import { GoogleTagManager } from './components/GoogleTagManager';
 
 // We read cookies during render to hydrate auth state — the root
 // layout must be dynamic.
@@ -56,6 +57,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             </ActiveFamilySpaceProvider>
           </AuthProvider>
         </EmbedProvider>
+        <GoogleTagManager />
       </body>
     </html>
   );
