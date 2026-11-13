@@ -780,7 +780,7 @@ function ProfileModal({
           {mode === 'add'
             ? 'Add someone without an account, such as a child or a relative who has passed. They can be tagged in kinlooms. Invite them separately if they should sign in.'
             : labelOnly
-              ? 'This person keeps their own name and details. Here you set how this home labels them.'
+              ? 'This person keeps their own name and details. Here you set what your family calls them.'
               : 'Update what we know about this family member.'}
         </p>
 
@@ -809,16 +809,17 @@ function ProfileModal({
             </div>
           )}
           <div>
-            <label className="field-label" htmlFor="m-role">How this home labels them (optional)</label>
+            <label className="field-label" htmlFor="m-role">What does your family call them? (optional)</label>
             <input
               id="m-role"
               className="field-input"
               value={label}
               onChange={e => setLabel(e.target.value)}
               maxLength={64}
-              placeholder="Mother, Grandfather, Cousin…"
+              aria-describedby="m-role-hint"
               disabled={submitting}
             />
+            <p className="field-hint" id="m-role-hint">Grandma, Uncle Joe, Dad. Only this home sees it.</p>
           </div>
           {!labelOnly && (
             <>

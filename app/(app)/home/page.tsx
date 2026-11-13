@@ -273,7 +273,9 @@ export default async function HomePage() {
                 {nameOf(voice.author)} · {formatKinloomDate(voice.created_at)} · published to your Family Home
               </p>
               <HomeVoicePlayer
+                mediaId={voice.media.id}
                 src={voice.media.url}
+                expiresAt={voice.media.expires_at}
                 durationSeconds={voice.media.duration_seconds}
                 label={voice.title}
               />
