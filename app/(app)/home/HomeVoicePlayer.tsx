@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { useSignedAudio } from '../../components/useSignedAudio';
 
 /** Pseudo-waveform: the payload carries no samples, so the bars are decorative. */
 const WAVE = Array.from({ length: 30 }, (_, j) => `${20 + Math.round(Math.abs(Math.sin((j + 5) * 1.7)) * 78)}%`);
@@ -12,15 +13,22 @@ function clock(seconds: number): string {
 
 /** The Home's featured voice: the design's player, playing the real recording. */
 export default function HomeVoicePlayer({
+  mediaId,
   src,
+  expiresAt,
   durationSeconds,
   label,
 }: {
+  mediaId: string;
   src: string;
+  expiresAt: string | null;
   durationSeconds: number | null;
   label: string;
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const signed = useSignedAudio(audioRef, { mediaId, src, expiresAt });
+  /** Whether the listener asked to play: a re-signed element resumes only then. */
+  const wantPlayRef = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(durationSeconds ?? 0);
@@ -32,7 +40,7 @@ export default function HomeVoicePlayer({
     const onMeta = () => {
       if (Number.isFinite(el.duration) && el.duration > 0) setDuration(el.duration);
     };
-    const onEnd = () => { setPlaying(false); setTime(0); };
+    const onEnd = () => { wantPlayRef.current = false; setPlaying(false); setTime(0); };
     el.addEventListener('timeupdate', onTime);
     el.addEventListener('loadedmetadata', onMeta);
     el.addEventListener('ended', onEnd);
@@ -47,11 +55,22 @@ export default function HomeVoicePlayer({
     const el = audioRef.current;
     if (!el) return;
     if (el.paused) {
-      void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+      wantPlayRef.current = true;
+      void signed.play().then(() => setPlaying(true)).catch((err) => {
+        // A load failure rejects the pending play too; onError owns those.
+        if (err instanceof DOMException && (err.name === 'AbortError' || err.name === 'NotSupportedError')) return;
+        wantPlayRef.current = false;
+        setPlaying(false);
+      });
     } else {
+      wantPlayRef.current = false;
       el.pause();
       setPlaying(false);
     }
+  };
+
+  const resume = (el: HTMLAudioElement) => {
+    el.play().then(() => setPlaying(true)).catch(() => { wantPlayRef.current = false; setPlaying(false); });
   };
 
   const played = duration > 0 ? time / duration : 0;
@@ -59,7 +78,20 @@ export default function HomeVoicePlayer({
   return (
     <div className="home-voice__player">
       {/* preload=none: the home screen shouldn't pull audio nobody pressed play on. */}
-      <audio ref={audioRef} src={src} preload="none" />
+      <audio
+        ref={audioRef}
+        src={src}
+        preload="none"
+        onError={async (e) => {
+          const el = e.currentTarget;
+          if (await signed.recover()) {
+            if (wantPlayRef.current) resume(el);
+            return;
+          }
+          wantPlayRef.current = false;
+          setPlaying(false);
+        }}
+      />
       <button
         type="button"
         className="home-voice__play"

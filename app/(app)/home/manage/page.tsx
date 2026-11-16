@@ -90,9 +90,12 @@ export default async function ManageFamilyPage() {
           </div>
 
           <p className="mg-seats__scope">
-            Seats count accounts and pending invitations. Someone who appears in this home without an
-            account, like a child or a relative who has passed, uses none.
-            {manage && ` Family profiles: ${manage.profiles.used} of ${manage.profiles.max}.`}
+            {manage
+              ? `Your home includes ${manage.seats.max} account${manage.seats.max === 1 ? '' : 's'}. ` +
+                `${manage.seats.used} ${manage.seats.used === 1 ? 'is' : 'are'} in use, counting pending invitations. ` +
+                'Family members without an account, like a young child or a loved one who has passed, don’t use one. ' +
+                `You can add up to ${manage.profiles.max} of them.`
+              : 'Accounts and pending invitations use seats. Family members without an account, like a young child or a loved one who has passed, don’t use one.'}
           </p>
 
           {manage && manage.invitations.length > 0 && (

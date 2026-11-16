@@ -16,12 +16,17 @@
  *   - Skip ±10s
  *   - Falls back to a known `fallbackDurationSeconds` when the metadata
  *     reports Infinity (common with some GCS-served webm/ogg blobs).
+ *   - Re-signs `src` when it expires on a page left open (useSignedAudio).
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { useSignedAudio } from './useSignedAudio';
 
 type Props = {
+  mediaId: string;
   src: string;
+  /** When the signed `src` stops working. */
+  expiresAt: string | null;
   /** Label above the controls, e.g. "Mira's voice". */
   title?: string;
   /** Optional transcript shown below the title. */
@@ -40,13 +45,18 @@ function formatTime(seconds: number): string {
 }
 
 export function AudioPlayer({
+  mediaId,
   src,
+  expiresAt,
   title,
   transcript,
   fallbackDurationSeconds,
   onError,
 }: Props) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const signed = useSignedAudio(audioRef, { mediaId, src, expiresAt });
+  /** Whether the listener asked to play: a re-signed element resumes only then. */
+  const wantPlayRef = useRef(false);
   const [playing, setPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState<number>(0);
@@ -73,11 +83,15 @@ export function AudioPlayer({
     if (!a) return;
     try {
       if (a.paused) {
-        await a.play();
+        wantPlayRef.current = true;
+        await signed.play();
       } else {
+        wantPlayRef.current = false;
         a.pause();
       }
     } catch (err) {
+      // A load failure rejects the pending play too; the element's onError owns those.
+      if (err instanceof DOMException && (err.name === 'AbortError' || err.name === 'NotSupportedError')) return;
       console.error('[AudioPlayer] play failed', err);
       onError?.(err);
     }
@@ -130,11 +144,17 @@ export function AudioPlayer({
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onEnded={() => {
+          wantPlayRef.current = false;
           setPlaying(false);
           setCurrentTime(0);
         }}
-        onError={(e) => {
-          console.error('[AudioPlayer] load error', src, e);
+        onError={async (e) => {
+          const el = e.currentTarget;
+          if (await signed.recover()) {
+            if (wantPlayRef.current) el.play().catch(() => {});
+            return;
+          }
+          console.error('[AudioPlayer] load error', el.currentSrc, e);
           setLoadError('Audio could not be loaded.');
           onError?.(e);
         }}
