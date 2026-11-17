@@ -4,10 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ContentBlock, MessageParam, ConverseResponse } from '../../../../lib/agent/types';
 import {
-  type SavedConversation,
   getActiveConversationId,
-  hasMemberWords,
-  isSaved,
   listConversations,
   migrateLegacySession,
   newConversationId,
@@ -15,22 +12,24 @@ import {
   removeConversation,
   saveConversation,
   setActiveConversationId,
-  setConversationSaved,
 } from '../../../../lib/agent/conversation-store';
+import type { UnfinishedConversation } from '../../../../lib/agent/conversation-notes';
 import { isEmptyContent, sanitizeStoredMessages } from '../../../../lib/agent/content';
 import { reportUnauthorized } from '../../../../lib/embed';
 import { useAuth } from '../../../../lib/auth-context';
 import NativeExitLink from '../../../components/NativeExitLink';
 import { ShapingCard, type ProposeDraftInput } from './ShapingCard';
 import { SplitCard, type SplitIntoMultipleInput } from './SplitCard';
-import UnfinishedConversations from './UnfinishedConversations';
+import UnfinishedConversations, { type RailItem } from './UnfinishedConversations';
 
 // ─── Turn types ───────────────────────────────────────────────────────────────
 
 type TextUserTurn = { role: 'user'; content: string };
+// Invisible user turns: tool results, and the bracketed context a resumed
+// conversation starts with (sent to the API, never rendered).
 type ToolResultUserTurn = {
   role: 'user';
-  content: Array<{ type: 'tool_result'; tool_use_id: string; content: string }>;
+  content: Array<{ type: 'tool_result'; tool_use_id: string; content: string } | { type: 'text'; text: string }>;
   _tool_result: true;
 };
 type UserTurn = TextUserTurn | ToolResultUserTurn;
@@ -53,10 +52,54 @@ function greetingName(user: { display_name?: string | null; name?: string | null
   return user?.name?.trim().split(/\s+/)[0] ?? '';
 }
 
-function makeOpener(firstName: string): AssistantTurn {
-  const text = firstName
-    ? `Welcome, ${firstName}. What would you like to share today?`
-    : 'Welcome. What would you like to share today?';
+// ─── Resuming an unfinished conversation ───────────────────────────────────────
+// A saved conversation is a summary (a Talk note), not a transcript. Picking it
+// back up starts a conversation whose first turn is this invisible context, so
+// Talk continues the story; the opener and the answer count read it back.
+
+type Resume = { title: string; stoppedAt: string; answers: number };
+
+const RESUME_RE = /^\[Picking up an unfinished conversation\. Title: "([\s\S]*?)"\. Where it stopped: ([\s\S]*?)\. Earlier answers: (\d+)\.\]$/;
+
+function resumeTurn(c: UnfinishedConversation): ToolResultUserTurn {
+  const stopped = (c.stoppedAt || 'not recorded').replace(/[.\s]+$/, '');
+  const text = `[Picking up an unfinished conversation. Title: "${c.title}". Where it stopped: ${stopped}. Earlier answers: ${c.answers}.]`;
+  return { role: 'user', content: [{ type: 'text', text }], _tool_result: true };
+}
+
+function resumeOf(turns: Turn[]): Resume | null {
+  for (const t of turns) {
+    if (t.role !== 'user' || !('_tool_result' in t)) continue;
+    const block = t.content[0];
+    if (block?.type !== 'text') continue;
+    const m = RESUME_RE.exec(block.text);
+    if (m) return { title: m[1], stoppedAt: m[2], answers: Number(m[3]) };
+  }
+  return null;
+}
+
+/** The note key for a conversation id: 6 lowercase letters/digits. */
+function keyOf(id: string): string {
+  return id.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6);
+}
+
+/** "Today", "Yesterday", or "Nov 12" for a YYYY-MM-DD save date. */
+function whenLabel(savedOn: string): string {
+  const [y, m, d] = savedOn.split('-').map(Number);
+  const saved = new Date(y, (m ?? 1) - 1, d ?? 1);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((today.getTime() - saved.getTime()) / 86_400_000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return saved.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function makeOpener(firstName: string, resume: Resume | null = null): AssistantTurn {
+  const name = firstName ? `, ${firstName}` : '';
+  const text = resume
+    ? `Welcome back${name}. Let’s pick up where you left off: “${resume.title}” What would you like to add?`
+    : `Welcome${name}. What would you like to share today?`;
   return {
     role: 'assistant',
     content: [{ type: 'text', text }] as ContentBlock[],
@@ -187,7 +230,12 @@ export default function ConversationView() {
   // The conversation open in this tab, and the member's saved ones (the rail).
   const accountId = user?.id ?? '';
   const [activeId, setActiveId] = useState('');
-  const [saved, setSaved] = useState<SavedConversation[]>([]);
+  // Unfinished conversations live in Talk notes (server), not in the browser.
+  const [unfinished, setUnfinished] = useState<UnfinishedConversation[]>([]);
+  const [railLoading, setRailLoading] = useState(true);
+  const [railError, setRailError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -202,18 +250,43 @@ export default function ConversationView() {
     pruneUnsaved(accountId, wanted);
     const current = wanted ? list.find(c => c.id === wanted) : undefined;
     if (current) {
+      const restored = messagesToTurns(current.messages);
       setActiveId(current.id);
-      setTurns([makeOpener(firstName), ...messagesToTurns(current.messages)]);
+      setTurns([makeOpener(firstName, resumeOf(restored)), ...restored]);
     } else {
       const id = newConversationId();
       setActiveConversationId(id);
       setActiveId(id);
       setTurns([makeOpener(firstName)]);
     }
-    setSaved(listConversations(accountId));
     setHydrated(true);
     // firstName is read once here; the effect below keeps it current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
+
+  // Load the member's unfinished conversations (their Talk notes).
+  useEffect(() => {
+    let cancelled = false;
+    setRailLoading(true);
+    (async () => {
+      try {
+        const res = await fetch('/api/agent/conversations');
+        if (!res.ok) {
+          reportUnauthorized(res.status);
+          throw new Error(String(res.status));
+        }
+        const data = (await res.json()) as { conversations: UnfinishedConversation[] };
+        if (!cancelled) {
+          setUnfinished(data.conversations);
+          setRailError(null);
+        }
+      } catch {
+        if (!cancelled) setRailError('Couldn’t load your unfinished conversations.');
+      } finally {
+        if (!cancelled) setRailLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [accountId]);
 
   // Keep the greeting's name current if the user object changes after mount
@@ -221,65 +294,106 @@ export default function ConversationView() {
   // synthetic opener is touched; it is never sent to the API.
   useEffect(() => {
     setTurns(prev =>
-      prev.map(t => (t.role === 'assistant' && (t as AssistantTurn).synthetic ? makeOpener(firstName) : t)),
+      prev.map(t => (t.role === 'assistant' && (t as AssistantTurn).synthetic ? makeOpener(firstName, resumeOf(prev)) : t)),
     );
   }, [firstName]);
 
-  // Store the open conversation after every change, so a reload never loses
-  // it. It shows in the rail only once saved (Save conversation); after that
-  // the saved copy keeps updating as the member keeps talking.
+  // Keep the open conversation in this browser so a reload never loses it.
+  // (Saving it to Unfinished conversations is separate: Save conversation.)
   useEffect(() => {
     if (!hydrated || !activeId) return;
     saveConversation(accountId, activeId, turnsToMessages(turns));
-    setSaved(listConversations(accountId));
   }, [turns, hydrated, activeId, accountId]);
+
+  // ── Where the open conversation stands against its saved summary ──────────
+  const activeKey = keyOf(activeId);
+  const resume = resumeOf(turns);
+  const memberAnswers = turns.filter(t => t.role === 'user' && !('_tool_result' in t)).length;
+  const totalAnswers = memberAnswers + (resume?.answers ?? 0);
+  const hasWords = memberAnswers > 0;
+  const savedSummary = unfinished.find(c => c.key === activeKey);
+  // 'unsaved': no summary yet · 'stale': answers since the last save · 'saved': up to date
+  const saveStatus: 'unsaved' | 'stale' | 'saved' = !savedSummary
+    ? 'unsaved'
+    : savedSummary.answers < totalAnswers ? 'stale' : 'saved';
 
   /**
    * Open a brand-new, empty conversation. The one being left is cleared unless
    * it was saved, in which case it stays in the rail.
    */
   const startNewConversation = () => {
-    const leaving = saved.find(c => c.id === activeId);
-    if (leaving && !isSaved(leaving)) removeConversation(accountId, activeId);
+    removeConversation(accountId, activeId);
     const id = newConversationId();
     setActiveConversationId(id);
     setActiveId(id);
     setTurns([makeOpener(firstName)]);
     setDraft('');
     setError(null);
-  };
-
-  /** Reopen a saved conversation from the rail (after confirmLeave). */
-  const openConversation = (id: string) => {
-    const conversation = saved.find(c => c.id === id);
-    if (!conversation) return;
-    const leaving = saved.find(c => c.id === activeId);
-    if (leaving && !isSaved(leaving)) removeConversation(accountId, activeId);
-    setActiveConversationId(id);
-    setActiveId(id);
-    setTurns([makeOpener(firstName), ...messagesToTurns(conversation.messages)]);
-    setDraft('');
-    setError(null);
+    setSaveError(null);
   };
 
   /**
-   * The rail's ×. For the open conversation it only un-saves it (it stays on
-   * screen, and Start fresh will then clear it); any other is deleted.
+   * Pick a saved conversation back up (after confirmLeave). Its id is its note
+   * key, so saving it again replaces the same note.
    */
-  const handleDiscardConversation = (id: string) => {
-    if (sending) return;
-    if (id === activeId) setConversationSaved(accountId, id, false);
-    else removeConversation(accountId, id);
-    setSaved(listConversations(accountId));
+  const openConversation = (key: string) => {
+    const summary = unfinished.find(c => c.key === key);
+    if (!summary) return;
+    removeConversation(accountId, activeId);
+    const context = resumeTurn(summary);
+    setActiveConversationId(key);
+    setActiveId(key);
+    setTurns([makeOpener(firstName, resumeOf([context])), context]);
+    setDraft('');
+    setError(null);
+    setSaveError(null);
   };
 
-  /** Save conversation: the open conversation joins the rail. */
-  const handleSaveConversation = () => {
-    if (sending || !activeId) return;
-    // The effect above has already stored it; mark it saved.
-    saveConversation(accountId, activeId, turnsToMessages(turns));
-    setConversationSaved(accountId, activeId, true);
-    setSaved(listConversations(accountId));
+  /** POST to the conversations route; returns the updated list or throws a message. */
+  const conversationsRequest = async (body: Record<string, unknown>): Promise<UnfinishedConversation[]> => {
+    const res = await fetch('/api/agent/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = (await res.json().catch(() => ({}))) as { conversations?: UnfinishedConversation[]; error?: string };
+    if (!res.ok || !data.conversations) {
+      reportUnauthorized(res.status);
+      throw new Error(data.error ?? 'Something went wrong. Please try again.');
+    }
+    return data.conversations;
+  };
+
+  /** The rail's ×: delete that conversation's note. The open one stays on screen. */
+  const handleDiscardConversation = async (key: string) => {
+    if (sending || saving) return;
+    try {
+      setUnfinished(await conversationsRequest({ action: 'discard', key }));
+      setRailError(null);
+    } catch (err) {
+      setRailError(err instanceof Error ? err.message : 'Couldn’t discard that conversation.');
+    }
+  };
+
+  /** Save conversation: summarise it into a Talk note (replacing its old one). */
+  const handleSaveConversation = async () => {
+    if (sending || saving || !activeId || !hasWords) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      setUnfinished(
+        await conversationsRequest({
+          action: 'save',
+          key: activeKey,
+          messages: turnsToMessages(turns),
+          answers: totalAnswers,
+        }),
+      );
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Couldn’t save this conversation.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   // ── Leaving the open conversation (Start fresh, or opening another) ────────
@@ -295,9 +409,9 @@ export default function ConversationView() {
   };
 
   const confirmLeave = (action: LeaveAction) => {
-    if (sending) return;
-    if (action.kind === 'open' && action.id === activeId) return;
-    if (!hasMemberWords(turnsToMessages(turns))) {
+    if (sending || saving) return;
+    if (action.kind === 'open' && action.id === activeKey) return;
+    if (!hasWords) {
       leaveNow(action);
       return;
     }
@@ -444,6 +558,15 @@ export default function ConversationView() {
     // Shaped into a kinloom: it no longer waits in the rail, saved or not. Point this tab at
     // a fresh conversation for when the member comes back to Talk.
     removeConversation(accountId, activeId);
+    if (savedSummary) {
+      // Its note goes too. keepalive: the page is navigating away.
+      void fetch('/api/agent/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'discard', key: activeKey }),
+        keepalive: true,
+      }).catch(() => {});
+    }
     setActiveConversationId(newConversationId());
     router.push(`/create/${type_slug}`);
   };
@@ -475,10 +598,12 @@ export default function ConversationView() {
   );
   const isAwaitingCard = pendingToolUse !== null;
   const canSend = draft.trim().length > 0 && !sending && !isAwaitingCard;
-  const hasWords = hasMemberWords(turnsToMessages(turns));
-  const openSaved = saved.find(c => c.id === activeId);
-  const isOpenSaved = !!openSaved && isSaved(openSaved);
-  const railItems = saved.filter(isSaved);
+  const railItems: RailItem[] = unfinished.map(c => ({
+    id: c.key,
+    title: c.title,
+    answers: c.answers,
+    when: whenLabel(c.savedOn),
+  }));
 
   return (
     <div className="chat-flow">
@@ -516,9 +641,11 @@ export default function ConversationView() {
       {/* ── Thread + unfinished-conversations rail ─────────────────────── */}
       <div className="chat-flow__body">
       <UnfinishedConversations
-        conversations={railItems}
-        activeId={activeId}
-        disabled={sending}
+        items={railItems}
+        activeId={activeKey}
+        loading={railLoading}
+        error={railError}
+        disabled={sending || saving}
         onOpen={handleOpenConversation}
         onDiscard={handleDiscardConversation}
       />
@@ -693,20 +820,21 @@ export default function ConversationView() {
           <button
             type="button"
             className="btn-outline btn-outline--sm"
-            onClick={handleSaveConversation}
-            disabled={sending || !hasWords || isOpenSaved}
-            title={isOpenSaved ? 'Saved. It keeps updating as you talk.' : undefined}
+            onClick={() => void handleSaveConversation()}
+            disabled={sending || saving || !hasWords || saveStatus === 'saved'}
+            title={saveStatus === 'stale' ? 'Your latest answers aren’t in the saved summary yet.' : undefined}
           >
-            {isOpenSaved ? 'Saved' : 'Save conversation'}
+            {saving ? 'Saving…' : saveStatus === 'saved' ? 'Saved' : saveStatus === 'stale' ? 'Save again' : 'Save conversation'}
           </button>
           <button
             type="button"
             className="btn-outline btn-outline--sm"
             onClick={handleStartOver}
-            disabled={sending}
+            disabled={sending || saving}
           >
             Start fresh
           </button>
+          {saveError && <p className="chat-flow__actions-error" role="alert">{saveError}</p>}
         </div>
       </div>
 
@@ -717,13 +845,22 @@ export default function ConversationView() {
           onKeyDown={e => { if (e.key === 'Escape') setPendingLeave(null); }}
         >
           <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="talk-leave-title" aria-describedby="talk-leave-text">
-            {isOpenSaved ? (
+            {saveStatus === 'saved' ? (
               <>
                 <h3 id="talk-leave-title" className="modal-title">
                   {pendingLeave.kind === 'fresh' ? 'Start fresh?' : 'Switch conversations?'}
                 </h3>
                 <p id="talk-leave-text" className="modal-text">
-                  This conversation is saved. It will wait under Unfinished conversations, so you can pick it back up.
+                  A summary of this conversation waits under Unfinished conversations. Picking it back up starts
+                  from that summary, not your exact words.
+                </p>
+              </>
+            ) : saveStatus === 'stale' ? (
+              <>
+                <h3 id="talk-leave-title" className="modal-title">Leave your latest answers behind?</h3>
+                <p id="talk-leave-text" className="modal-text">
+                  This conversation was saved earlier, but your latest answers aren&rsquo;t in its summary. To keep
+                  them, choose Save again first.
                 </p>
               </>
             ) : (
@@ -742,10 +879,10 @@ export default function ConversationView() {
               </button>
               <button
                 type="button"
-                className={isOpenSaved ? 'btn-primary' : 'btn-danger-solid'}
+                className={saveStatus === 'saved' ? 'btn-primary' : 'btn-danger-solid'}
                 onClick={() => leaveNow(pendingLeave)}
               >
-                {isOpenSaved
+                {saveStatus === 'saved'
                   ? (pendingLeave.kind === 'fresh' ? 'Start fresh' : 'Open it')
                   : (pendingLeave.kind === 'fresh' ? 'Clear and start fresh' : 'Clear and open')}
               </button>

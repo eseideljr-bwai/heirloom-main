@@ -1,18 +1,28 @@
 'use client';
 
 import { useState } from 'react';
-import { formatRelativeTime } from '../../../../lib/kinloom';
-import type { SavedConversation } from '../../../../lib/agent/conversation-store';
 
 /** Segments in a card's progress bar; one fills per answer, up to this many. */
 const PROGRESS_SEGMENTS = 4;
 
+/** One card: a saved conversation's summary (stored as a Talk note). */
+export type RailItem = {
+  id: string;
+  title: string;
+  answers: number;
+  /** e.g. "Today", "Yesterday", "Nov 12". */
+  when: string;
+};
+
 type Props = {
-  /** The member's saved conversations, newest first (the open one included). */
-  conversations: SavedConversation[];
+  items: RailItem[];
   /** The conversation open now: its card is marked, not clickable. */
   activeId: string;
-  /** True while a reply is in flight: switching then would misfile the reply. */
+  /** True until the first load finishes. */
+  loading: boolean;
+  /** A load or discard failure, shown above the list. */
+  error: string | null;
+  /** True while a reply or a save is in flight. */
   disabled: boolean;
   onOpen: (id: string) => void;
   onDiscard: (id: string) => void;
@@ -20,16 +30,16 @@ type Props = {
 
 /**
  * The "Unfinished conversations" rail beside Talk: conversations the member
- * saved before shaping them into a kinloom. Clicking a card reopens it; ×
- * discards it.
+ * saved before shaping them into a kinloom. Clicking a card picks it back up;
+ * × discards it.
  *
  * On phones (≤ 900px, CSS only) it is a collapsible bar above the thread:
  * collapsed by default so the conversation keeps the screen, with the title
  * and count always visible as the toggle. On desktop it is always open and
  * the toggle is inert.
  */
-export default function UnfinishedConversations({ conversations, activeId, disabled, onOpen, onDiscard }: Props) {
-  const count = conversations.length;
+export default function UnfinishedConversations({ items, activeId, loading, error, disabled, onOpen, onDiscard }: Props) {
+  const count = items.length;
   // Phones only (CSS ignores it on desktop). Collapsed by default.
   const [expanded, setExpanded] = useState(false);
 
@@ -37,6 +47,7 @@ export default function UnfinishedConversations({ conversations, activeId, disab
     <aside
       className={`talk-rail${count === 0 ? ' talk-rail--empty' : ''}${expanded ? ' is-expanded' : ''}`}
       aria-labelledby="talk-rail-title"
+      aria-busy={loading || undefined}
     >
       <h2 className="talk-rail__heading">
         <button
@@ -57,8 +68,11 @@ export default function UnfinishedConversations({ conversations, activeId, disab
       </h2>
 
       <div id="talk-rail-body" className="talk-rail__body">
+      {error && <p className="talk-rail__error" role="alert">{error}</p>}
 
-      {count === 0 ? (
+      {loading ? (
+        <p className="talk-rail__sub">Loading…</p>
+      ) : count === 0 ? (
         <p className="talk-rail__empty">
           Save a conversation you aren&rsquo;t ready to shape into a kinloom, and it waits here so you can pick it
           back up.
@@ -67,7 +81,7 @@ export default function UnfinishedConversations({ conversations, activeId, disab
         <>
           <p className="talk-rail__sub">Pick up where you left off.</p>
           <ul className="talk-rail__list">
-            {conversations.map(c => {
+            {items.map(c => {
               const isOpen = c.id === activeId;
               const filled = Math.min(c.answers, PROGRESS_SEGMENTS);
               const answers = `${c.answers} ${c.answers === 1 ? 'answer' : 'answers'}`;
@@ -83,7 +97,7 @@ export default function UnfinishedConversations({ conversations, activeId, disab
                     }}
                     disabled={disabled || isOpen}
                     aria-current={isOpen ? 'true' : undefined}
-                    aria-label={isOpen ? `Open now: ${c.title}` : `Continue conversation: ${c.title}`}
+                    aria-label={isOpen ? `Open now: ${c.title}` : `Pick up conversation: ${c.title}`}
                   >
                     <span className="talk-rail__kind">{isOpen ? 'Talk · Open now' : 'Talk'}</span>
                     <span className="talk-rail__card-title">{c.title}</span>
@@ -93,7 +107,7 @@ export default function UnfinishedConversations({ conversations, activeId, disab
                       ))}
                     </span>
                     <span className="talk-rail__meta">
-                      {answers} · {formatRelativeTime(c.updatedAt)}
+                      {answers} · {c.when}
                     </span>
                   </button>
                   <button
@@ -102,7 +116,7 @@ export default function UnfinishedConversations({ conversations, activeId, disab
                     onClick={() => onDiscard(c.id)}
                     disabled={disabled}
                     aria-label={`Discard conversation: ${c.title}`}
-                    title={isOpen ? 'Remove from unfinished conversations' : 'Discard'}
+                    title="Discard"
                   >
                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
                       <line x1="6" y1="6" x2="18" y2="18" />

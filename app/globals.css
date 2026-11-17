@@ -3408,6 +3408,14 @@ body.has-texture::before {
   font-size: 13px;
   color: var(--fg-3);
 }
+.talk-rail__error,
+.chat-flow__actions-error {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--destructive);
+}
+.chat-flow__actions-error { flex-basis: 100%; text-align: right; margin: 2px 0 0; }
 .talk-rail__empty {
   margin: 14px 0 0;
   padding: 14px 16px;
