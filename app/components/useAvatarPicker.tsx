@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { AVATAR_ACCEPT, avatarFileError } from '../../lib/avatar';
 import { errorText } from '../../lib/settings';
+import { HEIC_ACCEPT, normalizeImageFile } from '../../lib/image-normalize';
 
 /**
  * One click to choose a photo, then it uploads straight away: no crop step
@@ -33,12 +34,23 @@ export function useAvatarPicker({
     }
   }
 
-  function onChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
+  async function onChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const picked = e.target.files?.[0];
     e.target.value = '';
-    if (!file) return;
+    if (!picked) return;
+    // HEIC/HEIF → JPEG first (busy meanwhile, so it can't be picked twice).
+    setBusy('upload');
+    setError(null);
+    let file: File;
+    try {
+      file = await normalizeImageFile(picked);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not read that photo.');
+      setBusy(null);
+      return;
+    }
     const invalid = avatarFileError(file);
-    if (invalid) { setError(invalid); return; }
+    if (invalid) { setError(invalid); setBusy(null); return; }
     void run('upload', () => onUpload(file));
   }
 
@@ -46,8 +58,8 @@ export function useAvatarPicker({
     <input
       ref={inputRef}
       type="file"
-      accept={AVATAR_ACCEPT}
-      onChange={onChange}
+      accept={`${AVATAR_ACCEPT},${HEIC_ACCEPT}`}
+      onChange={e => void onChange(e)}
       hidden
       tabIndex={-1}
       aria-hidden="true"

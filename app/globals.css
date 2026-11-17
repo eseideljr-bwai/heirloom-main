@@ -4758,6 +4758,9 @@ body.has-texture::before {
   font-family: inherit;
 }
 .app-footer__chip:disabled { cursor: default; }
+a.app-footer__chip { text-decoration: none; transition: color 150ms ease, border-color 150ms ease; }
+a.app-footer__chip:hover { color: var(--fg-1); border-color: var(--primary); }
+a.app-footer__chip:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
 .app-footer__nav {
   display: flex;

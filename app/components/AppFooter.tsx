@@ -7,7 +7,7 @@ import { useActiveFamilySpace } from '../../lib/active-family-space';
 /**
  * The footer from the Federated Containers design.
  *
- *   row 1 — the "Edit copy" chip, and the footer navigation
+ *   row 1 — the "Edit Home Page" chip (→ Featured on Home), and the footer navigation
  *   row 2 — the active container, what it is, and the privacy claim
  *
  * The prototype's footer also carries a Desktop/Mobile toggle and demo
@@ -61,10 +61,11 @@ export default function AppFooter({
   return (
     <footer className="app-footer">
       <div className="app-footer__row">
-        {/* Visual only for now — the copy-editing mode is not built. */}
-        <button type="button" className="app-footer__chip" disabled>
-          Edit copy
-        </button>
+        {/* Straight to Manage Home → Featured on Home. Anyone may open it; only
+            the owner and co-owner can change it (the page says so to others). */}
+        <Link href="/home/manage/featured" className="app-footer__chip">
+          Edit Home Page
+        </Link>
 
         <nav className="app-footer__nav" aria-label="Footer">
           {FOOTER_NAV.map(l => (

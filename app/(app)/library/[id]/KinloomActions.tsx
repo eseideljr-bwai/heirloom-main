@@ -19,6 +19,7 @@ import {
   type UpdateKinloomBody,
   type TaggableMember,
 } from '../../../../lib/kinloom';
+import { HEIC_ACCEPT, needsPreparing, prepareImageFiles } from '../../../../lib/image-normalize';
 import { ApiError } from '../../../../lib/api';
 import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
 import { revalidateKinloomData } from '../../../actions';
@@ -206,6 +207,8 @@ function EditKinloomModal({
   const [existingPhotos, setExistingPhotos] = useState<ExistingPhoto[]>(() => initialExistingPhotos(kinloom));
   const [newPhotos, setNewPhotos] = useState<NewPhoto[]>([]);
   const [photoError, setPhotoError] = useState<string | null>(null);
+  // How many picked photos are being converted from HEIC (0 = none).
+  const [preparingPhotos, setPreparingPhotos] = useState(0);
   const [removeAudio, setRemoveAudio] = useState(false);
   const [voiceValue, setVoiceValue] = useState<VoiceRecorderValue | null>(null);
   const [showVoicePicker, setShowVoicePicker] = useState(false);
@@ -252,11 +255,16 @@ function EditKinloomModal({
     setTagged(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+    const picked = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (files.length === 0) return;
+    if (picked.length === 0) return;
 
-    const errors: string[] = [];
+    // HEIC/HEIF → JPEG first; the checks below then see only API-ready files.
+    if (needsPreparing(picked)) setPreparingPhotos(picked.length);
+    const prepared = await prepareImageFiles(picked).finally(() => setPreparingPhotos(0));
+    const files = prepared.files;
+
+    const errors: string[] = [...prepared.errors];
     const accepted: File[] = [];
     for (const file of files) {
       if (!(PHOTO_MIME_TYPES as readonly string[]).includes(file.type)) {
@@ -444,14 +452,17 @@ function EditKinloomModal({
                 type="button"
                 className="btn-outline btn-outline--sm"
                 onClick={() => photoInputRef.current?.click()}
-                disabled={submitting || !canAddPhotos}
+                disabled={submitting || !canAddPhotos || preparingPhotos > 0}
+                aria-busy={preparingPhotos > 0 || undefined}
               >
-                {photoCount > 0 ? 'Add more photos' : 'Add photos'}
+                {preparingPhotos > 0
+                  ? `Preparing ${preparingPhotos === 1 ? 'photo' : `${preparingPhotos} photos`}\u2026`
+                  : photoCount > 0 ? 'Add more photos' : 'Add photos'}
               </button>
               <input
                 ref={photoInputRef}
                 type="file"
-                accept={PHOTO_MIME_TYPES.join(',')}
+                accept={`${PHOTO_MIME_TYPES.join(',')},${HEIC_ACCEPT}`}
                 multiple
                 className="visually-hidden"
                 onChange={handlePhotoChange}
@@ -646,7 +657,7 @@ function EditKinloomModal({
           <button type="button" className="btn-outline" onClick={onCancel} disabled={submitting}>
             Cancel
           </button>
-          <button type="submit" className="btn-save" disabled={submitting}>
+          <button type="submit" className="btn-save" disabled={submitting || preparingPhotos > 0}>
             {submitting ? 'Saving…' : 'Save changes'}
           </button>
         </div>
