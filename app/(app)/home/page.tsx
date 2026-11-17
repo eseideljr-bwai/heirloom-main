@@ -222,7 +222,11 @@ export default async function HomePage() {
         <div className="home-people kmScroll">
           {people.map(m => (
             <Link key={m.id} href={`/portrait/${m.id}`} className="home-person">
-              <Silhouette member={m} idKey={m.id} />
+              {/* Their uploaded photo (a signed URL, fresh on each render of this
+                  dynamic page); the silhouette when they have none. */}
+              {m.avatar_url
+                ? <img className="home-person__face" src={m.avatar_url} alt={m.name} loading="lazy" />
+                : <Silhouette member={m} idKey={m.id} />}
               <span className="home-person__name">{m.name}</span>
               <span className="home-person__sub">{m.label || 'Member'}</span>
             </Link>
