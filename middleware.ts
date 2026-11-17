@@ -77,7 +77,8 @@ function buildCsp(nonce: string, isDev: boolean): string {
     // would require purging hundreds of inline-style call sites.
     `style-src 'self' 'unsafe-inline'`,
     // GCS-hosted media (signed download URLs returned by /media/{id}/url).
-    `img-src 'self' data: blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com https://*.googleusercontent.com`,
+    // Also Google Tag Manager / GA4 beacons (pixel fallback).
+    `img-src 'self' data: blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com https://*.googleusercontent.com https://*.google-analytics.com https://*.googletagmanager.com`,
     `media-src 'self' blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com`,
     `font-src 'self' data:`,
     // connect-src:
@@ -85,7 +86,10 @@ function buildCsp(nonce: string, isDev: boolean): string {
     //   • storage.googleapis.com              — defence-in-depth (uploads now go through /api/media-upload-proxy)
     //   • Firebase Identity Toolkit + secure  — Firebase Auth Web SDK
     //     token + Google APIs
-    `connect-src 'self' https://storage.googleapis.com https://*.storage.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com${isDev ? ' ws: wss:' : ''}`,
+    //   • Google Tag Manager / GA4           — analytics collection
+    //     (gtm.js itself needs no script-src host: under 'strict-dynamic'
+    //     it is trusted via the nonced bootstrap in GoogleTagManager.tsx)
+    `connect-src 'self' https://storage.googleapis.com https://*.storage.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://www.googleapis.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com${isDev ? ' ws: wss:' : ''}`,
     `frame-ancestors 'none'`,
     `form-action 'self'`,
     `base-uri 'self'`,

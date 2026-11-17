@@ -38,7 +38,7 @@ jobs:
           NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.DEV_FIREBASE_STORAGE_BUCKET }}
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
           NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
-          NEXT_PUBLIC_FEEDBACK_TOOL=0
+          NEXT_PUBLIC_FEEDBACK_TOOL=1
           EOF
           echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
 
@@ -82,7 +82,8 @@ jobs:
           NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.PROD_FIREBASE_STORAGE_BUCKET }}
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.PROD_FIREBASE_MESSAGING_SENDER_ID }}
           NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.PROD_FIREBASE_APP_ID }}
-          NEXT_PUBLIC_FEEDBACK_TOOL=0
+          NEXT_PUBLIC_FEEDBACK_TOOL=1
+          NEXT_PUBLIC_GTM_ID=${{ vars.PROD_GTM_ID }}
           EOF
           echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
 
@@ -101,6 +102,9 @@ jobs:
           env_vars: |
             KINLOOM_API_URL=${{ vars.PROD_KINLOOM_API_URL || 'https://api.kinloom.com/api' }}
             FIREBASE_PROJECT_ID=bw-heirloom-prod
+            # Lives in bw-heirloom-dev but verifies bw-heirloom-prod ID tokens
+            # and writes to its own prod bucket and sheet.
+            FEEDBACK_INGEST_URL=https://us-east1-bw-heirloom-dev.cloudfunctions.net/feedback-ingest-prod
           secrets: |
             ANTHROPIC_API_KEY=anthropic-api-key:latest
 
@@ -125,7 +129,7 @@ jobs:
           NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.DEV_FIREBASE_STORAGE_BUCKET }}
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
           NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
-          NEXT_PUBLIC_FEEDBACK_TOOL=0
+          NEXT_PUBLIC_FEEDBACK_TOOL=1
           EOF
           echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
 
