@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter, Crimson_Pro } from 'next/font/google';
+import './fonts.css';
 import './globals.css';
 import { AuthProvider } from '../lib/auth-context';
 import { ActiveFamilySpaceProvider } from '../lib/active-family-space';
@@ -10,20 +10,6 @@ import { isEmbeddedRequest } from '../lib/server/embed';
 // We read cookies during render to hydrate auth state — the root
 // layout must be dynamic.
 export const dynamic = 'force-dynamic';
-
-const inter = Inter({
-  subsets: ['latin'],
-  variable: '--font-inter',
-  weight: ['300', '400', '500', '600'],
-  display: 'swap',
-});
-
-const crimsonPro = Crimson_Pro({
-  subsets: ['latin'],
-  variable: '--font-crimson-pro',
-  weight: ['400', '500', '600', '700'],
-  display: 'swap',
-});
 
 export const metadata: Metadata = {
   title: 'Kinloom — Preserve Your Family Legacy',
@@ -47,7 +33,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const embedded = isEmbeddedRequest();
 
   return (
-    <html lang="en" className={`${inter.variable} ${crimsonPro.variable}`}>
+    <html lang="en">
+      <head>
+        <link rel="preload" href="/fonts/inter-latin.e4af272c.woff2" as="font" type="font/woff2" crossOrigin="" />
+        <link rel="preload" href="/fonts/crimson-pro-latin.3296bccd.woff2" as="font" type="font/woff2" crossOrigin="" />
+      </head>
       <body>
         <EmbedProvider embedded={embedded}>
           <AuthProvider initialUser={user}>

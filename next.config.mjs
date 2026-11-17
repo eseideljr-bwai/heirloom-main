@@ -50,6 +50,11 @@ const nextConfig = {
         source: '/:path*',
         headers: staticSecurityHeaders,
       },
+      // File names carry a content hash (app/fonts.css), so they never change.
+      {
+        source: '/fonts/:file*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
     ];
   },
 };
