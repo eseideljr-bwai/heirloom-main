@@ -10,10 +10,12 @@ on:
 permissions:
   contents: 'read'
   id-token: 'write'
+  pull-requests: 'write'
 
 jobs:
   deploy-dev:
     name: Deploy to Dev
+    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -27,36 +29,84 @@ jobs:
           workload_identity_provider: 'projects/174694943962/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
           service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
 
+      - name: Set up Dev Environment Variables
+        run: |
+          cat << 'EOF' > .env.production
+          NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.DEV_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.DEV_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.DEV_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.DEV_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FEEDBACK_TOOL=1
+          EOF
+          echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
+
       - name: 'Deploy to Cloud Run (Dev)'
         uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
-          service: 'heirloom-api-dev'
+          service: 'heirloom-main-dev'
           region: 'us-east1'
           # This will build and deploy the source code in the current directory
           source: './'
           project_id: 'bw-heirloom-dev'
+          # Server-side Firebase Admin credentials (single-line base64 of the
+          # service-account JSON). Consumed by lib/server/firebase-admin.ts.
+          env_vars: |
+            KINLOOM_API_URL=${{ vars.DEV_KINLOOM_API_URL || 'https://kinloom-api-laravel-vycjbweb.on-forge.com/api' }}
+            FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
+            ANTHROPIC_API_KEY=${{ secrets.DEV_ANTHROPIC_API_KEY }}
+            FEEDBACK_INGEST_URL=https://us-east1-bw-heirloom-dev.cloudfunctions.net/feedback-ingest-dev
 
   deploy-prod:
-      name: Deploy to Prod
-      if: github.ref == 'refs/heads/main'
-      runs-on: ubuntu-latest
-      steps:
-        - uses: actions/checkout@v4
+    name: Deploy to Prod
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-        - name: Google Auth
-          id: 'auth'
-          uses: 'google-github-actions/auth@v2'
-          with:
-            workload_identity_provider: 'projects/279321445871/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
-            service_account: 'github-deployer@bw-heirloom-prod.iam.gserviceaccount.com'
+      - name: Google Auth
+        id: 'auth'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          workload_identity_provider: 'projects/279321445871/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
+          service_account: 'github-deployer@bw-heirloom-prod.iam.gserviceaccount.com'
 
-        - name: 'Deploy to Cloud Run (Prod)'
-          uses: 'google-github-actions/deploy-cloudrun@v2'
-          with:
-            service: 'heirloom-api-prod'
-            region: 'us-east1'
-            source: './'
-            project_id: 'bw-heirloom-prod'
+      - name: Set up Prod Environment Variables
+        run: |
+          cat << 'EOF' > .env.production
+          NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.PROD_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.PROD_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.PROD_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.PROD_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.PROD_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.PROD_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FEEDBACK_TOOL=1
+          NEXT_PUBLIC_GTM_ID=${{ vars.PROD_GTM_ID }}
+          EOF
+          echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
+
+      - name: 'Deploy to Cloud Run (Prod)'
+        uses: 'google-github-actions/deploy-cloudrun@v2'
+        with:
+          service: 'heirloom-main-prod'
+          region: 'us-east1'
+          source: './'
+          project_id: 'bw-heirloom-prod'
+          # Runs as its own service account: the org blocks service-account
+          # keys, so Firebase Admin uses this account's credentials instead
+          # (lib/server/firebase-admin.ts). min-instances keeps a warm
+          # instance so the first visitor doesn't wait on a cold start.
+          flags: '--allow-unauthenticated --min-instances=1 --service-account=heirloom-web-prod@bw-heirloom-prod.iam.gserviceaccount.com'
+          env_vars: |
+            KINLOOM_API_URL=${{ vars.PROD_KINLOOM_API_URL || 'https://api.kinloom.com/api' }}
+            FIREBASE_PROJECT_ID=bw-heirloom-prod
+            # Lives in bw-heirloom-dev but verifies bw-heirloom-prod ID tokens
+            # and writes to its own prod bucket and sheet.
+            FEEDBACK_INGEST_URL=https://us-east1-bw-heirloom-dev.cloudfunctions.net/feedback-ingest-prod
+          secrets: |
+            ANTHROPIC_API_KEY=anthropic-api-key:latest
 
   deploy-preview:
     name: Deploy PR Preview
@@ -69,14 +119,34 @@ jobs:
         with:
           workload_identity_provider: 'projects/174694943962/locations/global/workloadIdentityPools/heirloom-pool/providers/heirloom-provider'
           service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
+
+      - name: Set up Preview Environment Variables
+        run: |
+          cat << 'EOF' > .env.production
+          NEXT_PUBLIC_FIREBASE_API_KEY=${{ secrets.DEV_FIREBASE_API_KEY }}
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=${{ secrets.DEV_FIREBASE_AUTH_DOMAIN }}
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID=${{ secrets.DEV_FIREBASE_PROJECT_ID }}
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=${{ secrets.DEV_FIREBASE_STORAGE_BUCKET }}
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${{ secrets.DEV_FIREBASE_MESSAGING_SENDER_ID }}
+          NEXT_PUBLIC_FIREBASE_APP_ID=${{ secrets.DEV_FIREBASE_APP_ID }}
+          NEXT_PUBLIC_FEEDBACK_TOOL=1
+          EOF
+          echo "NEXT_PUBLIC_APP_VERSION=$GITHUB_SHA" >> .env.production
+
       - id: 'deploy'
         uses: 'google-github-actions/deploy-cloudrun@v2'
         with:
-          service: 'heirloom-pr-${{ github.event.number }}'
+          service: 'heirloom-main-pr-${{ github.event.number }}'
           region: 'us-east1'
           source: './'
           project_id: 'bw-heirloom-dev'
           flags: '--allow-unauthenticated'
+          # Server-side Firebase Admin credentials (single-line base64 of the
+          # service-account JSON). Consumed by lib/server/firebase-admin.ts.
+          env_vars: |
+            KINLOOM_API_URL=${{ vars.DEV_KINLOOM_API_URL || 'https://kinloom-api-laravel-vycjbweb.on-forge.com/api' }}
+            FIREBASE_SERVICE_ACCOUNT_B64=${{ secrets.DEV_FIREBASE_SERVICE_ACCOUNT_B64 }}
+            FEEDBACK_INGEST_URL=https://us-east1-bw-heirloom-dev.cloudfunctions.net/feedback-ingest-dev
       - name: 'Comment PR'
         uses: 'actions/github-script@v7'
         with:
@@ -99,5 +169,5 @@ jobs:
           service_account: 'github-deployer@bw-heirloom-dev.iam.gserviceaccount.com'
       - name: 'Delete Preview Service'
         run: |
-          gcloud run services delete heirloom-pr-${{ github.event.number }} \
+          gcloud run services delete heirloom-main-pr-${{ github.event.number }} \
             --region us-east1 --quiet --project bw-heirloom-dev

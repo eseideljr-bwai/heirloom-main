@@ -1,0 +1,132 @@
+import Link from 'next/link';
+import { requireHome } from '../../../lib/server/auth';
+import { serverKinloomApi } from '../../../lib/server/kinloom-api';
+import { orNull } from '../../../lib/server/safe';
+import ConversationRow from './ConversationRow';
+
+export const dynamic = 'force-dynamic';
+
+function VaultMark() {
+  return (
+    <svg viewBox="0 0 480 280" width="100%" className="vault-mark" aria-hidden="true">
+      <defs>
+        <radialGradient id="vaultCore" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#e8d4a8" stopOpacity="0.95" />
+          <stop offset="40%" stopColor="#c9a96e" stopOpacity="0.55" />
+          <stop offset="100%" stopColor="#c9a96e" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id="vaultDepth" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#3a3934" stopOpacity="0.18" />
+          <stop offset="70%" stopColor="#3a3934" stopOpacity="0.04" />
+          <stop offset="100%" stopColor="#3a3934" stopOpacity="0" />
+        </radialGradient>
+        <linearGradient id="threadL" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#a39376" stopOpacity="0.7" />
+          <stop offset="100%" stopColor="#556b5b" stopOpacity="0.85" />
+        </linearGradient>
+        <linearGradient id="threadR" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#556b5b" stopOpacity="0.85" />
+          <stop offset="100%" stopColor="#a39376" stopOpacity="0.7" />
+        </linearGradient>
+      </defs>
+      <circle cx="240" cy="140" r="84" fill="url(#vaultDepth)">
+        <animate attributeName="r" values="80;94;80" dur="6s" repeatCount="indefinite" />
+        <animate attributeName="opacity" values="0.6;1;0.6" dur="6s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="240" cy="140" r="56" fill="url(#vaultCore)">
+        <animate attributeName="r" values="52;60;52" dur="4s" repeatCount="indefinite" />
+      </circle>
+      <circle cx="240" cy="140" r="3" fill="#c9a96e" opacity="0.9">
+        <animate attributeName="opacity" values="0.6;1;0.6" dur="2.4s" repeatCount="indefinite" />
+      </circle>
+    </svg>
+  );
+}
+
+const DEPOSIT_PROMPTS = [
+  { id: 'voice',  kind: 'A voice memory',              invitation: 'Speak something you would want them to hear.' },
+  { id: 'letter', kind: 'A written reflection',         invitation: 'Write a letter to someone not yet born.' },
+  { id: 'photo',  kind: 'A photograph, with context',   invitation: 'Show them a moment that shaped you.' },
+  { id: 'lesson', kind: 'A life lesson',                invitation: 'Pass on something you learned the hard way.' },
+  { id: 'belief', kind: 'A belief, a value',            invitation: 'Tell them what you stand for, in your own words.' },
+];
+
+export default async function LegacyBankPage() {
+  await requireHome();
+
+  // Two independent reads, one wait. Your own count is the first person listed.
+  const [subjects, recent] = await Promise.all([
+    orNull(serverKinloomApi.get('/legacy-bank')),
+    orNull(serverKinloomApi.get('/legacy-bank/conversations', { query: { per_page: 5 } })),
+  ]);
+  const total = subjects?.people.find(p => p.is_you)?.kinlooms ?? 0;
+  const recentConversations = (recent?.data ?? []).filter(c => c.last_message_at);
+
+  return (
+    <div className="lb-page">
+      <p className="eyebrow lb-page__eyebrow">AI Legacy Bank</p>
+      <h1 className="lb-page__title">A vault for your Legacy to carry on.</h1>
+      <p className="lb-page__lede">
+        Every story you preserve teaches your Legacy Bank a little more about who you are. Over time it becomes a trusted guide—connecting memories, recognizing patterns, and helping future generations understand the people behind the stories.
+      </p>
+      <p className="lb-page__lede">
+        <strong>It becomes a lasting way for your family to remember who you are, long after the moments have passed.</strong>
+      </p>
+
+      <div className="lb-progress">
+        <p className="lb-progress__count"><strong>{total}</strong>{total === 1 ? ' kinloom gathered' : ' kinlooms gathered'}</p>
+      </div>
+
+      {/* <div className="lb-hero">
+        <VaultMark />
+      </div> */}
+
+      <div className="lb-cta">
+        <Link href="/legacy-bank/chat" className="btn-primary btn-primary--lg">Try a conversation</Link>
+        <Link href="/create" className="btn-outline btn-outline--lg">Create a kinloom</Link>
+      </div>
+
+      {recentConversations.length > 0 && (
+        <div className="lb-section">
+          <div className="lb-section__head">
+            <p className="eyebrow">Continue a conversation</p>
+            <Link href="/legacy-bank/history" className="lb-section__hint lb-section__hint--link">View all conversations →</Link>
+          </div>
+          <div className="lb-history-list">
+            {recentConversations.map(c => (
+              <ConversationRow
+                key={c.id}
+                conversation={c}
+                href={`/legacy-bank/history/${c.id}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* <div className="lb-section">
+        <div className="lb-section__head">
+          <p className="eyebrow">The first deposit</p>
+          <span className="lb-section__hint">Choose any one. There&rsquo;s no order, and no clock.</span>
+        </div>
+        <div className="lb-deposits">
+          {DEPOSIT_PROMPTS.map((p, i) => (
+            <Link key={p.id} href="/create" className={`lb-deposit${i === DEPOSIT_PROMPTS.length - 1 ? ' is-last' : ''}`}>
+              <span className="lb-deposit__num">{String(i + 1).padStart(2, '0')}</span>
+              <div className="lb-deposit__body">
+                <h3 className="lb-deposit__title">{p.invitation}</h3>
+                <p className="lb-deposit__kind">{p.kind}</p>
+              </div>
+              <span className="lb-deposit__cta">
+                Begin
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 8 L13 8 M9 4 L13 8 L9 12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </span>
+            </Link>
+          ))}
+        </div>
+      </div> */}
+
+      <p className="lb-cta__note">You can leave at any time. Nothing is shared yet, and nothing will be without you.</p>
+    </div>
+  );
+}

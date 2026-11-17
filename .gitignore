@@ -1,1 +1,17 @@
 node_modules/
+.cursor/
+
+# Next.js build output
+.next/
+
+# TypeScript incremental build cache
+tsconfig.tsbuildinfo
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# Env / secrets
+.env
+.env.local
+.env.*.local

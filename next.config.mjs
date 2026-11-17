@@ -1,5 +1,62 @@
 /** @type {import('next').NextConfig} */
+
+const isDev = process.env.NODE_ENV !== 'production';
+
+// CSP itself is set per-request from middleware.ts (so we can issue a
+// fresh nonce on every response). Everything else is static and lives
+// here for clarity.
+const staticSecurityHeaders = [
+  { key: 'X-Frame-Options', value: 'DENY' },
+  { key: 'X-Content-Type-Options', value: 'nosniff' },
+  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  {
+    key: 'Permissions-Policy',
+    value: [
+      'accelerometer=()',
+      'camera=()',
+      'geolocation=()',
+      'gyroscope=()',
+      'magnetometer=()',
+      'microphone=(self)',
+      'payment=()',
+      'usb=()',
+    ].join(', '),
+  },
+  // HSTS only in prod (would lock localhost into https otherwise).
+  ...(!isDev
+    ? [{
+        key: 'Strict-Transport-Security',
+        value: 'max-age=63072000; includeSubDomains; preload',
+      }]
+    : []),
+];
+
 const nextConfig = {
-  output: 'standalone', // Critical for Cloud Run
+  output: 'standalone',
+
+  // `/family/*` (overview, feed, members, tree, member profile) was replaced
+  // by Home, the Tapestry, Manage Home and the Legacy Portrait. Old links and
+  // bookmarks land on Home instead of a 404.
+  async redirects() {
+    return [
+      { source: '/family', destination: '/home', permanent: false },
+      { source: '/family/:path*', destination: '/home', permanent: false },
+    ];
+  },
+
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: staticSecurityHeaders,
+      },
+      // File names carry a content hash (app/fonts.css), so they never change.
+      {
+        source: '/fonts/:file*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
+    ];
+  },
 };
+
 export default nextConfig;

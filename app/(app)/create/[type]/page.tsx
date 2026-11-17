@@ -1,0 +1,1065 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import CreateSteps from '../../../components/CreateSteps';
+import { KINLOOM_TYPE_MAP, KINLOOM_TYPES } from '../../../lib/kinloom-types';
+import { useAuth } from '../../../../lib/auth-context';
+import {
+  createKinloom,
+  deleteKinloom,
+  getCreateContext,
+  MAX_KINLOOM_PHOTOS,
+  MAX_PHOTO_BYTES,
+  MAX_VIDEO_BYTES,
+  PHOTO_MIME_TYPES,
+  VIDEO_MIME_TYPES,
+  readImageDimensions,
+  readVideoMetadata,
+  updateKinloom,
+  uploadKinloomAudio,
+  uploadKinloomPhoto,
+  uploadKinloomVideo,
+  type KinloomType,
+  type TaggableMember,
+} from '../../../../lib/kinloom';
+import { ApiError } from '../../../../lib/api';
+import { postToNative } from '../../../../lib/embed';
+import NativeExitLink from '../../../components/NativeExitLink';
+import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
+import { revalidateKinloomData } from '../../../actions';
+
+type Step = 1 | 2 | 3;
+
+type MediaUploadStatus = 'pending' | 'uploading' | 'done' | 'error';
+
+type PhotoItem = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  width: number | null;
+  height: number | null;
+  status: MediaUploadStatus;
+  error?: string;
+  mediaId?: string;
+};
+
+type VideoItem = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  width: number | null;
+  height: number | null;
+  durationSeconds: number | null;
+  status: MediaUploadStatus;
+  error?: string;
+  mediaId?: string;
+};
+
+function MediaStatusBadges({ status, error }: { status: MediaUploadStatus; error?: string }) {
+  return (
+    <>
+      {status === 'uploading' && (
+        <div className="photo-grid__overlay" aria-hidden="true">
+          <span className="photo-grid__spinner" />
+        </div>
+      )}
+      {status === 'done' && (
+        <span className="photo-grid__badge photo-grid__badge--done" title="Uploaded">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+        </span>
+      )}
+      {status === 'error' && (
+        <span className="photo-grid__badge photo-grid__badge--error" title={error || 'Upload failed — click Save to retry'}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="8" x2="12" y2="13" /><circle cx="12" cy="16.5" r="0.5" fill="currentColor" /></svg>
+        </span>
+      )}
+    </>
+  );
+}
+
+function PhotoThumbnailGrid({
+  items,
+  onRemove,
+  disabled,
+}: {
+  items: PhotoItem[];
+  onRemove: (id: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="photo-grid">
+      {items.map(item => (
+        <div key={item.id} className="photo-grid__item">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={item.previewUrl} alt="" className="photo-grid__img" />
+          <MediaStatusBadges status={item.status} error={item.error} />
+          <button
+            type="button"
+            onClick={() => onRemove(item.id)}
+            className="photo-grid__remove"
+            aria-label={`Remove ${item.file.name}`}
+            disabled={disabled}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <p className="photo-grid__name">{item.file.name}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function VideoThumbnailGrid({
+  items,
+  onRemove,
+  disabled,
+}: {
+  items: VideoItem[];
+  onRemove: (id: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="photo-grid">
+      {items.map(item => (
+        <div key={item.id} className="photo-grid__item">
+          <video
+            src={item.previewUrl}
+            className="photo-grid__img"
+            muted
+            playsInline
+            preload="metadata"
+          />
+          <MediaStatusBadges status={item.status} error={item.error} />
+          <button
+            type="button"
+            onClick={() => onRemove(item.id)}
+            className="photo-grid__remove"
+            aria-label={`Remove ${item.file.name}`}
+            disabled={disabled}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+          <p className="photo-grid__name">{item.file.name}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function CreateTypePage({ params }: { params: { type: string } }) {
+  const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
+
+  const fallbackType = KINLOOM_TYPE_MAP[params.type];
+
+  const [step, setStep] = useState<Step>(1);
+  const [title, setTitle] = useState('');
+  // "When" is free text ("Summer 1987"); the API stores it as `occurred_label`.
+  const [happenedWhen, setHappenedWhen] = useState('');
+  const [happenedWhere, setHappenedWhere] = useState('');
+  const [body, setBody] = useState('');
+  const [voiceValue, setVoiceValue] = useState<VoiceRecorderValue | null>(null);
+  const [showVoice, setShowVoice] = useState(false);
+  const hasVoice = voiceValue !== null;
+  const [photoItems, setPhotoItems] = useState<PhotoItem[]>([]);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const hasPhoto = photoItems.length > 0;
+  const [videoItems, setVideoItems] = useState<VideoItem[]>([]);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
+  const hasVideo = videoItems.length > 0;
+  const mediaSlotCount = photoItems.length + videoItems.length;
+  const [taggedKin, setTaggedKin] = useState<string[]>([]);
+  // Everything lands in the author's Vault as a draft first; step 3 of the
+  // flow ("Who can see it") finalizes it and decides the audience.
+
+  const [typeData, setTypeData] = useState<KinloomType | null>(fallbackType ?? null);
+  const [taggableMembers, setTaggableMembers] = useState<TaggableMember[]>([]);
+  const [maxVideoBytes, setMaxVideoBytes] = useState<number>(MAX_VIDEO_BYTES);
+  const [contextLoading, setContextLoading] = useState(true);
+  const [contextError, setContextError] = useState<string | null>(null);
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
+  const [voiceUploadError, setVoiceUploadError] = useState<string | null>(null);
+  /**
+   * The kinloom is created as a `draft` on first save attempt. Once the
+   * text and every media upload have landed we hand it to the publish step
+   * (`handedOffId`), which finalizes it. Until then, navigating away or
+   * hitting "Discard" purges the draft so a half-saved flow leaves nothing
+   * behind in the Vault.
+   */
+  const [savedKinloomId, setSavedKinloomId] = useState<string | null>(null);
+  const [handedOffId, setHandedOffId] = useState<string | null>(null);
+  const [discarding, setDiscarding] = useState(false);
+
+  useEffect(() => {
+    if (authLoading) return;
+    let cancelled = false;
+    setContextLoading(true);
+    setContextError(null);
+    (async () => {
+      try {
+        const ctx = await getCreateContext(params.type);
+        if (cancelled) return;
+        setTypeData(ctx.type);
+        setTaggableMembers(ctx.taggableMembers);
+        // The API names the largest file it takes; checking here saves a
+        // long upload that would be refused at the end.
+        setMaxVideoBytes(Math.min(MAX_VIDEO_BYTES, ctx.uploadLimits.video.max_bytes));
+      } catch (err) {
+        if (cancelled) return;
+        const msg = err instanceof ApiError ? err.message : 'Could not load this kinloom type.';
+        setContextError(msg);
+      } finally {
+        if (!cancelled) setContextLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [authLoading, params.type]);
+
+  // Object URLs are created on selection and revoked on removal (see
+  // handleRemovePhoto / handleRemoveVideo); this only catches URLs still
+  // outstanding on unmount.
+  const photoItemsRef = useRef<PhotoItem[]>([]);
+  const videoItemsRef = useRef<VideoItem[]>([]);
+  useEffect(() => {
+    photoItemsRef.current = photoItems;
+  }, [photoItems]);
+  useEffect(() => {
+    videoItemsRef.current = videoItems;
+  }, [videoItems]);
+  useEffect(() => {
+    return () => {
+      photoItemsRef.current.forEach(item => URL.revokeObjectURL(item.previewUrl));
+      videoItemsRef.current.forEach(item => URL.revokeObjectURL(item.previewUrl));
+    };
+  }, []);
+
+  // ─── Abandon-on-unload cleanup ─────────────────────────────────────
+  //
+  // If the user closes the tab / navigates away with a draft still
+  // unpublished, fire a best-effort DELETE so the draft doesn't sit in
+  // their library. `keepalive: true` lets the request survive the
+  // unload — cookies stay attached because /api/proxy is same-origin.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!savedKinloomId || handedOffId === savedKinloomId) return;
+      const url = `/api/proxy/kinlooms/${encodeURIComponent(savedKinloomId)}`;
+      try {
+        fetch(url, { method: 'DELETE', credentials: 'same-origin', keepalive: true });
+      } catch {
+        // best-effort
+      }
+      // Prompt the user — most browsers ignore the custom string but
+      // still show their own "unsaved changes" dialog.
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [savedKinloomId, handedOffId]);
+
+  // In-app navigation (clicking the Back link, the family logo, etc.)
+  // triggers React unmount. Fire the same best-effort DELETE so
+  // soft-navigations leave no orphan either. Capture the latest IDs
+  // through a ref so the unmount cleanup sees current values.
+  const draftRef = useRef<{ id: string | null; handedOff: string | null }>({
+    id: null, handedOff: null,
+  });
+  useEffect(() => {
+    draftRef.current = { id: savedKinloomId, handedOff: handedOffId };
+  }, [savedKinloomId, handedOffId]);
+  useEffect(() => {
+    return () => {
+      const { id, handedOff } = draftRef.current;
+      if (!id || handedOff === id) return;
+      const url = `/api/proxy/kinlooms/${encodeURIComponent(id)}`;
+      try {
+        fetch(url, { method: 'DELETE', credentials: 'same-origin', keepalive: true });
+      } catch {
+        // best-effort
+      }
+    };
+  }, []);
+
+  // One-time handoff from Talk mode: consume a pre-filled draft and jump to Step 3.
+  useEffect(() => {
+    const HANDOFF_KEY = 'kinloom:draft-handoff';
+    try {
+      const raw = sessionStorage.getItem(HANDOFF_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (
+        typeof parsed !== 'object' || parsed === null ||
+        typeof (parsed as Record<string, unknown>).title !== 'string' ||
+        typeof (parsed as Record<string, unknown>).body !== 'string' ||
+        typeof (parsed as Record<string, unknown>).type_slug !== 'string'
+      ) return;
+      const { title: t, body: b } = parsed as { title: string; body: string; type_slug: string };
+      sessionStorage.removeItem(HANDOFF_KEY);
+      setTitle(t);
+      setBody(b);
+      setStep(3);
+    } catch {
+      // malformed or storage unavailable — proceed with Step 1 normally
+    }
+  }, []);
+
+  if (!typeData && !contextLoading) {
+    return (
+      <div className="compose-page">
+        <p style={{ fontSize: 16, color: 'rgba(26,26,26,0.7)' }}>Unknown kinloom type.</p>
+        <NativeExitLink href="/create" message={{ type: 'cancel' }} style={{ color: '#556b5b', fontSize: 14 }}>← Back to create</NativeExitLink>
+      </div>
+    );
+  }
+
+  const resolvedType = typeData ?? fallbackType!;
+
+  const handlePickPhoto = () => {
+    setPhotoError(null);
+    photoInputRef.current?.click();
+  };
+
+  const handlePickVideo = () => {
+    setVideoError(null);
+    videoInputRef.current?.click();
+  };
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+
+    const errors: string[] = [];
+    const accepted: File[] = [];
+
+    for (const file of files) {
+      if (!(PHOTO_MIME_TYPES as readonly string[]).includes(file.type)) {
+        errors.push(`\u201c${file.name}\u201d isn\u2019t a supported file type. Use JPG, PNG, GIF, or WebP.`);
+        continue;
+      }
+      if (file.size > MAX_PHOTO_BYTES) {
+        errors.push(`\u201c${file.name}\u201d is too large. Max 10 MB per photo.`);
+        continue;
+      }
+      accepted.push(file);
+    }
+
+    const remainingSlots = Math.max(MAX_KINLOOM_PHOTOS - mediaSlotCount, 0);
+    const toAdd = accepted.slice(0, remainingSlots);
+    if (accepted.length > toAdd.length) {
+      errors.push(`You can add up to ${MAX_KINLOOM_PHOTOS} photos and videos combined. ${accepted.length - toAdd.length} photo${accepted.length - toAdd.length === 1 ? '' : 's'} were not added.`);
+    }
+
+    const newItems: PhotoItem[] = await Promise.all(toAdd.map(async (file) => {
+      const { width, height } = await readImageDimensions(file);
+      return {
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        width,
+        height,
+        status: 'pending' as const,
+      };
+    }));
+
+    if (newItems.length > 0) {
+      setPhotoItems(prev => [...prev, ...newItems]);
+    }
+    setPhotoError(errors.length > 0 ? errors.join(' ') : null);
+  };
+
+  const handleVideoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    if (files.length === 0) return;
+
+    const errors: string[] = [];
+    const accepted: File[] = [];
+
+    for (const file of files) {
+      if (!(VIDEO_MIME_TYPES as readonly string[]).includes(file.type)) {
+        errors.push(`\u201c${file.name}\u201d isn\u2019t a supported video type. Use MP4, WebM, or MOV.`);
+        continue;
+      }
+      if (file.size > maxVideoBytes) {
+        errors.push(`\u201c${file.name}\u201d is too large. Max ${Math.floor(maxVideoBytes / (1024 * 1024))} MB per video.`);
+        continue;
+      }
+      accepted.push(file);
+    }
+
+    const remainingSlots = Math.max(MAX_KINLOOM_PHOTOS - mediaSlotCount, 0);
+    const toAdd = accepted.slice(0, remainingSlots);
+    if (accepted.length > toAdd.length) {
+      errors.push(`You can add up to ${MAX_KINLOOM_PHOTOS} photos and videos combined. ${accepted.length - toAdd.length} video${accepted.length - toAdd.length === 1 ? '' : 's'} were not added.`);
+    }
+
+    const newItems: VideoItem[] = await Promise.all(toAdd.map(async (file) => {
+      const meta = await readVideoMetadata(file);
+      return {
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+        width: meta.width,
+        height: meta.height,
+        durationSeconds: meta.durationSeconds,
+        status: 'pending' as const,
+      };
+    }));
+
+    if (newItems.length > 0) {
+      setVideoItems(prev => [...prev, ...newItems]);
+    }
+    setVideoError(errors.length > 0 ? errors.join(' ') : null);
+  };
+
+  const handleRemovePhoto = (id: string) => {
+    setPhotoItems(prev => {
+      const item = prev.find(p => p.id === id);
+      if (item) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter(p => p.id !== id);
+    });
+    setPhotoError(null);
+  };
+
+  const handleRemoveVideo = (id: string) => {
+    setVideoItems(prev => {
+      const item = prev.find(v => v.id === id);
+      if (item) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter(v => v.id !== id);
+    });
+    setVideoError(null);
+  };
+
+  const handleSave = async () => {
+    if (!title.trim()) {
+      setSaveError('Please give it a title before saving.');
+      setStep(2);
+      return;
+    }
+    if (!body.trim()) {
+      setSaveError('Please write something before saving.');
+      setStep(2);
+      return;
+    }
+
+    setSaving(true);
+    setSaveError(null);
+    setPhotoUploadError(null);
+    setVideoUploadError(null);
+    setVoiceUploadError(null);
+
+    let createdId = savedKinloomId;
+
+    // Step 1: ensure a draft row exists (idempotent on retry).
+    try {
+      if (!createdId) {
+        const created = await createKinloom({
+          type_slug: resolvedType.slug,
+          title: title.trim(),
+          body: body.trim(),
+          status: 'draft',
+          tagged_member_ids: taggedKin,
+          occurred_label: happenedWhen.trim() || null,
+          place: happenedWhere.trim() || null,
+          capture_mode: 'write',
+        });
+        createdId = created.id;
+        setSavedKinloomId(createdId);
+      } else {
+        // Sync the latest text/tags into the existing draft.
+        await updateKinloom(createdId, {
+          title: title.trim(),
+          body: body.trim(),
+          tagged_member_ids: taggedKin,
+          occurred_label: happenedWhen.trim() || null,
+          place: happenedWhere.trim() || null,
+        });
+      }
+    } catch (err) {
+      const msg = err instanceof ApiError
+        ? (err.firstFieldError() || err.message)
+        : 'Something went wrong saving your kinloom.';
+      setSaveError(msg);
+      setSaving(false);
+      return;
+    }
+
+    // Step 2 + 3: upload media. Errors here halt the publish step but
+    // the user keeps the draft + can retry / continue without media.
+    //
+    // Photos upload sequentially, one at a time; already-`done` items are
+    // skipped so a retry after a partial failure only re-uploads what's
+    // left, against the same draft.
+    // [CP2-diag] entry snapshot — count 0 means photos weren't in the
+    // working set at save time (client never saw them to upload).
+    console.log(
+      `[CP2-diag] handleSave photo loop — createdId=${createdId} photoItems.length=${photoItems.length}`,
+      photoItems.map(p => ({ status: p.status, name: p.file.name, size: p.file.size })),
+    );
+    if (createdId) {
+      for (const item of photoItems) {
+        if (item.status === 'done') {
+          console.log(`[CP2-diag] skipping already-done photo — name=${item.file.name}`);
+          continue;
+        }
+        const kinloomId = createdId;
+        console.log(`[CP2-diag] entering upload for photo — name=${item.file.name} id=${item.id}`);
+        setPhotoItems(prev => prev.map(p =>
+          p.id === item.id ? { ...p, status: 'uploading', error: undefined } : p
+        ));
+        try {
+          const confirmed = await uploadKinloomPhoto(kinloomId, item.file, {
+            width: item.width,
+            height: item.height,
+          });
+          setPhotoItems(prev => prev.map(p =>
+            p.id === item.id ? { ...p, status: 'done', mediaId: confirmed.id } : p
+          ));
+        } catch (uploadErr) {
+          const msg = uploadErr instanceof ApiError
+            ? (uploadErr.firstFieldError() || uploadErr.message)
+            : uploadErr instanceof Error
+              ? uploadErr.message
+              : 'Could not upload this photo.';
+          console.error('Photo upload failed:', uploadErr);
+          console.log(
+            `[CP2-diag] loop error on photo name=${item.file.name} — routing to photoUploadError banner (not handleSkipMedia; that's a separate manual action)`,
+            uploadErr instanceof ApiError ? { status: uploadErr.status, body: uploadErr.body } : uploadErr,
+          );
+          setPhotoItems(prev => prev.map(p =>
+            p.id === item.id ? { ...p, status: 'error', error: msg } : p
+          ));
+          setPhotoUploadError(msg);
+          setSaving(false);
+          return;
+        }
+      }
+    }
+
+    if (createdId) {
+      for (const item of videoItems) {
+        if (item.status === 'done') continue;
+        const kinloomId = createdId;
+        setVideoItems(prev => prev.map(v =>
+          v.id === item.id ? { ...v, status: 'uploading', error: undefined } : v
+        ));
+        try {
+          const confirmed = await uploadKinloomVideo(kinloomId, item.file, {
+            width: item.width,
+            height: item.height,
+            durationSeconds: item.durationSeconds,
+          });
+          setVideoItems(prev => prev.map(v =>
+            v.id === item.id ? { ...v, status: 'done', mediaId: confirmed.id } : v
+          ));
+        } catch (uploadErr) {
+          const msg = uploadErr instanceof ApiError
+            ? (uploadErr.firstFieldError() || uploadErr.message)
+            : uploadErr instanceof Error
+              ? uploadErr.message
+              : 'Could not upload this video.';
+          console.error('Video upload failed:', uploadErr);
+          setVideoItems(prev => prev.map(v =>
+            v.id === item.id ? { ...v, status: 'error', error: msg } : v
+          ));
+          setVideoUploadError(msg);
+          setSaving(false);
+          return;
+        }
+      }
+    }
+
+    if (voiceValue && createdId) {
+      try {
+        await uploadKinloomAudio(createdId, voiceValue.file, {
+          durationSeconds: voiceValue.durationSeconds,
+        });
+      } catch (uploadErr) {
+        const msg = uploadErr instanceof ApiError
+          ? (uploadErr.firstFieldError() || uploadErr.message)
+          : uploadErr instanceof Error
+            ? uploadErr.message
+            : 'Could not upload the voice recording.';
+        console.error('Voice upload failed:', uploadErr);
+        setVoiceUploadError(msg);
+        setSaving(false);
+        return;
+      }
+    }
+
+    // Step 4: the draft is complete. Hand it to the publish step, which
+    // finalizes it and chooses who can see it in one request.
+    setHandedOffId(createdId);
+    void revalidateKinloomData(createdId!);
+    router.push(`/create/publish?k=${createdId}`);
+  };
+
+  const handleSkipMedia = async () => {
+    if (!savedKinloomId) return;
+    setHandedOffId(savedKinloomId);
+    void revalidateKinloomData(savedKinloomId);
+    router.push(`/create/publish?k=${savedKinloomId}`);
+  };
+
+  const handleDiscard = async () => {
+    if (!savedKinloomId) {
+      if (!postToNative({ type: 'cancel' })) router.push('/create');
+      return;
+    }
+    setDiscarding(true);
+    try {
+      await deleteKinloom(savedKinloomId);
+    } catch {
+      // best-effort — we'd rather move on than block the user
+    } finally {
+      setSavedKinloomId(null);
+      setDiscarding(false);
+      void revalidateKinloomData(savedKinloomId);
+      if (!postToNative({ type: 'cancel' })) router.push('/create');
+    }
+  };
+
+  const toggleKin = (id: string) => {
+    setTaggedKin(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const otherMembers = useMemo(() => {
+    // Tag-from-me list hides the signed-in person. `person_id` is the id
+    // on their own person card, which is what the tag list carries.
+    const myMemberId = user?.person_id ?? null;
+    return taggableMembers.filter(m => m.member_id !== myMemberId);
+  }, [taggableMembers, user]);
+
+  const taggedKinObjects = useMemo(
+    () => taggedKin
+      .map(id => taggableMembers.find(m => m.member_id === id))
+      .filter((m): m is TaggableMember => !!m),
+    [taggedKin, taggableMembers],
+  );
+
+  return (
+    <div className="compose-page">
+
+      {/* Chrome: the flow-wide step indicator replaces the composer's
+          own 1-2-3 counter, so there is one progress signal, not two. */}
+      <div className="compose-page__chrome">
+        <NativeExitLink href="/create" message={{ type: 'cancel' }} className="create-page__back">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+          </svg>
+          Back to Create
+        </NativeExitLink>
+        <CreateSteps active={1} mode="write" />
+      </div>
+
+      {contextError && (
+        <p className="create-banner create-banner--error">{contextError}</p>
+      )}
+
+      {/* Step 1: Prompt */}
+      {step === 1 && (
+        <div style={{ maxWidth: 640 }}>
+          <p className="compose-types__label">What kind of kinloom is this?</p>
+          <div className="compose-types">
+            {KINLOOM_TYPES.map(t => (
+              <Link
+                key={t.slug}
+                href={`/create/${t.slug}`}
+                replace
+                className={`compose-type${t.slug === resolvedType.slug ? ' is-active' : ''}`}
+                aria-current={t.slug === resolvedType.slug ? 'true' : undefined}
+              >
+                {t.label}
+              </Link>
+            ))}
+          </div>
+          <h1 className="compose-page__title">
+            {resolvedType.definition}
+          </h1>
+          <p style={{ fontSize: 16, lineHeight: 1.65, color: 'rgba(26,26,26,0.65)', margin: '0 0 36px' }}>
+            Take a moment with this question. There&apos;s no rush.
+          </p>
+
+          <div className="prompt-block" style={{ marginBottom: 40 }}>
+            <p style={{ fontSize: 20, lineHeight: 1.7 }}>
+              &ldquo;{resolvedType.prompt}&rdquo;
+            </p>
+          </div>
+
+          <div className="compose-page__cta">
+            <button
+              onClick={() => setStep(2)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer' }}
+            >
+              Begin writing
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 12 L10 8 L6 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: Compose */}
+      {step === 2 && (
+        <div className="compose-grid">
+          <div>
+            <span style={{ display: 'inline-block', padding: '4px 12px', borderRadius: 9999, fontSize: 12, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b', marginBottom: 16 }}>
+              {resolvedType.label}
+            </span>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 32, margin: '0 0 24px', color: '#1a1a1a' }}>
+              Write your kinloom
+            </h2>
+
+            <div style={{ marginBottom: 20 }}>
+              <input
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="Give it a title…"
+                maxLength={255}
+                style={{ width: '100%', padding: '13px 16px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 17, fontFamily: 'var(--font-serif)', outline: 'none', color: '#1a1a1a', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <textarea
+              value={body}
+              onChange={e => setBody(e.target.value)}
+              placeholder="Write here. Say what matters. There is no wrong answer."
+              rows={14}
+              maxLength={65000}
+              style={{ width: '100%', padding: '16px', background: '#f5f4f1', border: '1px solid transparent', borderRadius: 8, fontSize: 16, fontFamily: 'var(--font-serif)', lineHeight: 1.75, resize: 'vertical', outline: 'none', color: '#1a1a1a', boxSizing: 'border-box' }}
+            />
+
+            <div className="compose-meta">
+              <div className="field">
+                <label htmlFor="kinloom-when">When did this happen?</label>
+                <input
+                  id="kinloom-when"
+                  type="text"
+                  value={happenedWhen}
+                  onChange={e => setHappenedWhen(e.target.value)}
+                  placeholder="A year, a season, or &lsquo;every July&rsquo;"
+                  maxLength={120}
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="kinloom-where">Where?</label>
+                <input
+                  id="kinloom-where"
+                  type="text"
+                  value={happenedWhere}
+                  onChange={e => setHappenedWhere(e.target.value)}
+                  placeholder="Optional"
+                  maxLength={120}
+                />
+              </div>
+            </div>
+
+            {/* Attachment options */}
+            <div style={{ display: 'flex', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setShowVoice(s => !s)}
+                className={`attach-btn ${hasVoice || showVoice ? 'attach-btn--on' : ''}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="22"/></svg>
+                {hasVoice ? 'Voice added' : 'Add voice'}
+              </button>
+              <button
+                onClick={handlePickPhoto}
+                className={`attach-btn ${hasPhoto ? 'attach-btn--on' : ''}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                {hasPhoto ? 'Add more photos' : 'Add photos'}
+              </button>
+              <button
+                onClick={handlePickVideo}
+                className={`attach-btn ${hasVideo ? 'attach-btn--on' : ''}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 16 12 10 15 10 9" fill="currentColor" stroke="none"/></svg>
+                {hasVideo ? 'Add more videos' : 'Add video'}
+              </button>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept={PHOTO_MIME_TYPES.join(',')}
+                multiple
+                onChange={handlePhotoChange}
+                className="visually-hidden"
+              />
+              <input
+                ref={videoInputRef}
+                type="file"
+                accept={VIDEO_MIME_TYPES.join(',')}
+                multiple
+                onChange={handleVideoChange}
+                className="visually-hidden"
+              />
+            </div>
+
+            {(showVoice || hasVoice) && (
+              <VoiceRecorder value={voiceValue} onChange={setVoiceValue} disabled={saving} />
+            )}
+
+            {photoError && (
+              <p className="create-banner create-banner--error create-banner--inline">
+                {photoError}
+              </p>
+            )}
+
+            {videoError && (
+              <p className="create-banner create-banner--error create-banner--inline">
+                {videoError}
+              </p>
+            )}
+
+            {photoItems.length > 0 && (
+              <PhotoThumbnailGrid items={photoItems} onRemove={handleRemovePhoto} disabled={saving} />
+            )}
+
+            {videoItems.length > 0 && (
+              <VideoThumbnailGrid items={videoItems} onRemove={handleRemoveVideo} disabled={saving} />
+            )}
+
+            <div className="compose-page__cta compose-page__cta--spaced">
+              <button
+                onClick={() => title.trim() && body.trim() && setStep(3)}
+                disabled={!title.trim() || !body.trim()}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: title.trim() && body.trim() ? 'pointer' : 'not-allowed', opacity: title.trim() && body.trim() ? 1 : 0.5 }}
+              >
+                Continue
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 12 L10 8 L6 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+              </button>
+              <button
+                onClick={() => setStep(1)}
+                style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 22px', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', cursor: 'pointer' }}
+              >
+                Back
+              </button>
+            </div>
+          </div>
+
+          {/* Tips sidebar */}
+          <div className="compose-grid__aside">
+            <div style={{ background: 'rgba(85,107,91,0.04)', border: '1px solid rgba(85,107,91,0.15)', borderRadius: 12, padding: '20px 18px' }}>
+              <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#556b5b' }}>Writing tips</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {[
+                  'Write to a specific person — it makes the voice more personal.',
+                  'Include a sensory detail: a smell, a sound, a texture. It makes memories last.',
+                  "It doesn't need to be long. A paragraph can hold a lifetime.",
+                  "Say what you've never found the right moment to say.",
+                ].map((tip, i) => (
+                  <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#556b5b', opacity: 0.5, flexShrink: 0, marginTop: 7 }} />
+                    <p style={{ margin: 0, fontSize: 13, lineHeight: 1.6, color: 'rgba(26,26,26,0.65)' }}>{tip}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 16, background: '#f5f4f1', borderRadius: 10, padding: '16px 16px' }}>
+              <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(26,26,26,0.45)' }}>The prompt</p>
+              <p style={{ margin: 0, fontSize: 13, fontStyle: 'italic', lineHeight: 1.65, color: 'rgba(26,26,26,0.6)' }}>
+                &ldquo;{resolvedType.prompt}&rdquo;
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Step 3: Tag & save */}
+      {step === 3 && (
+        <div className="compose-grid compose-grid--publish">
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 32, margin: '0 0 8px', color: '#1a1a1a' }}>
+              Almost there.
+            </h2>
+            <p style={{ fontSize: 15, color: 'rgba(26,26,26,0.6)', margin: '0 0 36px' }}>
+              Who is this kinloom for? And who should be able to see it?
+            </p>
+
+            {/* Tag kin */}
+            <div style={{ marginBottom: 32 }}>
+              <p style={{ fontSize: 14, fontWeight: 500, color: '#1a1a1a', margin: '0 0 12px' }}>Tag family members</p>
+              <p style={{ fontSize: 13, color: 'rgba(26,26,26,0.5)', margin: '0 0 14px' }}>Select anyone this kinloom is written to or about.</p>
+              {contextLoading && (
+                <p className="create-banner create-banner--muted">Loading family members…</p>
+              )}
+              {!contextLoading && otherMembers.length === 0 && (
+                <p className="create-banner create-banner--muted">No other family members to tag yet.</p>
+              )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+                {otherMembers.map(m => {
+                  const isTagged = taggedKin.includes(m.member_id);
+                  const firstName = m.name.split(' ')[0];
+                  return (
+                    <button
+                      key={m.member_id}
+                      onClick={() => toggleKin(m.member_id)}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '8px 14px 8px 10px', borderRadius: 9999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, border: `1px solid ${isTagged ? 'rgba(85,107,91,0.40)' : '#d4d2cc'}`, background: isTagged ? 'rgba(85,107,91,0.08)' : '#fff', color: isTagged ? '#556b5b' : 'rgba(26,26,26,0.7)' }}
+                    >
+                      <span style={{ width: 22, height: 22, borderRadius: '50%', background: m.tone + '33', border: `1px solid ${m.tone}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: m.tone, fontWeight: 600 }}>
+                        {m.initials ?? firstName.slice(0, 2).toUpperCase()}
+                      </span>
+                      {firstName}
+                      {isTagged && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 2 }}><polyline points="20 6 9 17 4 12" /></svg>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {saveError && (
+              <p className="create-banner create-banner--error">{saveError}</p>
+            )}
+
+            {photoUploadError && (
+              <div className="create-banner create-banner--error">
+                <p style={{ margin: '0 0 8px', fontWeight: 500 }}>Your kinloom was saved, but the photo failed to upload.</p>
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>{photoUploadError}</p>
+              </div>
+            )}
+
+            {videoUploadError && (
+              <div className="create-banner create-banner--error">
+                <p style={{ margin: '0 0 8px', fontWeight: 500 }}>Your kinloom was saved, but the video failed to upload.</p>
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>{videoUploadError}</p>
+              </div>
+            )}
+
+            {voiceUploadError && (
+              <div className="create-banner create-banner--error">
+                <p style={{ margin: '0 0 8px', fontWeight: 500 }}>Your kinloom was saved, but the voice recording failed to upload.</p>
+                <p style={{ margin: 0, fontSize: 12, opacity: 0.85 }}>{voiceUploadError}</p>
+              </div>
+            )}
+
+            {photoItems.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <PhotoThumbnailGrid items={photoItems} onRemove={handleRemovePhoto} disabled={saving} />
+              </div>
+            )}
+
+            {videoItems.length > 0 && (
+              <div style={{ marginBottom: 20 }}>
+                <VideoThumbnailGrid items={videoItems} onRemove={handleRemoveVideo} disabled={saving} />
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="btn-disabled-soft"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: saving ? 'not-allowed' : 'pointer' }}
+              >
+                {saving
+                  ? (hasPhoto || hasVideo || voiceValue ? 'Saving & uploading…' : 'Saving…')
+                  : (photoUploadError || videoUploadError || voiceUploadError)
+                    ? 'Retry upload'
+                    : savedKinloomId
+                      ? 'Continue'
+                      : 'Next: who can see it \u2192'}
+                {!saving && (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>
+                )}
+              </button>
+              {(photoUploadError || videoUploadError || voiceUploadError) && savedKinloomId && (
+                <button
+                  onClick={handleSkipMedia}
+                  disabled={saving}
+                  style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 22px', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', cursor: saving ? 'not-allowed' : 'pointer' }}
+                >
+                  Continue without media
+                </button>
+              )}
+              <button
+                onClick={() => setStep(2)}
+                disabled={saving || discarding}
+                style={{ display: 'inline-flex', alignItems: 'center', background: 'transparent', color: 'rgba(26,26,26,0.6)', border: '1px solid #d4d2cc', padding: '13px 22px', borderRadius: 8, fontSize: 15, fontFamily: 'inherit', cursor: (saving || discarding) ? 'not-allowed' : 'pointer' }}
+              >
+                Back
+              </button>
+              {savedKinloomId && !handedOffId && (
+                <button
+                  onClick={handleDiscard}
+                  disabled={saving || discarding}
+                  className="btn-danger-outline"
+                >
+                  {discarding ? 'Discarding…' : 'Discard draft'}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Preview sidebar */}
+          <div className="compose-grid__aside">
+            <div style={{ background: '#fff', border: '1px solid #d4d2cc', borderRadius: 12, padding: '20px' }}>
+              <p style={{ margin: '0 0 14px', fontSize: 11, fontWeight: 500, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(26,26,26,0.4)' }}>Preview</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <span style={{ display: 'inline-block', padding: '3px 10px', borderRadius: 9999, fontSize: 11, fontWeight: 500, background: 'rgba(85,107,91,0.10)', color: '#556b5b' }}>
+                  {resolvedType.label}
+                </span>
+              </div>
+              <h3 style={{ fontFamily: 'var(--font-serif)', fontWeight: 400, fontSize: 20, margin: '0 0 10px', color: '#1a1a1a', lineHeight: 1.3 }}>
+                {title || <span style={{ color: 'rgba(26,26,26,0.3)' }}>Untitled</span>}
+              </h3>
+              <p style={{ fontSize: 14, lineHeight: 1.65, color: 'rgba(26,26,26,0.65)', margin: '0 0 14px', display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                {body || <span style={{ color: 'rgba(26,26,26,0.3)' }}>Your writing will appear here…</span>}
+              </p>
+              {(hasVoice || hasPhoto || hasVideo) && (
+                <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                  {hasVoice && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'rgba(26,26,26,0.45)' }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="17" x2="12" y2="22"/></svg>
+                      Voice
+                    </span>
+                  )}
+                  {hasPhoto && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'rgba(26,26,26,0.45)' }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+                      Photo
+                    </span>
+                  )}
+                  {hasVideo && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'rgba(26,26,26,0.45)' }}>
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><polygon points="10 9 16 12 10 15 10 9" fill="currentColor" stroke="none"/></svg>
+                      Video
+                    </span>
+                  )}
+                </div>
+              )}
+              {taggedKinObjects.length > 0 && (
+                <div>
+                  <p style={{ margin: '0 0 6px', fontSize: 11, color: 'rgba(26,26,26,0.4)' }}>For</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {taggedKinObjects.map(m => (
+                      <span key={m.member_id} style={{ fontSize: 12, color: 'rgba(26,26,26,0.65)', background: '#f5f4f1', borderRadius: 9999, padding: '2px 8px' }}>
+                        {m.name.split(' ')[0]}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #e8e6e1' }}>
+                <p style={{ margin: 0, fontSize: 11, color: 'rgba(26,26,26,0.4)' }}>
+                  Private until you publish
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
