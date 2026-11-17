@@ -24,6 +24,7 @@ import {
   type KinloomType,
   type TaggableMember,
 } from '../../../../lib/kinloom';
+import { HEIC_ACCEPT, needsPreparing, prepareImageFiles } from '../../../../lib/image-normalize';
 import { ApiError } from '../../../../lib/api';
 import { postToNative } from '../../../../lib/embed';
 import NativeExitLink from '../../../components/NativeExitLink';
@@ -185,6 +186,8 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [photoUploadError, setPhotoUploadError] = useState<string | null>(null);
+  // True while picked HEIC photos are being converted to JPEG.
+  const [preparingPhotos, setPreparingPhotos] = useState(0);
   const [videoUploadError, setVideoUploadError] = useState<string | null>(null);
   const [voiceUploadError, setVoiceUploadError] = useState<string | null>(null);
   /**
@@ -333,11 +336,16 @@ export default function CreateTypePage({ params }: { params: { type: string } })
   };
 
   const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
+    const picked = Array.from(e.target.files ?? []);
     e.target.value = '';
-    if (files.length === 0) return;
+    if (picked.length === 0) return;
 
-    const errors: string[] = [];
+    // HEIC/HEIF → JPEG first; the checks below then see only API-ready files.
+    if (needsPreparing(picked)) setPreparingPhotos(picked.length);
+    const prepared = await prepareImageFiles(picked).finally(() => setPreparingPhotos(0));
+    const files = prepared.files;
+
+    const errors: string[] = [...prepared.errors];
     const accepted: File[] = [];
 
     for (const file of files) {
@@ -773,10 +781,14 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               </button>
               <button
                 onClick={handlePickPhoto}
+                disabled={preparingPhotos > 0}
+                aria-busy={preparingPhotos > 0 || undefined}
                 className={`attach-btn ${hasPhoto ? 'attach-btn--on' : ''}`}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-                {hasPhoto ? 'Add more photos' : 'Add photos'}
+                {preparingPhotos > 0
+                  ? `Preparing ${preparingPhotos === 1 ? 'photo' : `${preparingPhotos} photos`}\u2026`
+                  : hasPhoto ? 'Add more photos' : 'Add photos'}
               </button>
               <button
                 onClick={handlePickVideo}
@@ -788,7 +800,7 @@ export default function CreateTypePage({ params }: { params: { type: string } })
               <input
                 ref={photoInputRef}
                 type="file"
-                accept={PHOTO_MIME_TYPES.join(',')}
+                accept={`${PHOTO_MIME_TYPES.join(',')},${HEIC_ACCEPT}`}
                 multiple
                 onChange={handlePhotoChange}
                 className="visually-hidden"
@@ -830,8 +842,8 @@ export default function CreateTypePage({ params }: { params: { type: string } })
             <div className="compose-page__cta compose-page__cta--spaced">
               <button
                 onClick={() => title.trim() && body.trim() && setStep(3)}
-                disabled={!title.trim() || !body.trim()}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: title.trim() && body.trim() ? 'pointer' : 'not-allowed', opacity: title.trim() && body.trim() ? 1 : 0.5 }}
+                disabled={!title.trim() || !body.trim() || preparingPhotos > 0}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '13px 28px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: title.trim() && body.trim() && preparingPhotos === 0 ? 'pointer' : 'not-allowed', opacity: title.trim() && body.trim() && preparingPhotos === 0 ? 1 : 0.5 }}
               >
                 Continue
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 12 L10 8 L6 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>

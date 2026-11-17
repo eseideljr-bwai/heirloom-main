@@ -75,6 +75,11 @@ function buildCsp(nonce: string, isDev: boolean): string {
     // Allow inline styles — React emits `style="..."` attributes and
     // the codebase uses them widely. Moving to a nonce'd style-src
     // would require purging hundreds of inline-style call sites.
+    // HEIC photo conversion (lib/image-normalize.ts) decodes in a Web Worker
+    // that heic-to starts from a blob: URL. Without worker-src, workers fall
+    // back to script-src, which allows no blob: and would block the decoder.
+    // Only script already running on the page can mint a blob: worker.
+    `worker-src 'self' blob:`,
     `style-src 'self' 'unsafe-inline'`,
     // GCS-hosted media (signed download URLs returned by /media/{id}/url).
     // Also Google Tag Manager / GA4 beacons (pixel fallback).
