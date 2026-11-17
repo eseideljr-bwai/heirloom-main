@@ -50,6 +50,7 @@ import {
   touchActivity,
 } from './api';
 import { postToNative } from './embed';
+import { clearAllTalkConversations } from './agent/conversation-store';
 import { useEmbedded } from './embed-context';
 
 type AuthContextValue = {
@@ -118,6 +119,9 @@ export function AuthProvider({ children, initialUser = null }: AuthProviderProps
 
   const logout = useCallback(async () => {
     await apiLogout();
+    // Unsaved Talk conversations are full transcripts kept on this device;
+    // don't leave them behind for the next person on a shared browser.
+    clearAllTalkConversations();
     setUser(null);
     broadcast('logout');
   }, [broadcast]);

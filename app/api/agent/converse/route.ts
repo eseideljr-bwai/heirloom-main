@@ -16,6 +16,7 @@ import { NextResponse } from 'next/server';
 import { resolveActiveSpaceForRoute } from '../../../../lib/server/auth';
 import { getAnthropicClient, AGENT_MODEL, AGENT_MAX_TOKENS, AGENT_EFFORT } from '../../../../lib/agent/client';
 import { SYSTEM_PROMPT } from '../../../../lib/agent/system-prompt';
+import { loadTalkContextPrompt } from '../../../../lib/agent/talk-context';
 import { CONVERSE_TOOLS } from '../../../../lib/agent/tools';
 import { isEmptyContent } from '../../../../lib/agent/content';
 import { findToolUse, turnIsTruncated } from '../../../../lib/agent/truncation';
@@ -94,13 +95,27 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
+  // What Talk knows about this member (their Home, kinlooms, drafts, notes).
+  // Loaded on every turn, the first included, so the agent knows them from its
+  // very first reply. Null on failure: Talk carries on without it.
+  const memberContext = await loadTalkContextPrompt();
+  console.log(`[agent/converse] member_context=${memberContext ? `${memberContext.length}chars` : 'none'}`);
+
+  // The fixed interviewer prompt is cached (it is identical for every member
+  // and every turn); the member's block follows it uncached, so a change to
+  // their notes or kinlooms never invalidates the large prefix.
+  const system: Anthropic.TextBlockParam[] = [
+    { type: 'text', text: SYSTEM_PROMPT, cache_control: { type: 'ephemeral' } },
+    ...(memberContext ? [{ type: 'text' as const, text: memberContext }] : []),
+  ];
+
   try {
     const client = getAnthropicClient();
     const ask = (msgs: ConverseRequest['messages']) =>
       client.messages.create({
         model: AGENT_MODEL,
         max_tokens: AGENT_MAX_TOKENS,
-        system: SYSTEM_PROMPT,
+        system,
         tools: CONVERSE_TOOLS,
         output_config: { effort: AGENT_EFFORT },
         messages: msgs,

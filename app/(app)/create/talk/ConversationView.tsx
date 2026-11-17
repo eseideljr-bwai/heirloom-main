@@ -3,12 +3,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ContentBlock, MessageParam, ConverseResponse } from '../../../../lib/agent/types';
-import { loadTalkSession, saveTalkSession, clearTalkSession } from '../../../../lib/agent/client-storage';
+import {
+  type SavedConversation,
+  getActiveConversationId,
+  hasMemberWords,
+  isSaved,
+  listConversations,
+  migrateLegacySession,
+  newConversationId,
+  pruneUnsaved,
+  removeConversation,
+  saveConversation,
+  setActiveConversationId,
+  setConversationSaved,
+} from '../../../../lib/agent/conversation-store';
 import { isEmptyContent, sanitizeStoredMessages } from '../../../../lib/agent/content';
 import { reportUnauthorized } from '../../../../lib/embed';
+import { useAuth } from '../../../../lib/auth-context';
 import NativeExitLink from '../../../components/NativeExitLink';
 import { ShapingCard, type ProposeDraftInput } from './ShapingCard';
 import { SplitCard, type SplitIntoMultipleInput } from './SplitCard';
+import UnfinishedConversations from './UnfinishedConversations';
 
 // ─── Turn types ───────────────────────────────────────────────────────────────
 
@@ -27,10 +42,24 @@ type Turn = UserTurn | AssistantTurn;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function makeOpener(): AssistantTurn {
+/**
+ * The name the opener greets the member by: the name they chose to be called
+ * (`display_name`, used whole: it may be "Grandpa Joe"), else the first word
+ * of their full name. Empty when neither is known.
+ */
+function greetingName(user: { display_name?: string | null; name?: string | null } | null): string {
+  const display = user?.display_name?.trim();
+  if (display) return display;
+  return user?.name?.trim().split(/\s+/)[0] ?? '';
+}
+
+function makeOpener(firstName: string): AssistantTurn {
+  const text = firstName
+    ? `Welcome, ${firstName}. What would you like to share today?`
+    : 'Welcome. What would you like to share today?';
   return {
     role: 'assistant',
-    content: [{ type: 'text', text: 'What’s on your mind?' }] as ContentBlock[],
+    content: [{ type: 'text', text }] as ContentBlock[],
     stop_reason: 'end_turn',
     synthetic: true,
   };
@@ -48,6 +77,35 @@ function turnsToMessages(turns: Turn[]): MessageParam[] {
       }
       return { role: 'user' as const, content: t.content };
     });
+}
+
+/**
+ * Rebuild display turns from a stored transcript (healed first: see
+ * sanitizeStoredMessages). A transcript that ends on a proposal (an assistant
+ * tool_use the member never answered) comes back with stop_reason 'tool_use',
+ * so its card shows again and the composer stays blocked until they choose:
+ * restoring it as a plain turn would leave an unpaired tool_use that 400s on
+ * the next send.
+ */
+function messagesToTurns(stored: MessageParam[]): Turn[] {
+  const messages = sanitizeStoredMessages(stored);
+  return messages.map((m, i) => {
+    if (m.role === 'user') {
+      if (Array.isArray(m.content)) {
+        return {
+          role: 'user',
+          content: m.content as ToolResultUserTurn['content'],
+          _tool_result: true,
+        } as ToolResultUserTurn;
+      }
+      return { role: 'user', content: typeof m.content === 'string' ? m.content : '' } as TextUserTurn;
+    }
+    const content = (
+      Array.isArray(m.content) ? m.content : [{ type: 'text', text: String(m.content) }]
+    ) as ContentBlock[];
+    const endsOnProposal = i === messages.length - 1 && getToolUse(content) !== null;
+    return { role: 'assistant', content, stop_reason: endsOnProposal ? 'tool_use' : 'end_turn' };
+  });
 }
 
 function getTextParagraphs(content: ContentBlock[]): string[] {
@@ -119,55 +177,134 @@ function UserQuote({ content }: { content: string }) {
 
 export default function ConversationView() {
   const router = useRouter();
+  const { user } = useAuth();
+  const firstName = greetingName(user);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  // The conversation open in this tab, and the member's saved ones (the rail).
+  const accountId = user?.id ?? '';
+  const [activeId, setActiveId] = useState('');
+  const [saved, setSaved] = useState<SavedConversation[]>([]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  // Hydrate from sessionStorage on mount.
+  // Hydrate on mount (and again if the signed-in account changes): reopen this
+  // tab's conversation if it is still saved, else start a new one.
   useEffect(() => {
-    // Heal any already-poisoned session: drop empty-content turns (and trim
-    // back to a clean resume point) so a corrupted transcript recovers instead
-    // of 400ing on every send. No-op for healthy sessions.
-    const stored = sanitizeStoredMessages(loadTalkSession());
-    if (stored.length > 0) {
-      const restored: Turn[] = stored.map(m => {
-        if (m.role === 'user') {
-          if (Array.isArray(m.content)) {
-            return {
-              role: 'user',
-              content: m.content as ToolResultUserTurn['content'],
-              _tool_result: true,
-            } as ToolResultUserTurn;
-          }
-          return { role: 'user', content: typeof m.content === 'string' ? m.content : '' } as TextUserTurn;
-        }
-        const content = (
-          Array.isArray(m.content) ? m.content : [{ type: 'text', text: String(m.content) }]
-        ) as ContentBlock[];
-        return { role: 'assistant', content, stop_reason: 'end_turn' };
-      });
-      setTurns([makeOpener(), ...restored]);
+    const migratedId = migrateLegacySession(accountId);
+    const list = listConversations(accountId);
+    const wanted = getActiveConversationId() ?? migratedId;
+    // Unsaved conversations live only while open: drop any a closed tab left.
+    pruneUnsaved(accountId, wanted);
+    const current = wanted ? list.find(c => c.id === wanted) : undefined;
+    if (current) {
+      setActiveId(current.id);
+      setTurns([makeOpener(firstName), ...messagesToTurns(current.messages)]);
     } else {
-      setTurns([makeOpener()]);
+      const id = newConversationId();
+      setActiveConversationId(id);
+      setActiveId(id);
+      setTurns([makeOpener(firstName)]);
     }
+    setSaved(listConversations(accountId));
     setHydrated(true);
-  }, []);
+    // firstName is read once here; the effect below keeps it current.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
 
-  // Persist real (non-synthetic) turns to sessionStorage after every change.
+  // Keep the greeting's name current if the user object changes after mount
+  // (e.g. it arrives late or the member renames themselves). Only the
+  // synthetic opener is touched; it is never sent to the API.
   useEffect(() => {
-    if (!hydrated) return;
-    const messages = turnsToMessages(turns);
-    if (messages.length === 0) {
-      clearTalkSession();
-    } else {
-      saveTalkSession(messages);
+    setTurns(prev =>
+      prev.map(t => (t.role === 'assistant' && (t as AssistantTurn).synthetic ? makeOpener(firstName) : t)),
+    );
+  }, [firstName]);
+
+  // Store the open conversation after every change, so a reload never loses
+  // it. It shows in the rail only once saved (Save conversation); after that
+  // the saved copy keeps updating as the member keeps talking.
+  useEffect(() => {
+    if (!hydrated || !activeId) return;
+    saveConversation(accountId, activeId, turnsToMessages(turns));
+    setSaved(listConversations(accountId));
+  }, [turns, hydrated, activeId, accountId]);
+
+  /**
+   * Open a brand-new, empty conversation. The one being left is cleared unless
+   * it was saved, in which case it stays in the rail.
+   */
+  const startNewConversation = () => {
+    const leaving = saved.find(c => c.id === activeId);
+    if (leaving && !isSaved(leaving)) removeConversation(accountId, activeId);
+    const id = newConversationId();
+    setActiveConversationId(id);
+    setActiveId(id);
+    setTurns([makeOpener(firstName)]);
+    setDraft('');
+    setError(null);
+  };
+
+  /** Reopen a saved conversation from the rail (after confirmLeave). */
+  const openConversation = (id: string) => {
+    const conversation = saved.find(c => c.id === id);
+    if (!conversation) return;
+    const leaving = saved.find(c => c.id === activeId);
+    if (leaving && !isSaved(leaving)) removeConversation(accountId, activeId);
+    setActiveConversationId(id);
+    setActiveId(id);
+    setTurns([makeOpener(firstName), ...messagesToTurns(conversation.messages)]);
+    setDraft('');
+    setError(null);
+  };
+
+  /**
+   * The rail's ×. For the open conversation it only un-saves it (it stays on
+   * screen, and Start fresh will then clear it); any other is deleted.
+   */
+  const handleDiscardConversation = (id: string) => {
+    if (sending) return;
+    if (id === activeId) setConversationSaved(accountId, id, false);
+    else removeConversation(accountId, id);
+    setSaved(listConversations(accountId));
+  };
+
+  /** Save conversation: the open conversation joins the rail. */
+  const handleSaveConversation = () => {
+    if (sending || !activeId) return;
+    // The effect above has already stored it; mark it saved.
+    saveConversation(accountId, activeId, turnsToMessages(turns));
+    setConversationSaved(accountId, activeId, true);
+    setSaved(listConversations(accountId));
+  };
+
+  // ── Leaving the open conversation (Start fresh, or opening another) ────────
+  // When it holds the member's words, confirm first: unsaved, it is cleared;
+  // saved, it waits in the rail.
+  type LeaveAction = { kind: 'fresh' } | { kind: 'open'; id: string };
+  const [pendingLeave, setPendingLeave] = useState<LeaveAction | null>(null);
+
+  const leaveNow = (action: LeaveAction) => {
+    setPendingLeave(null);
+    if (action.kind === 'fresh') startNewConversation();
+    else openConversation(action.id);
+  };
+
+  const confirmLeave = (action: LeaveAction) => {
+    if (sending) return;
+    if (action.kind === 'open' && action.id === activeId) return;
+    if (!hasMemberWords(turnsToMessages(turns))) {
+      leaveNow(action);
+      return;
     }
-  }, [turns, hydrated]);
+    setPendingLeave(action);
+  };
+
+  const handleOpenConversation = (id: string) => confirmLeave({ kind: 'open', id });
 
   // Scroll to bottom after new content appears.
   useEffect(() => {
@@ -300,31 +437,25 @@ export default function ConversationView() {
     try {
       sessionStorage.setItem('kinloom:draft-handoff', JSON.stringify({ title, type_slug, body }));
     } catch {
-      clearTalkSession();
-      setTurns([makeOpener()]);
-      setDraft('');
-      setError('Could not open the editor — storage may be full. Your conversation has been cleared.');
+      // The conversation stays saved in the rail, so nothing is lost.
+      setError('Could not open the editor. Storage may be full; please try again.');
       return;
     }
-    clearTalkSession();
+    // Shaped into a kinloom: it no longer waits in the rail, saved or not. Point this tab at
+    // a fresh conversation for when the member comes back to Talk.
+    removeConversation(accountId, activeId);
+    setActiveConversationId(newConversationId());
     router.push(`/create/${type_slug}`);
   };
 
   type ProposedKinloom = SplitIntoMultipleInput['proposed_kinlooms'][number];
   const handleDevelopFirst = (kinloom: ProposedKinloom, toolUseId: string) => {
     console.log('[kinloom develop first]', kinloom, 'tool_use_id:', toolUseId);
-    clearTalkSession();
-    setTurns([makeOpener()]);
-    setDraft('');
-    setError(null);
+    startNewConversation();
   };
 
-  const handleStartOver = () => {
-    clearTalkSession();
-    setTurns([makeOpener()]);
-    setDraft('');
-    setError(null);
-  };
+  /** Start fresh (and the Shaping card's start over): confirm, then clear. */
+  const handleStartOver = () => confirmLeave({ kind: 'fresh' });
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -344,7 +475,10 @@ export default function ConversationView() {
   );
   const isAwaitingCard = pendingToolUse !== null;
   const canSend = draft.trim().length > 0 && !sending && !isAwaitingCard;
-  const hasHistory = turns.filter(t => !('synthetic' in t && (t as AssistantTurn).synthetic)).length > 0;
+  const hasWords = hasMemberWords(turnsToMessages(turns));
+  const openSaved = saved.find(c => c.id === activeId);
+  const isOpenSaved = !!openSaved && isSaved(openSaved);
+  const railItems = saved.filter(isSaved);
 
   return (
     <div className="chat-flow">
@@ -376,16 +510,18 @@ export default function ConversationView() {
           Talk
         </span>
 
-        {hasHistory && !sending && (
-          <button
-            onClick={handleStartOver}
-            className="text-btn text-btn--muted"
-          >
-            Start fresh
-          </button>
-        )}
-        {!hasHistory && <span style={{ width: 70 }} />}
+        <span style={{ width: 70 }} aria-hidden="true" />
       </div>
+
+      {/* ── Thread + unfinished-conversations rail ─────────────────────── */}
+      <div className="chat-flow__body">
+      <UnfinishedConversations
+        conversations={railItems}
+        activeId={activeId}
+        disabled={sending}
+        onOpen={handleOpenConversation}
+        onDiscard={handleDiscardConversation}
+      />
 
       {/* ── Conversation scroll area ────────────────────────────────── */}
       <div className="chat-flow__thread">
@@ -486,6 +622,7 @@ export default function ConversationView() {
           <div ref={endRef} style={{ height: 40 }} />
         </div>
       </div>
+      </div>
 
       {/* ── Input bar ──────────────────────────────────────────────── */}
       <div className={`chat-flow__composer${isAwaitingCard ? ' is-blocked' : ''}`}>
@@ -549,7 +686,73 @@ export default function ConversationView() {
         <p className="chat-flow__hint">
           Enter to send &middot; Shift+Enter for a new line
         </p>
+
+        {/* Not dimmed by is-blocked: saving or starting over stays possible
+            while a Shaping or Split card waits for an answer. */}
+        <div className="chat-flow__actions">
+          <button
+            type="button"
+            className="btn-outline btn-outline--sm"
+            onClick={handleSaveConversation}
+            disabled={sending || !hasWords || isOpenSaved}
+            title={isOpenSaved ? 'Saved. It keeps updating as you talk.' : undefined}
+          >
+            {isOpenSaved ? 'Saved' : 'Save conversation'}
+          </button>
+          <button
+            type="button"
+            className="btn-outline btn-outline--sm"
+            onClick={handleStartOver}
+            disabled={sending}
+          >
+            Start fresh
+          </button>
+        </div>
       </div>
+
+      {pendingLeave && (
+        <div
+          className="modal-backdrop"
+          onClick={e => { if (e.target === e.currentTarget) setPendingLeave(null); }}
+          onKeyDown={e => { if (e.key === 'Escape') setPendingLeave(null); }}
+        >
+          <div className="modal" role="alertdialog" aria-modal="true" aria-labelledby="talk-leave-title" aria-describedby="talk-leave-text">
+            {isOpenSaved ? (
+              <>
+                <h3 id="talk-leave-title" className="modal-title">
+                  {pendingLeave.kind === 'fresh' ? 'Start fresh?' : 'Switch conversations?'}
+                </h3>
+                <p id="talk-leave-text" className="modal-text">
+                  This conversation is saved. It will wait under Unfinished conversations, so you can pick it back up.
+                </p>
+              </>
+            ) : (
+              <>
+                <h3 id="talk-leave-title" className="modal-title">Clear this conversation?</h3>
+                <p id="talk-leave-text" className="modal-text">
+                  {pendingLeave.kind === 'fresh' ? 'Starting fresh' : 'Opening another conversation'} will clear
+                  this one. It hasn&rsquo;t been saved, so it can&rsquo;t be brought back. To keep it, choose Save
+                  conversation first.
+                </p>
+              </>
+            )}
+            <div className="modal-actions">
+              <button type="button" className="btn-outline" onClick={() => setPendingLeave(null)} autoFocus>
+                Keep talking
+              </button>
+              <button
+                type="button"
+                className={isOpenSaved ? 'btn-primary' : 'btn-danger-solid'}
+                onClick={() => leaveNow(pendingLeave)}
+              >
+                {isOpenSaved
+                  ? (pendingLeave.kind === 'fresh' ? 'Start fresh' : 'Open it')
+                  : (pendingLeave.kind === 'fresh' ? 'Clear and start fresh' : 'Clear and open')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
