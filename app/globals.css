@@ -8390,6 +8390,7 @@ img.portrait-kin__img { object-fit: cover; }
   margin: 8px 0 6px;
 }
 .gs-tip__body { font-size: 13.5px; line-height: 1.55; margin: 0; }
+.gs-tip__body + .gs-tip__body { margin-top: 8px; }
 .gs-tip__where { font-size: 12px; line-height: 1.5; color: rgba(253, 252, 250, 0.75); margin: 10px 0 0; }
 /* Done on its own line; Previous left, Next right beneath it. */
 .gs-tip__foot {

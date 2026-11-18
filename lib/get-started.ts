@@ -54,7 +54,8 @@ export type GetStartedStep = {
   /** Whether the tip belongs on this page. The `/me` routes redirect to a person id. */
   matches: (pathname: string, ctx: MatchContext) => boolean;
   anchor: TipAnchor;
-  tip: string;
+  /** The tip's body. A list renders as separate paragraphs. */
+  tip: string | string[];
   where: string;
 };
 
@@ -123,7 +124,11 @@ const STEPS: Omit<GetStartedStep, 'n'>[] = [
     href: '/home/manage',
     matches: p => p === '/home/manage',
     anchor: 'manage',
-    tip: 'Invite the people in your home and manage seats — up to three accounts, plus family profiles for anyone without one. You can also choose what Home features.',
+    tip: [
+      'Your Family Home is your immediate family: you, your spouse, and your children who live with you. For most families, that’s a couple using two of the three seats, with the kids added as free family profiles. A Home can also be just you.',
+      'Invite your immediate family, and add profiles for anyone without an account, like a young child.',
+      'Live with roommates or extended family? Each household keeps its own Home. You can connect Homes later through a Family Space.',
+    ],
     where: 'Manage Home, in the main navigation.',
   },
   {
