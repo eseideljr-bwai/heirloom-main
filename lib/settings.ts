@@ -25,6 +25,15 @@ export function patchSettings(changes: SettingsChanges): Promise<Settings> {
   return kinloomApi.patch('/me/settings', { body: changes });
 }
 
+/**
+ * Accept the current Terms of Use and Trust & Privacy Policy. Only `true` can
+ * be sent: the server sets the versions and time, and consent isn't withdrawn
+ * through the API. Accepting again while consent is current changes nothing.
+ */
+export function acceptConsent(): Promise<Settings> {
+  return patchSettings({ consent: { consent_given: true } });
+}
+
 /** PATCH /me/profile: send only what changed. */
 export function patchProfile(changes: ProfileChanges): Promise<Profile> {
   return kinloomApi.patch('/me/profile', { body: changes });

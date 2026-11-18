@@ -1,6 +1,8 @@
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { getUserState } from '../../lib/server/auth';
 import { isEmbeddedRequest } from '../../lib/server/embed';
+import { getConsentGiven, safeConsentNext } from '../../lib/server/consent';
 import AppShell from '../components/AppShell';
 import MemorializedNotice from '../components/MemorializedNotice';
 
@@ -22,6 +24,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // Finish the profile step first. In the iOS WebView onboarding is a native
   // screen, so AppShell asks native to close instead of redirecting.
   if (state.status === 'onboarding' && !isEmbeddedRequest()) redirect('/onboarding/profile');
+
+  // Someone who hasn't accepted the current Terms and Privacy Policy (never,
+  // or before a version change) accepts them before using the app. Unknown
+  // (settings unreadable) lets them through; the next load checks again.
+  if (state.status === 'ready' && (await getConsentGiven()) === false) {
+    const next = safeConsentNext(headers().get('x-kinloom-path'));
+    redirect(`/consent?next=${encodeURIComponent(next)}`);
+  }
 
   // The email-verified check belongs here too, but ships with the Laravel
   // half — enabling it alone locks out accounts created while both were open.
