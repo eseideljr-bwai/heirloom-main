@@ -156,7 +156,7 @@ export default function PrivacyClient({
         <section className="card card--flush" aria-labelledby="sec-pass">
           <h2 className="settings-h2 settings-h2--tight settings-h2--pad" id="sec-pass">After I pass</h2>
           <p className="notif-row__desc notif-row__desc--pad">
-            These only happen if your legacy contact asks for your account to be memorialized, and
+            These only happen if your backup member asks for your account to be memorialized, and
             never before.
           </p>
           {renderSwitch({
@@ -178,8 +178,14 @@ export default function PrivacyClient({
 
       <div className="privacy-note">
         <p>
-          Kinloom is private by design. Your content is never shared publicly and is never used to
-          train AI models.
+          Kinloom is private by design. Your content is never shared publicly, never sold, and never
+          used to train public or outside AI models. We use it only within Kinloom to run and
+          improve your family’s features.
+        </p>
+        <p style={{ marginTop: 8 }}>
+          <a href="https://kinloom.com/privacy-policy" target="_blank" rel="noopener noreferrer">
+            Privacy Policy
+          </a>
         </p>
       </div>
     </div>
@@ -220,10 +226,10 @@ function LegacyContactCard({
         kind: 'ok',
         text: me.legacy_contact
           ? 'Saved. We don’t email them, so let them know yourself.'
-          : 'Removed. You have no legacy contact now.',
+          : 'Removed. You have no backup member now.',
       });
     } catch (err) {
-      setMsg({ kind: 'error', text: errorText(err, 'Could not save your legacy contact.') });
+      setMsg({ kind: 'error', text: errorText(err, 'Could not save your backup member.') });
     } finally {
       setBusy(false);
     }
@@ -247,7 +253,7 @@ function LegacyContactCard({
 
   return (
     <section className="card" aria-labelledby="sec-contact">
-      <h2 className="settings-h2 settings-h2--tight" id="sec-contact">Legacy contact</h2>
+      <h2 className="settings-h2 settings-h2--tight" id="sec-contact">Backup member</h2>
       <p className="settings-card-text">
         Someone you trust to speak for you. Once linked, they can ask for your account to be
         memorialized, and afterwards they can see where your kinlooms are published and withdraw them.
@@ -289,7 +295,7 @@ function LegacyContactCard({
         )}
         <div className="vis-row">
           <button type="submit" className="btn-save" disabled={busy || unchanged || !trimmed}>
-            {busy ? 'Saving…' : current ? 'Change contact' : 'Save contact'}
+            {busy ? 'Saving…' : current ? 'Change backup member' : 'Save backup member'}
           </button>
           {current && (
             <button type="button" className="btn-outline" onClick={() => void save(null)} disabled={busy}>
@@ -320,7 +326,7 @@ function LegacyContactCard({
                   </span>
                 ) : (
                   <button type="button" className="btn-outline" onClick={() => setConfirmStop(p.person_id)} disabled={busy}>
-                    Stop being their contact
+                    Stop being their backup member
                   </button>
                 )}
               </li>

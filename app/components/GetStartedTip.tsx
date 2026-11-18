@@ -141,7 +141,9 @@ export default function GetStartedTip({ user }: { user: AuthUser }) {
         </button>
       </div>
       <h2 id={titleId} className="gs-tip__title">{step.title}</h2>
-      <p className="gs-tip__body">{step.tip}</p>
+      {(Array.isArray(step.tip) ? step.tip : [step.tip]).map((para, i) => (
+        <p key={i} className="gs-tip__body">{para}</p>
+      ))}
       <p className="gs-tip__where">{step.where}</p>
 
       <div className="gs-tip__foot">

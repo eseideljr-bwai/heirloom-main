@@ -33,6 +33,7 @@ import {
  */
 
 const SESSION_COOKIE = 'kinloom_session';
+const PATH_REQUEST_HEADER = 'x-kinloom-path';
 
 const PROTECTED_PREFIXES = [
   '/home',
@@ -46,6 +47,8 @@ const PROTECTED_PREFIXES = [
   // this screen). The verified-email gate lives in the (app)/onboarding
   // server layouts, which deliberately don't cover this route.
   '/verify-email',
+  // Accepting the current Terms and Privacy Policy (see the (app) layout).
+  '/consent',
 ];
 
 const AUTH_ENTRY_PATHS = new Set(['/', '/login', '/signup']);
@@ -174,6 +177,9 @@ export function middleware(req: NextRequest) {
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('content-security-policy', csp);
   // Always overwritten, so a client can't smuggle in its own value.
+  // The path being rendered, for server layouts that redirect and need to
+  // send the person back afterwards (the consent gate). Always overwritten.
+  requestHeaders.set(PATH_REQUEST_HEADER, pathname + (search || ''));
   if (embed.embedded) requestHeaders.set(EMBED_REQUEST_HEADER, EMBED_IOS);
   else requestHeaders.delete(EMBED_REQUEST_HEADER);
 

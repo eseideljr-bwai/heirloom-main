@@ -50,7 +50,7 @@ export default async function FamilyLegacyBankPage({ searchParams }: { searchPar
       <h1 className="fb-page__title">Ask about {spaceName}.</h1>
       <p className="fb-page__lead">
         One question, every kinloom published into this Family Space. No invented facts.
-        No impersonation. Just deeper access to what its Homes chose to share.
+        No impersonation, except &apos;As Me&apos;, which each person creates for themselves. Just deeper access to what its Homes chose to share.
       </p>
 
       <div className="fb-grid">

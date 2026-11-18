@@ -9,7 +9,7 @@ const FAQS = [
   },
   {
     q: 'How does the AI Legacy Bank work?',
-    a: 'The AI Legacy Bank lets family members ask questions about a person\'s stories, lessons, and beliefs. It responds only using what that person has actually captured in their kinlooms — no invented facts, no impersonation.',
+    a: 'The AI Legacy Bank lets family members ask questions about a person\'s stories, lessons, and beliefs. It responds only using what that person has actually captured in their kinlooms — no invented facts, no impersonation, except \'As Me\', which you create.',
   },
   {
     q: 'Can I edit or delete a kinloom after saving?',
@@ -21,7 +21,7 @@ const FAQS = [
   },
   {
     q: 'Can I export my kinlooms?',
-    a: 'Yes. Visit Settings → Export & backup to download all your kinlooms as PDF or JSON.',
+    a: 'Yes. Visit Settings → Export & backup to download all your kinlooms as ZIP or PDF.',
   },
 ];
 

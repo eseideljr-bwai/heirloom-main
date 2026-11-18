@@ -6,6 +6,7 @@ import { requireHome } from '../../../../lib/server/auth';
 import { serverKinloomApi } from '../../../../lib/server/kinloom-api';
 import { orNull } from '../../../../lib/server/safe';
 import ConversationRow from '../ConversationRow';
+import LegacyBankOff from '../LegacyBankOff';
 import LegacyChatThread from '../LegacyChatThread';
 
 export const dynamic = 'force-dynamic';
@@ -16,9 +17,10 @@ export const dynamic = 'force-dynamic';
  * the rows, whether the bank is on, and the voice and tense are all the API's.
  */
 export default async function LegacyBankChatPage({ params }: { params: { memberId: string } }) {
-  await requireHome();
+  const { user } = await requireHome();
+  const viewingSelf = params.memberId === user.person_id;
 
-  const [scope, earlier] = await Promise.all([
+  const [scope, earlier, mySettings] = await Promise.all([
     serverKinloomApi
       .get('/people/{member}/legacy-bank/scope', { path: { member: params.memberId } })
       .catch((err: unknown) => {
@@ -27,6 +29,9 @@ export default async function LegacyBankChatPage({ params }: { params: { memberI
         throw err;
       }),
     orNull(serverKinloomApi.get('/legacy-bank/conversations', { query: { person: params.memberId, per_page: 3 } })),
+    // `scope.enabled` is always true on your own scope, so your own on/off
+    // comes from your settings (the switch in /settings/privacy).
+    viewingSelf ? orNull(serverKinloomApi.get('/me/settings')) : Promise.resolve(null),
   ]);
 
   const subject = scope.subject;
@@ -35,6 +40,9 @@ export default async function LegacyBankChatPage({ params }: { params: { memberI
   const firstName = subject.name.split(' ')[0] || 'them';
   const past = scope.tense === 'past';
   const prior = (earlier?.data ?? []).filter(c => c.last_message_at);
+  // If settings can't be read, fall back to the normal page: the API still
+  // refuses to answer (403 legacy_bank_disabled) when the bank is off.
+  const myBankOff = isMe && mySettings?.legacy_bank_enabled === false;
 
   return (
     <div className="lb-page2">
@@ -54,21 +62,29 @@ export default async function LegacyBankChatPage({ params }: { params: { memberI
           {subject.initials || subject.name.charAt(0)}
         </span>
         <div className="lb-head__text">
-          <p className="eyebrow">AI Legacy Bank</p>
+          <div className="lb-off__eyebrow-row">
+            <p className="eyebrow">AI Legacy Bank</p>
+            {myBankOff && <span className="lb-off__badge">Off</span>}
+          </div>
           <h1 className="lb-head__title">
-            {isMe ? 'Your own record' : `${subject.name}’s Legacy`}
+            {myBankOff ? 'My Legacy Bank' : isMe ? 'Your own record' : `${subject.name}’s Legacy`}
           </h1>
         </div>
       </div>
 
-      <p className="lb-lead">
-        {isMe
-          ? 'Answers come only from the kinlooms you created, private ones included. No invented facts. No impersonation.'
+      <p className={myBankOff ? 'lb-lead lb-lead--ruled' : 'lb-lead'}>
+        {myBankOff
+          ? 'Everything you have written, in one place you can ask. It is how your family will one day ask about you — grounded only in your words.'
+          : isMe
+          ? 'Answers come only from the kinlooms you created, private ones included. No invented facts. No impersonation, except \'As Me\', which you create.'
           : scope.voice === 'first_person'
             ? `${firstName} chose to have answers spoken in their own words, drawn only from what they kept. Nothing is made up.`
             : `Answers come only from what ${firstName} ${past ? 'kept' : 'chose to keep'}. Nothing is inferred, and nothing speaks in ${firstName}’s voice.`}
       </p>
 
+      {myBankOff ? (
+        <LegacyBankOff personId={subject.id} />
+      ) : (
       <div className="lb-grid">
         {scope.enabled ? (
           <LegacyChatThread
@@ -130,6 +146,7 @@ export default async function LegacyBankChatPage({ params }: { params: { memberI
           </div>
         </aside>
       </div>
+      )}
 
       {prior.length > 0 && (
         <div className="lb-section lb-section--after">

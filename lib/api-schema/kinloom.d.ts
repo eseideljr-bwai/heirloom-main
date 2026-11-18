@@ -123,7 +123,7 @@ export interface paths {
         };
         /**
          * Get your settings
-         * @description Every account-level setting, as one object of ten keys (contract §3.3): nine flat ones and, after S12, `training_wizard` (`{active, steps}`). Each key is stored and in effect (`legacy_bank_voice` with CO-1 C4, the `posthumous_*` keys with CO-1 C3). The `notify_*` keys are stored only. An account with no settings saved yet reads the defaults. Example: `docs/phase-3/examples/settings.json` (golden), every key at its default.
+         * @description Every account-level setting, as one object of twelve keys (contract §3.3): nine flat ones; after S12, the objects `training_wizard` (`{active, steps}`) and `consent` (legal), and `founder`. Each key is stored and in effect (`legacy_bank_voice` with CO-1 C4, the `posthumous_*` keys with CO-1 C3). The `notify_*` keys are stored only. An account with no settings saved yet reads the defaults. Example: `docs/phase-3/examples/settings.json` (golden), every key at its default.
          *
          *     Settings are account-level: the old `?family_space_id=` is gone.
          */
@@ -135,12 +135,13 @@ export interface paths {
         head?: never;
         /**
          * Change your settings
-         * @description Changes any subset of the settings and answers with all ten keys, as they are after the change (contract §3.3).
+         * @description Changes any subset of the settings and answers with all twelve keys, as they are after the change (contract §3.3).
          *
          *     - A key you leave out keeps its value; `{}` (or `[]`) changes nothing.
          *     - The enum keys take only their listed values; the booleans take only JSON `true` or `false`, so `1`, `"true"` and `"false"` get 422; a key you send can't be null.
          *     - **A key that isn't a setting gets 422** ("The {key} field is not a setting."), so a typo never looks like a saved change. A `_method` in the body (a `POST` routed as this `PATCH`) isn't one. The query string is ignored, as on every write (contract §2.5): a leftover `?family_space_id=` changes nothing.
          *     - **`training_wizard`** (after S12) is an object: `active` replaces the stored value; `steps` is **merged** into the stored steps (a step sent is set, a step left out is kept, a step sent as `null` is removed). For example `{"training_wizard": {"steps": {"home": true}}}` as the person finishes the Home step, `{"training_wizard": {"active": false}}` when they finish or dismiss the wizard. More than 100 steps after the merge is 422. The flat `training_wizard_active` of 2026-11-11 is gone: sending it is 422, naming `training_wizard.active` (`TrainingWizardChanges`).
+         *     - **`consent`** (after S12, legal) takes only `{"consent_given": true}`: it records your consent to the current Terms and Privacy Policy versions, now (the server sets `terms_version`, `privacy_version` and `accepted_at`). `false`, or any other key in it, is 422. Accepting again while it is current changes nothing (`ConsentChanges`).
          *     - An invalid request saves nothing.
          */
         patch: operations["me.settings.update"];
@@ -1406,11 +1407,12 @@ export interface paths {
         put?: never;
         /**
          * Send a password-reset email
-         * @description Emails a Kinloom-branded password-reset link to the address (Firebase builds the link; the API sends the mail). Public: no token, because the person can't sign in.
+         * @description Emails a Kinloom-branded password-reset link to the address. Public: no token, because the person can't sign in.
+         *
+         *     The button opens the web app's action page, `{FRONTEND_URL}/auth/action?mode=resetPassword&oobCode=…` (after S12): Firebase generates the action code, and the API keeps only the link's `mode` and `oobCode`.
          *
          *     - It answers the same 200 whether or not an account exists for the address, and whether or not the mail could be sent, so it never reveals who has an account.
          *     - Rate limits (`auth-email`, contract §2.7): 10 a minute per IP address, then 5 a minute and 10 an hour per address. Behind the BFF every browser shares the per-IP budget.
-         *     - kinloom-web sends Firebase's own reset email today; this route is for a branded one.
          */
         post: operations["auth.password-reset"];
         delete?: never;
@@ -1430,7 +1432,9 @@ export interface paths {
         put?: never;
         /**
          * Send a verification email
-         * @description Emails a Kinloom-branded verification link to your own account's address (Firebase builds the link; the API sends the mail). It takes no body: the address is always yours.
+         * @description Emails a Kinloom-branded verification link to your own account's address. It takes no body: the address is always yours.
+         *
+         *     The button opens the web app's action page, `{FRONTEND_URL}/auth/action?mode=verifyEmail&oobCode=…` (after S12): Firebase generates the action code, and the API keeps only the link's `mode` and `oobCode`.
          *
          *     - It sends even if your address is already verified.
          *     - After the person verifies, refresh the Firebase ID token (`getIdToken(true)`) so the API sees the new `email_verified` claim. Accepting an invitation needs it (S5).
@@ -2360,6 +2364,37 @@ export interface components {
             can_delete: boolean;
         };
         /**
+         * Consent
+         * @description After S12 (legal, contract §3.3): your consent to the Terms and the Privacy Policy. The server sets the versions and the time when you accept; the current versions are its config, so a new version turns `consent_given` false until you accept again.
+         * @example {
+         *       "consent_given": true,
+         *       "terms_version": "2026-11-01",
+         *       "privacy_version": "2026-11-01",
+         *       "accepted_at": "2026-11-19T14:02:00Z"
+         *     }
+         */
+        Consent: {
+            /** @description `true` only while the versions you accepted are the current ones. */
+            consent_given: boolean;
+            /** @description The Terms version you accepted, such as `2026-11-01`; null until you accept. */
+            terms_version: string | null;
+            /** @description The Privacy Policy version you accepted; null until you accept. */
+            privacy_version: string | null;
+            /**
+             * Format: date-time
+             * @description When you accepted those versions (ISO 8601, UTC); null until you accept.
+             */
+            accepted_at: string | null;
+        };
+        /**
+         * ConsentChanges
+         * @description After S12 (legal): accepting the current Terms and Privacy Policy. Only `true`: consent isn't withdrawn through the API (`false` is 422), and the versions and time are the server's (any other key is 422). Accepting again while it is current changes nothing.
+         */
+        ConsentChanges: {
+            /** @constant */
+            consent_given: true;
+        };
+        /**
          * CreateContext
          * @description The Write screen's context for one kinloom type (contract §6.1).
          */
@@ -3234,6 +3269,8 @@ export interface components {
             id: components["schemas"]["Id"];
             /** @enum {string} */
             role: "user" | "assistant";
+            /** @description After S12 (legal): `true` on every answer, which the Legacy Bank's model wrote (in the first person, "As Me", too); `false` on a question. Label AI answers from it. */
+            ai_generated: boolean;
             /** @description The text. `null` only on a redacted answer. An answer is the AI model's words: render it as plain text, never as Markdown or HTML. */
             body: string | null;
             /** @description An answer's citations: every kinloom it used, all of them ones you can read now. Always empty on a question and on a redacted answer. */
@@ -3369,6 +3406,8 @@ export interface components {
             timezone: string;
             /** @description **Your own** plan, `free` on a new account. Don't gate Home invitations on it: inviting checks the Home owner's plan (the Home's `plan` and `viewer.can_invite`, contract §5.7). Upgrade with `POST /me/plan`. */
             plan: components["schemas"]["Plan"];
+            /** @description After S12: you are a Founders member. A setting: change it with `PATCH /me/settings {"founder": …}` (§3.3); support can set it too (`kinloom:founder`). `false` on a new account. */
+            founder: boolean;
             /** @description Your plan is `family` and you own or co-own your Home: offer "Create a Space" (`POST /family-spaces`) when this is `true`. */
             can_create_space: boolean;
             /** @description Your Family Home. Always present. */
@@ -3893,9 +3932,9 @@ export interface components {
         Settings: {
             /** @description Where a kinloom goes when it is first finalized without a `publish` list: your Home (skipped while your Home is read-only, so the kinloom stays private), or nowhere. Default `home` (contract §6.1). */
             default_publish_target: components["schemas"]["DefaultPublishTarget"];
-            /** @description Off: nobody can ask your Legacy Bank about you, and Space banks leave your kinlooms out. Asking about you then answers 403 `legacy_bank_disabled`. Default `true`. */
+            /** @description Off: nobody can ask your Legacy Bank about you, and Space banks leave your kinlooms out. Asking about you then answers 403 `legacy_bank_disabled`. Default `false` for an account made from 2026-11-18 (legal: the member turns it on); accounts made before keep theirs. */
             legacy_bank_enabled: boolean;
-            /** @description The voice your Legacy Bank answers in (CO-1 C4). Default `third_person`. */
+            /** @description The voice your Legacy Bank answers in (CO-1 C4): `first_person` is "As Me", answering in your own words. Default `third_person`. */
             legacy_bank_voice: components["schemas"]["LegacyBankVoice"];
             /** @description After you pass, publish every final kinloom you never published, live or pending, to your Home, and only there (`origin: "posthumous_release"`, CO-1 C3). Runs only if your linked legacy contact requested or confirmed your memorialization. Default `false`. */
             posthumous_release_all: boolean;
@@ -3911,6 +3950,10 @@ export interface components {
             notify_legacy_bank_responses: boolean;
             /** @description After S12. Default `{"active": true, "steps": {}}`. `GET /me` carries the same value. */
             training_wizard: components["schemas"]["TrainingWizard"];
+            /** @description After S12 (legal). Default `{"consent_given": false, "terms_version": null, "privacy_version": null, "accepted_at": null}`, for existing accounts too. */
+            consent: components["schemas"]["Consent"];
+            /** @description After S12: you are a Founders member. Set it with `PATCH /me/settings {"founder": true}` (or `false`), as any other setting; `GET /me` carries it too. Default `false`. */
+            founder: boolean;
         };
         /**
          * SettingsChanges
@@ -3919,9 +3962,9 @@ export interface components {
         SettingsChanges: {
             /** @description Where a kinloom goes when it is first finalized without a `publish` list: your Home (skipped while your Home is read-only, so the kinloom stays private), or nowhere. Default `home` (contract §6.1). */
             default_publish_target?: components["schemas"]["DefaultPublishTarget"];
-            /** @description Off: nobody can ask your Legacy Bank about you, and Space banks leave your kinlooms out. Asking about you then answers 403 `legacy_bank_disabled`. Default `true`. */
+            /** @description Off: nobody can ask your Legacy Bank about you, and Space banks leave your kinlooms out. Asking about you then answers 403 `legacy_bank_disabled`. Default `false` for an account made from 2026-11-18 (legal: the member turns it on); accounts made before keep theirs. */
             legacy_bank_enabled?: boolean;
-            /** @description The voice your Legacy Bank answers in (CO-1 C4). Default `third_person`. */
+            /** @description The voice your Legacy Bank answers in (CO-1 C4): `first_person` is "As Me", answering in your own words. Default `third_person`. */
             legacy_bank_voice?: components["schemas"]["LegacyBankVoice"];
             /** @description After you pass, publish every final kinloom you never published, live or pending, to your Home, and only there (`origin: "posthumous_release"`, CO-1 C3). Runs only if your linked legacy contact requested or confirmed your memorialization. Default `false`. */
             posthumous_release_all?: boolean;
@@ -3937,6 +3980,10 @@ export interface components {
             notify_legacy_bank_responses?: boolean;
             /** @description After S12: `{"active": false}` when the wizard is finished or dismissed; `{"steps": {"home": true}}` as the person goes through it. `steps` is merged; `null` removes a step. The flat `training_wizard_active` of 2026-11-11 is gone: sending it is 422, naming this key. */
             training_wizard?: components["schemas"]["TrainingWizardChanges"];
+            /** @description After S12 (legal): accept the current Terms and Privacy Policy. Only `{"consent_given": true}`. */
+            consent?: components["schemas"]["ConsentChanges"];
+            /** @description After S12: you are a Founders member. Set it with `PATCH /me/settings {"founder": true}` (or `false`), as any other setting; `GET /me` carries it too. Default `false`. */
+            founder?: boolean;
         };
         /** SpaceApproveRequest */
         SpaceApproveRequest: {
@@ -4647,6 +4694,7 @@ export interface operations {
                      *       "avatar_expires_at": null,
                      *       "timezone": "America/New_York",
                      *       "plan": "home",
+                     *       "founder": false,
                      *       "can_create_space": false,
                      *       "home": {
                      *         "id": "01m5fc9vtq8ys1kwxv36zf417g",
@@ -5582,7 +5630,14 @@ export interface operations {
                      *       "training_wizard": {
                      *         "active": true,
                      *         "steps": []
-                     *       }
+                     *       },
+                     *       "consent": {
+                     *         "consent_given": false,
+                     *         "terms_version": null,
+                     *         "privacy_version": null,
+                     *         "accepted_at": null
+                     *       },
+                     *       "founder": false
                      *     }
                      */
                     "application/json": components["schemas"]["Settings"];
@@ -5721,7 +5776,14 @@ export interface operations {
                      *       "training_wizard": {
                      *         "active": true,
                      *         "steps": []
-                     *       }
+                     *       },
+                     *       "consent": {
+                     *         "consent_given": false,
+                     *         "terms_version": null,
+                     *         "privacy_version": null,
+                     *         "accepted_at": null
+                     *       },
+                     *       "founder": false
                      *     }
                      */
                     "application/json": components["schemas"]["Settings"];
@@ -6534,6 +6596,7 @@ export interface operations {
                      *       "avatar_expires_at": null,
                      *       "timezone": "America/New_York",
                      *       "plan": "family",
+                     *       "founder": false,
                      *       "can_create_space": true,
                      *       "home": {
                      *         "id": "01m5fc9vtq8ys1kwxv36zf417g",
@@ -6739,6 +6802,7 @@ export interface operations {
                      *       "avatar_expires_at": null,
                      *       "timezone": "America/New_York",
                      *       "plan": "home",
+                     *       "founder": false,
                      *       "can_create_space": false,
                      *       "home": {
                      *         "id": "01m5fc9vtq8ys1kwxv36zf417g",
@@ -6937,6 +7001,7 @@ export interface operations {
                      *       "avatar_expires_at": null,
                      *       "timezone": "America/New_York",
                      *       "plan": "home",
+                     *       "founder": false,
                      *       "can_create_space": false,
                      *       "home": {
                      *         "id": "01m5fc9vtq8ys1kwxv36zf417g",
@@ -22760,6 +22825,7 @@ export interface operations {
                      *         {
                      *           "id": "01m5fc9xqt6s3atmy3t6dkqw3d",
                      *           "role": "assistant",
+                     *           "ai_generated": true,
                      *           "body": "Ray writes that Marta's family had one name at home and another on the papers. \"We crossed with one trunk and two names,\" she liked to say, and she kept both all her life. His kinlooms don't say why.",
                      *           "sources": [
                      *             {
@@ -22777,6 +22843,7 @@ export interface operations {
                      *         {
                      *           "id": "01m5fc9xma1vg9wrg577r07cv1",
                      *           "role": "user",
+                     *           "ai_generated": false,
                      *           "body": "Why did Marta keep both names?",
                      *           "sources": [],
                      *           "redacted": false,
@@ -22785,6 +22852,7 @@ export interface operations {
                      *         {
                      *           "id": "01m5fc9xkm31vgq1v6wmxm4ns2",
                      *           "role": "assistant",
+                     *           "ai_generated": true,
                      *           "body": null,
                      *           "sources": [],
                      *           "redacted": true,
@@ -22793,6 +22861,7 @@ export interface operations {
                      *         {
                      *           "id": "01m5fc9xcjqv9v2jwam7vrw0x9",
                      *           "role": "user",
+                     *           "ai_generated": false,
                      *           "body": "What did Ray build in the shop on Pratt Street?",
                      *           "sources": [],
                      *           "redacted": false,
@@ -22801,6 +22870,7 @@ export interface operations {
                      *         {
                      *           "id": "01m5fc9x9d5d9q49j54vak0hwg",
                      *           "role": "assistant",
+                     *           "ai_generated": true,
                      *           "body": "From what Ray kept, his grandmother Marta was nine when she crossed the Atlantic in the spring of 1929, with a single trunk and her mother's rolling pin. She told him the sea was the first thing in her life that was bigger than she was, and she never said it like it scared her.",
                      *           "sources": [
                      *             {
@@ -22818,6 +22888,7 @@ export interface operations {
                      *         {
                      *           "id": "01m5fc9x59899acz17yqg1cwmf",
                      *           "role": "user",
+                     *           "ai_generated": false,
                      *           "body": "What was Ray's grandmother Marta like?",
                      *           "sources": [],
                      *           "redacted": false,
@@ -22986,6 +23057,7 @@ export interface operations {
                      *       "question": {
                      *         "id": "01m5fc9xma1vg9wrg577r07cv1",
                      *         "role": "user",
+                     *         "ai_generated": false,
                      *         "body": "Why did Marta keep both names?",
                      *         "sources": [],
                      *         "redacted": false,
@@ -22994,6 +23066,7 @@ export interface operations {
                      *       "answer": {
                      *         "id": "01m5fc9xqt6s3atmy3t6dkqw3d",
                      *         "role": "assistant",
+                     *         "ai_generated": true,
                      *         "body": "Ray writes that Marta's family had one name at home and another on the papers. \"We crossed with one trunk and two names,\" she liked to say, and she kept both all her life. His kinlooms don't say why.",
                      *         "sources": [
                      *           {
