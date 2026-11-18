@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../../lib/auth-context';
 import { ApiError } from '../../lib/api';
+import { ConsentCheckbox } from '../components/ConsentCheckbox';
+import { acceptConsent } from '../../lib/settings';
 
 function safeNext(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -30,12 +32,17 @@ export default function Signup() {
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // Never pre-checked. Sent to the API once the account exists.
+  const [agreed, setAgreed] = useState(false);
+  // Holds the redirect below until the consent PATCH has settled, so
+  // navigating away can't tear the request down.
+  const [savingConsent, setSavingConsent] = useState(false);
   const router = useRouter();
   const next = useNextParam();
   const { user, loading: authLoading, register } = useAuth();
 
   useEffect(() => {
-    if (!authLoading && user) {
+    if (!authLoading && user && !savingConsent) {
       // New accounts must verify their email before entering the app.
       // Carry any `next` (e.g. an invite link) through the pending screen.
       const dest = next
@@ -43,11 +50,15 @@ export default function Signup() {
         : '/verify-email';
       router.replace(dest);
     }
-  }, [authLoading, user, router, next]);
+  }, [authLoading, user, router, next, savingConsent]);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+
+    // The button is disabled until the box is checked; this backs that up so
+    // consent can never be recorded without it.
+    if (!agreed) return;
 
     if (password.length < 8) {
       setError('Password must be at least 8 characters.');
@@ -59,6 +70,7 @@ export default function Signup() {
     }
 
     setLoading(true);
+    setSavingConsent(true);
     try {
       await register({
         name: name.trim(),
@@ -66,6 +78,15 @@ export default function Signup() {
         password,
         password_confirmation: passwordConfirm,
       });
+      // The box had to be checked to submit. Record it now that the account
+      // exists. A failure doesn't undo the sign-up: consent stays false and
+      // the (app) layout sends them to /consent before they reach the app.
+      try {
+        await acceptConsent();
+      } catch (consentErr) {
+        console.warn('[signup] could not record consent', consentErr);
+      }
+      setSavingConsent(false);
       // The /verify-email screen owns sending the verification email on
       // mount (see its auto-send effect). Doing it here raced the
       // redirect below and the fetch could be torn down before it fired.
@@ -82,6 +103,7 @@ export default function Signup() {
       } else {
         setError(err instanceof Error ? err.message : 'Signup failed.');
       }
+      setSavingConsent(false);
       setLoading(false);
     }
   };
@@ -155,10 +177,12 @@ export default function Signup() {
               <p style={{ fontSize: 14, color: '#d4183d', margin: 0 }}>{error}</p>
             )}
 
+            <ConsentCheckbox checked={agreed} onChange={setAgreed} />
+
             <button
               type="submit"
-              disabled={loading}
-              style={{ width: '100%', background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '14px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1, marginTop: 8 }}
+              disabled={loading || !agreed}
+              style={{ width: '100%', background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '14px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: loading || !agreed ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : !agreed ? 0.5 : 1, marginTop: 8 }}
             >
               {loading ? 'Creating account…' : 'Create Account'}
             </button>

@@ -325,7 +325,7 @@ export default function LegacyChatThread({
       )}
 
       <p className="lb-chat__note">
-        Grounded responses only. No invented facts. No impersonation.
+        Grounded responses only. No invented facts. No impersonation, except &apos;As Me&apos;, which each person creates for themselves.
         If it isn’t in a kinloom, Kinloom says so.
       </p>
     </div>
