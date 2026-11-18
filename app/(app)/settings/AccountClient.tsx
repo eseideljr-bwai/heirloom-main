@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../lib/auth-context';
 import Link from 'next/link';
@@ -35,6 +35,16 @@ export default function AccountClient({ initial, plan }: { initial: Profile; pla
 
   // Delete account modal
   const [deleteOpen, setDeleteOpen] = useState(false);
+
+  // `?highlight=plan` comes from an action the plan blocked (inviting).
+  // Read from window.location for the same reason as app/page.tsx.
+  const planRef = useRef<HTMLDivElement>(null);
+  const [highlightPlan, setHighlightPlan] = useState(false);
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('highlight') !== 'plan') return;
+    setHighlightPlan(true);
+    planRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
 
   const yearNum = birthYear.trim() === '' ? null : Number(birthYear.trim());
   const yearInvalid = yearNum !== null && (!Number.isInteger(yearNum) || yearNum < 1 || yearNum > new Date().getFullYear());
@@ -172,8 +182,15 @@ export default function AccountClient({ initial, plan }: { initial: Profile; pla
         </form>
 
         {/* ─── Plan ─────────────────────────────────── */}
-        <div className="card">
+        <div
+          ref={planRef}
+          id="plan"
+          className={highlightPlan && plan === 'free' ? 'card card--attention' : 'card'}
+        >
           <h2 className="settings-h2 settings-h2--tight">Plan</h2>
+          {highlightPlan && plan === 'free' && (
+            <p className="settings-plan-alert" role="alert">Update your family plan here.</p>
+          )}
           <p className="settings-card-text settings-card-text--flush">
             You’re on the <strong>{PLAN_LABEL[plan] ?? plan}</strong> plan.
             {plan === 'family'
@@ -184,6 +201,11 @@ export default function AccountClient({ initial, plan }: { initial: Profile; pla
             <div className="settings-plan-action">
               <UpgradeToFamily />
             </div>
+          )}
+          {highlightPlan && plan !== 'free' && (
+            <p className="settings-card-text settings-plan-done">
+              You can invite people now. <Link href="/home/manage">Back to Manage Home</Link>
+            </p>
           )}
         </div>
 

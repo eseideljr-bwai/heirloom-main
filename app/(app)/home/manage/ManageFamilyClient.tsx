@@ -541,14 +541,20 @@ async function refreshSessionToken(): Promise<boolean> {
   }
 }
 
+/** A 402 the person can fix themselves by upgrading their own plan. */
+function canUpgradeToInvite(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 402) return false;
+  const body = err.body as { upgrade_by?: string } | null;
+  return body?.upgrade_by !== 'home_owner';
+}
+
 function invitationErrorMessage(err: unknown, manage: HomeManage): string {
   if (!(err instanceof ApiError)) return 'Couldn’t send the invitation. Please try again.';
   const code = errorCode(err);
   if (err.status === 402) {
-    const body = err.body as { upgrade_by?: string } | null;
-    return body?.upgrade_by === 'home_owner'
-      ? 'Inviting people needs the Home plan, and it’s the owner’s plan that counts. Ask the owner to upgrade.'
-      : 'Inviting people needs the Home plan. Upgrade your plan to invite someone to this home.';
+    return canUpgradeToInvite(err)
+      ? 'Inviting people needs the Home or Family plan. Upgrade your plan to invite someone to this home.'
+      : 'Inviting people needs the Home plan, and it’s the owner’s plan that counts. Ask the owner to upgrade.';
   }
   if (err.status === 409 || code === 'seat_limit_reached') {
     return `All ${manage.seats.max} seats are taken, counting pending invitations. Revoke an invitation or remove someone to free one.`;
@@ -573,6 +579,7 @@ function InviteModal({
   const [claim, setClaim] = useState<string>('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showUpgrade, setShowUpgrade] = useState(false);
   const [link, setLink] = useState<string | null>(null);
   const [sentTo, setSentTo] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -587,6 +594,7 @@ function InviteModal({
     if (!EMAIL_RE.test(trimmed)) { setError('Enter a valid email address.'); return; }
 
     setError(null);
+    setShowUpgrade(false);
     setSubmitting(true);
     try {
       const body = { email: trimmed, claim_member_id: claim || null };
@@ -608,6 +616,7 @@ function InviteModal({
       await onDone();
     } catch (err) {
       setError(invitationErrorMessage(err, manage));
+      setShowUpgrade(canUpgradeToInvite(err));
     } finally {
       setSubmitting(false);
     }
@@ -668,6 +677,11 @@ function InviteModal({
               </div>
             )}
             {error && <p className="form-status form-status--error">{error}</p>}
+            {showUpgrade && (
+              <Link href="/settings?highlight=plan" className="btn-save invite-upgrade-link">
+                Go to your plan
+              </Link>
+            )}
           </div>
         ) : (
           <div className="settings-fields">

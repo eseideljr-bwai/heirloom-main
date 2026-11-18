@@ -16,6 +16,7 @@
 import {
   EmailAuthProvider,
   applyActionCode,
+  checkActionCode,
   confirmPasswordReset,
   createUserWithEmailAndPassword,
   deleteUser,
@@ -354,6 +355,22 @@ export async function applyEmailVerification(oobCode: string): Promise<boolean> 
     throw toApiError(err);
   }
   return syncEmailVerified();
+}
+
+/**
+ * Apply a sign-in email change link from a Firebase email: `recoverEmail`
+ * (undo a change, sent to the old address) or `verifyAndChangeEmail`
+ * (confirm the new address). Returns the address the account now signs
+ * in with (for both modes Firebase reports it as `data.email`).
+ */
+export async function applyEmailChange(oobCode: string): Promise<string | null> {
+  try {
+    const info = await checkActionCode(firebaseAuth(), oobCode);
+    await applyActionCode(firebaseAuth(), oobCode);
+    return info.data.email ?? null;
+  } catch (err) {
+    throw toApiError(err);
+  }
 }
 
 /**
