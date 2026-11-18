@@ -8046,6 +8046,20 @@ img.portrait-kin__img { object-fit: cover; }
 .upgrade-plan__note { margin: 0; font-size: 13px; color: var(--fg-3); }
 .settings-plan-action { margin-top: 16px; }
 
+/* Settings → Plan when an invite needed an upgrade (?highlight=plan) */
+.card--attention {
+  border-color: var(--destructive);
+  box-shadow: 0 0 0 3px rgba(212,24,61,0.12);
+}
+.settings-plan-alert {
+  margin: 4px 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--destructive);
+}
+.settings-plan-done { margin: 16px 0 0; }
+.invite-upgrade-link { align-self: flex-start; text-decoration: none; }
+
 /* ─── Get started on Kinloom ─────────────────────────────────────
    The checklist at the top of My Home, and the tip each step's page
    shows under the nav item it lives behind. */
