@@ -16,12 +16,11 @@
 import {
   EmailAuthProvider,
   applyActionCode,
+  checkActionCode,
   confirmPasswordReset,
   createUserWithEmailAndPassword,
   deleteUser,
   reauthenticateWithCredential,
-  sendEmailVerification,
-  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
@@ -264,45 +263,40 @@ export async function register(payload: RegisterPayload): Promise<AuthUser> {
   return getMe();
 }
 
-// ─── Email flows (Firebase-native send + Firebase action-link apply) ─
+// ─── Email flows (backend Resend send + Firebase action-link apply) ──
 //
-// Transactional auth emails are sent by Firebase itself (the Web SDK
-// hands off to Firebase's mailer). We tried routing these through the
-// Laravel API's Resend integration, but that path returned success
-// while silently dropping mail (unverified sending domain), so email
-// reset/verification never arrived. Firebase-native delivery works, so
-// we send directly. The emails carry Firebase action links (oobCode);
-// the *completion* step still runs client-side via the Web SDK.
+// The Laravel API sends transactional auth email via Resend from
+// kinloom.com, with links to our /auth/action page:
+//   • POST /auth/password-reset      — public, generic response.
+//   • POST /auth/email-verification  — authenticated (current user).
+// Firebase's own mailer can't be used: its action URL is locked to
+// bw-heirloom-prod.firebaseapp.com (EMAIL_TEMPLATE_UPDATE_NOT_ALLOWED).
+// The *completion* step (confirming the new password / applying the
+// verification) runs client-side against the Firebase Web SDK.
 
 /**
- * Send a password-reset email via Firebase. With Firebase's email-
- * enumeration protection enabled this resolves even for unknown
- * addresses, so callers can safely show a generic "if an account
- * exists…" message without leaking which emails are registered.
+ * Ask the backend to send a password-reset email. Always resolves for a
+ * valid-looking request: the API answers with a generic "if an account
+ * exists…" message so callers can't enumerate emails. No Bearer is
+ * attached (public endpoint).
  */
 export async function requestPasswordReset(email: string): Promise<void> {
-  try {
-    await sendPasswordResetEmail(firebaseAuth(), email);
-  } catch (err) {
-    throw toApiError(err);
-  }
+  await apiFetch<{ message: string }>('/auth/password-reset', {
+    method: 'POST',
+    body: { email },
+    anonymous: true,
+  });
 }
 
 /**
- * (Re)send a verification email via Firebase for the currently-signed-
- * in user. Throws ApiError — 401 when there's no local Firebase user,
- * or 429 when Firebase rate-limits repeated sends.
+ * Ask the backend to (re)send a verification email for the signed-in
+ * user. The BFF proxy attaches the session Bearer. Throws ApiError
+ * (e.g. 429 when rate-limited).
  */
 export async function requestEmailVerification(): Promise<void> {
-  const user = firebaseAuth().currentUser;
-  if (!user) {
-    throw new ApiError(401, 'Please sign in again to verify your email.', null);
-  }
-  try {
-    await sendEmailVerification(user);
-  } catch (err) {
-    throw toApiError(err);
-  }
+  await apiFetch<{ message: string }>('/auth/email-verification', {
+    method: 'POST',
+  });
 }
 
 /**
@@ -354,6 +348,22 @@ export async function applyEmailVerification(oobCode: string): Promise<boolean> 
     throw toApiError(err);
   }
   return syncEmailVerified();
+}
+
+/**
+ * Apply a sign-in email change link from a Firebase email: `recoverEmail`
+ * (undo a change, sent to the old address) or `verifyAndChangeEmail`
+ * (confirm the new address). Returns the address the account now signs
+ * in with (for both modes Firebase reports it as `data.email`).
+ */
+export async function applyEmailChange(oobCode: string): Promise<string | null> {
+  try {
+    const info = await checkActionCode(firebaseAuth(), oobCode);
+    await applyActionCode(firebaseAuth(), oobCode);
+    return info.data.email ?? null;
+  } catch (err) {
+    throw toApiError(err);
+  }
 }
 
 /**

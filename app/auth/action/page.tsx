@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
+  applyEmailChange,
   applyEmailVerification,
   completePasswordReset,
   verifyResetCode,
@@ -58,6 +59,9 @@ export default function AuthActionPage() {
   }
   if (params.mode === 'verifyEmail') {
     return <VerifyEmail oobCode={params.oobCode} next={safeNext(params.next)} />;
+  }
+  if (params.mode === 'recoverEmail' || params.mode === 'verifyAndChangeEmail') {
+    return <EmailChange oobCode={params.oobCode} mode={params.mode} />;
   }
 
   return <ActionError message="This link isn't supported. Request a new email and try again." />;
@@ -281,6 +285,62 @@ function VerifyEmail({ oobCode, next }: { oobCode: string; next: string }) {
                 <p className="auth-status auth-status--ok">
                   Your email is verified. Sign in to continue.
                 </p>
+                <Link href="/" className="btn-primary btn-block">Sign in</Link>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sign-in email change ────────────────────────────────────────────
+
+function EmailChange({ oobCode, mode }: { oobCode: string; mode: 'recoverEmail' | 'verifyAndChangeEmail' }) {
+  const [state, setState] = useState<'working' | 'done' | 'error'>('working');
+  const [email, setEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    applyEmailChange(oobCode)
+      .then(addr => {
+        if (!active) return;
+        setEmail(addr);
+        setState('done');
+      })
+      .catch(() => { if (active) setState('error'); });
+    return () => { active = false; };
+  }, [oobCode]);
+
+  if (state === 'error') {
+    return <ActionError message="This link is invalid, has expired or was already used." />;
+  }
+
+  const restoring = mode === 'recoverEmail';
+  return (
+    <div className="auth-page">
+      <div className="auth-page__inner">
+        <div className="auth-page__head">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo-kinloom.png" alt="Kinloom" className="auth-page__logo" />
+          <h1 className="auth-page__title">
+            {state === 'working' ? 'Updating your email…' : restoring ? 'Email restored' : 'Email updated'}
+          </h1>
+        </div>
+        <div className="auth-card">
+          <div className="auth-form">
+            {state === 'working' && <p className="auth-note">Just a moment.</p>}
+            {state === 'done' && (
+              <>
+                <p className="auth-status auth-status--ok">
+                  {restoring
+                    ? `Your sign-in email is back to ${email ?? 'your previous address'}. If you didn't ask for the change, reset your password too.`
+                    : `You now sign in with ${email ?? 'your new address'}.`}
+                </p>
+                {restoring && (
+                  <Link href="/forgot-password" className="btn-outline btn-block">Reset password</Link>
+                )}
                 <Link href="/" className="btn-primary btn-block">Sign in</Link>
               </>
             )}
