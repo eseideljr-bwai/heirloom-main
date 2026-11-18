@@ -32,6 +32,7 @@ type Modal =
   | { kind: 'remove'; home: SpaceHome }
   | { kind: 'decline'; pending: SpacePendingHome }
   | { kind: 'revoke'; invitation: SpaceInvitation }
+  | { kind: 'resend'; invitation: SpaceInvitation; purpose: ResendPurpose }
   | { kind: 'transfer' }
   | { kind: 'successor' }
   | { kind: 'leave' }
@@ -184,6 +185,12 @@ export default function SpaceManageClient({ spaceId, manage }: Props) {
               </div>
               {canEdit && (
                 <div className="mg-row__actions">
+                  <button type="button" className="mg-btn" onClick={() => setModal({ kind: 'resend', invitation: inv, purpose: 'resend' })}>
+                    Resend
+                  </button>
+                  <button type="button" className="mg-btn" onClick={() => setModal({ kind: 'resend', invitation: inv, purpose: 'link' })}>
+                    Copy link
+                  </button>
                   <button type="button" className="mg-btn mg-btn--danger" onClick={() => setModal({ kind: 'revoke', invitation: inv })}>
                     Revoke
                   </button>
@@ -329,6 +336,15 @@ export default function SpaceManageClient({ spaceId, manage }: Props) {
           }}
         />
       )}
+      {modal?.kind === 'resend' && (
+        <ResendModal
+          spaceId={spaceId}
+          invitation={modal.invitation}
+          purpose={modal.purpose}
+          onClose={close}
+          onDone={refresh}
+        />
+      )}
       {modal?.kind === 'transfer' && (
         <PersonModal
           title="Transfer this Space"
@@ -398,7 +414,7 @@ function InviteModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [link, setLink] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useCopy();
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -410,7 +426,7 @@ function InviteModal({
     try {
       const res = await inviteHomeToSpace(spaceId, trimmed);
       // invite_token appears only in this response; build the share link now.
-      setLink(`${window.location.origin}/invite/${encodeURIComponent(res.invite_token)}`);
+      setLink(inviteUrl(res.invite_token));
       await onDone();
     } catch (err) {
       setError(plainError(err, 'Couldn’t send the invitation. Please try again.'));
@@ -419,16 +435,7 @@ function InviteModal({
     }
   }
 
-  async function copyLink() {
-    if (!link) return;
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // The link is on screen to select by hand.
-    }
-  }
+  const copyLink = () => { if (link) void copy(link); };
 
   return (
     <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget && !submitting) onClose(); }}>
@@ -477,6 +484,126 @@ function InviteModal({
           )}
         </div>
       </form>
+    </div>
+  );
+}
+
+// ─── Resend / copy link ─────────────────────────────────────────────
+
+type ResendPurpose = 'resend' | 'link';
+
+const inviteUrl = (token: string) => `${window.location.origin}/invite/${encodeURIComponent(token)}`;
+
+/** Clipboard write with a short-lived "Copied!" flag. */
+function useCopy() {
+  const [copied, setCopied] = useState(false);
+  async function copy(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // The link is on screen to select by hand.
+    }
+  }
+  return { copied, copy };
+}
+
+/** 429 on a re-invite is almost always a daily cap, not the per-minute one. */
+function resendError(err: unknown): string {
+  if (err instanceof ApiError && err.status === 429) {
+    const body = err.body as { retry_after?: unknown } | null;
+    const secs = body && typeof body.retry_after === 'number' ? body.retry_after : null;
+    const when = secs == null
+      ? 'later'
+      : secs < 120
+        ? 'in a minute or two'
+        : secs < 3600
+          ? `in about ${Math.ceil(secs / 60)} minutes`
+          : `in about ${Math.ceil(secs / 3600)} hours`;
+    return `Invitations are limited each day (5 to any one address, 20 from you). Try again ${when}.`;
+  }
+  return plainError(err, 'Couldn’t send the invitation. Please try again.');
+}
+
+/**
+ * The server keeps only a hash of each invite token, so an existing link can't
+ * be read back. Resending and copying both re-invite the same address: the API
+ * replaces the pending invitation, emails a fresh link and returns its token.
+ */
+function ResendModal({
+  spaceId,
+  invitation,
+  purpose,
+  onClose,
+  onDone,
+}: {
+  spaceId: string;
+  invitation: SpaceInvitation;
+  purpose: ResendPurpose;
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [link, setLink] = useState<string | null>(null);
+  const { copied, copy } = useCopy();
+
+  async function go() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await inviteHomeToSpace(spaceId, invitation.email);
+      const url = inviteUrl(res.invite_token);
+      setLink(url);
+      // May be refused once the click's user activation has lapsed (Safari); the button below still works.
+      if (purpose === 'link') void copy(url);
+      await onDone();
+    } catch (err) {
+      setError(resendError(err));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={e => { if (e.target === e.currentTarget && !submitting) onClose(); }}>
+      <div className="modal">
+        <h3 className="modal-title">{purpose === 'link' ? 'Get a new invite link' : 'Resend invitation'}</h3>
+        {!link ? (
+          <>
+            <p className="modal-text">
+              {purpose === 'link'
+                ? `For security we can’t show the original link again, so this creates a new one. ${invitation.email} also gets a fresh email with it, and the old link stops working.`
+                : `We’ll email ${invitation.email} a fresh invitation. The link in the earlier email stops working, and the new one is good for 72 hours.`}
+            </p>
+            {error && <p className="form-status form-status--error">{error}</p>}
+          </>
+        ) : (
+          <div className="settings-fields">
+            <p className="form-status form-status--ok">
+              {purpose === 'link' && copied ? 'New link copied. ' : ''}Invitation sent to {invitation.email}.
+            </p>
+            <p className="modal-text">You can also share this link directly:</p>
+            <div className="invite-link">{link}</div>
+            <div className="invite-link__row">
+              <button type="button" className="btn-outline" onClick={() => void copy(link)}>
+                {copied ? 'Copied!' : 'Copy link'}
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="modal-actions">
+          <button type="button" className="btn-outline" onClick={onClose} disabled={submitting}>
+            {link ? 'Done' : 'Cancel'}
+          </button>
+          {!link && (
+            <button type="button" className="btn-save" onClick={go} disabled={submitting}>
+              {submitting ? 'Sending…' : purpose === 'link' ? 'Create new link' : 'Resend'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
