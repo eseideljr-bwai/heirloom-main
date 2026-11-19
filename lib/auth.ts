@@ -172,7 +172,8 @@ function authErrorMessage(code: string): string {
     case 'auth/missing-password':
       return 'Please enter a password.';
     case 'auth/weak-password':
-      return 'Password must be at least 8 characters.';
+    case 'auth/password-does-not-meet-requirements':
+      return "That password doesn't meet the requirements. Choose a longer, less predictable one.";
     case 'auth/email-already-in-use':
       return 'An account with this email already exists. Try signing in instead.';
     case 'auth/wrong-password':

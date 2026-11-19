@@ -30,8 +30,18 @@ export function patchSettings(changes: SettingsChanges): Promise<Settings> {
  * be sent: the server sets the versions and time, and consent isn't withdrawn
  * through the API. Accepting again while consent is current changes nothing.
  */
-export function acceptConsent(): Promise<Settings> {
-  return patchSettings({ consent: { consent_given: true } });
+export async function acceptConsent(): Promise<Settings> {
+  const settings = await patchSettings({ consent: { consent_given: true } });
+  if (settings.consent.consent_given) {
+    // Lets the (app) layout skip its per-page consent check for the rest of
+    // the session. Best-effort: without it the layout just checks as before.
+    try {
+      await fetch('/api/auth/consent', { method: 'POST', credentials: 'same-origin' });
+    } catch (err) {
+      console.warn('[consent] could not remember consent for this session', err);
+    }
+  }
+  return settings;
 }
 
 /** PATCH /me/profile: send only what changed. */

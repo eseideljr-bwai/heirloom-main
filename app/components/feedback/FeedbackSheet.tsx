@@ -33,6 +33,7 @@ import type {
   FeedbackReceipt,
   FeedbackReport,
 } from '../../../lib/feedback/types';
+import { SUPPORT_EMAIL } from '../../../lib/support';
 import { CHIPS } from './chips';
 import { ConversationView } from './ConversationView';
 import { FallbackForm } from './FallbackForm';
@@ -394,6 +395,12 @@ export function FeedbackSheet({
             />
           )}
         </div>
+
+        {/* Outside the body so it shows in every view, the conversation included. */}
+        <p className="fb-sheet__support">
+          Need support? Reach out to us at{' '}
+          <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+        </p>
       </div>
     </div>
   );

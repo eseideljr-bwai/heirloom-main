@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
-import { getUserState, verifySession } from '../../lib/server/auth';
+import { verifySession } from '../../lib/server/auth';
 import OnboardingChrome from './OnboardingChrome';
 
 export default async function OnboardingLayout({ children }: { children: React.ReactNode }) {
@@ -12,11 +12,7 @@ export default async function OnboardingLayout({ children }: { children: React.R
     redirect('/verify-email');
   }
 
-  // A finished person has nothing left to do here, so a stray redirect
-  // must not leave them in the wizard. `complete` never goes back to
-  // `profile_pending`.
-  const state = await getUserState();
-  if (state.status === 'ready' || state.status === 'memorialized') redirect('/home');
-
+  // Where a person may be is each step's call, not the layout's: saving the
+  // profile completes onboarding, yet the photo step still comes after it.
   return <OnboardingChrome>{children}</OnboardingChrome>;
 }

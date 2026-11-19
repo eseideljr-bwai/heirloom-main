@@ -54,7 +54,6 @@ export function ConsentCard({ next }: { next: string }) {
         <div className="auth-page__head">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-kinloom.png" alt="Kinloom" className="auth-page__logo" />
-          {/* TODO(Eric): confirm heading and body copy. */}
           <h1 className="auth-page__title">Before you continue</h1>
           <p className="auth-page__sub">
             We&apos;ve updated our Terms of Use and Trust &amp; Privacy Policy.

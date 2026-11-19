@@ -29,6 +29,7 @@ import {
   ID_TOKEN_COOKIE_MAX_AGE_SECONDS,
   ABSOLUTE_TIMEOUT_SECONDS,
 } from '../../../../lib/server/cookies';
+import { consentCookie, readConsentWithToken } from '../../../../lib/server/consent';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -120,6 +121,16 @@ export async function POST(req: NextRequest) {
       String(Date.now()),
       cookieOptions({ maxAge: ABSOLUTE_TIMEOUT_SECONDS }),
     );
+
+    // Consent is checked once here, at sign-in, so the (app) layout doesn't
+    // read /me/settings on every page. Anything but a clear "yes" (not yet
+    // accepted, a version change, an unreadable answer, a new account with
+    // no profile yet) clears the cookie and the layout checks as before.
+    if ((await readConsentWithToken(idToken)) === true) {
+      res.cookies.set(...consentCookie(decoded.uid));
+    } else {
+      res.cookies.set(COOKIES.consent, '', cookieOptions({ httpOnly: true, maxAge: 0 }));
+    }
   }
 
   res.cookies.set(

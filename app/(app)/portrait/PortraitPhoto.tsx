@@ -16,11 +16,14 @@ export default function PortraitPhoto({
   name,
   avatarUrl,
   editable,
+  onPhotoChange,
   children,
 }: {
   name: string;
   avatarUrl: string | null;
   editable: boolean;
+  /** Called with the new photo URL, or null once it's removed. */
+  onPhotoChange?: (url: string | null) => void;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -30,6 +33,7 @@ export default function PortraitPhoto({
 
   function settle(next: string | null) {
     setUrl(next);
+    onPhotoChange?.(next);
     void refresh();
     router.refresh();
   }
