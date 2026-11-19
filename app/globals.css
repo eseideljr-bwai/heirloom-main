@@ -4288,6 +4288,17 @@ body.has-texture::before {
   color: var(--fg-1);
 }
 .fb-sheet__body:focus { outline: none; }
+.fb-sheet__support {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--fg-4);
+}
+.fb-sheet__support a { color: var(--primary); text-decoration: none; font-weight: 500; }
+.fb-sheet__support a:hover { text-decoration: underline; }
 
 /* ─── Type ─────────────────────────────────────────────────────── */
 .fb-text {
@@ -4831,6 +4842,9 @@ a.app-footer__chip:focus-visible { outline: 2px solid var(--primary); outline-of
      full width of a desktop footer. */
   max-width: 46ch;
 }
+.app-footer__support { margin-top: 6px; }
+.app-footer__mail { color: var(--fg-3); text-decoration: underline; text-underline-offset: 2px; }
+.app-footer__mail:hover { color: var(--foreground); }
 
 /* The two full-screen conversations own the viewport; a footer under
    them would push the composer off-screen. */
@@ -8504,3 +8518,44 @@ img.portrait-kin__img { object-fit: cover; }
 }
 .mg-photo { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .mg-photo__face { width: 48px; height: 48px; font-size: 16px; }
+
+/* ─── Password strength (sign-up, reset, change password) ────────
+   Meter plus the rule checklist under a new-password field. Rules
+   and scoring live in lib/password-policy.ts. */
+.pw-strength { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.pw-strength__meter-row { display: flex; align-items: center; gap: 10px; }
+.pw-strength__meter { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.pw-strength__seg { height: 4px; border-radius: var(--radius-full); background: var(--muted); transition: background 0.15s; }
+.pw-strength__meter--weak .pw-strength__seg.is-on { background: var(--destructive); }
+.pw-strength__meter--fair .pw-strength__seg.is-on { background: #b07d2b; }
+.pw-strength__meter--good .pw-strength__seg.is-on { background: var(--primary); }
+.pw-strength__label { font-size: 12px; color: var(--fg-3); min-width: 56px; text-align: right; }
+.pw-strength__hint { font-size: 13px; color: var(--fg-3); margin: 0; }
+.pw-strength__rules { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.pw-strength__rule { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--fg-4); }
+.pw-strength__rule.is-met { color: var(--primary); }
+.pw-strength__mark {
+  width: 16px; height: 16px; flex: 0 0 auto;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); border-radius: var(--radius-full);
+}
+.pw-strength__rule.is-met .pw-strength__mark { border-color: var(--primary); background: rgba(85, 107, 91, 0.10); }
+
+/* ─── Password input with show/hide toggle ───────────────────────
+   The selector outranks `.field input[type="password"]` so the
+   padding leaves room for the eye button. */
+.pw-input { position: relative; width: 100%; }
+.pw-input > input.pw-input__field[type] { padding-right: 44px; }
+/* Hide Edge's built-in reveal button so there's only one eye. */
+.pw-input__field::-ms-reveal,
+.pw-input__field::-ms-clear { display: none; }
+.pw-input__toggle {
+  position: absolute; top: 50%; right: 6px; transform: translateY(-50%);
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; border: none; border-radius: var(--radius);
+  color: var(--fg-4); cursor: pointer; padding: 0;
+}
+.pw-input__toggle:hover:not(:disabled) { color: var(--fg-1); }
+.pw-input__toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.pw-input__toggle:disabled { opacity: 0.5; cursor: not-allowed; }

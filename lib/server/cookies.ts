@@ -23,6 +23,14 @@
  *   kinloom_active_family_space — Currently-active family space ulid.
  *                        Non-HttpOnly so the client switcher can update
  *                        it. Server components also read it.
+ *
+ *   kinloom_consent    — The Firebase uid of a person whose consent to the
+ *                        current Terms and Privacy Policy was confirmed this
+ *                        session (at sign-in, or when they accepted). HttpOnly.
+ *                        While it matches the session's uid, the (app) layout
+ *                        skips GET /me/settings. Cleared on logout with the
+ *                        rest. A version change mid-session is caught at the
+ *                        next sign-in.
  */
 
 export const COOKIES = {
@@ -34,6 +42,8 @@ export const COOKIES = {
   sessionStartedAt: 'kinloom_session_started_at',
   /** Currently-active family space ulid. */
   activeFamilySpace: 'kinloom_active_family_space',
+  /** Uid whose consent was confirmed this session. HttpOnly. */
+  consent: 'kinloom_consent',
 } as const;
 
 // Epic 2: idle 24h, absolute 30d.

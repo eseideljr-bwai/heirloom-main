@@ -5,11 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../../lib/auth-context';
 import Link from 'next/link';
 import { changePassword, deleteAccount } from '../../../lib/auth';
+import { PASSWORD_MIN_LENGTH } from '../../../lib/password-policy';
+import { PasswordStrength, usePasswordPolicy } from '../../components/PasswordStrength';
 import { ApiError } from '../../../lib/api';
 import { errorText, patchProfile, type Profile, type ProfileChanges } from '../../../lib/settings';
 import { revalidateAllData } from '../../actions';
 import UpgradeToFamily from '../../components/UpgradeToFamily';
 import { useGetStarted } from '../../../lib/get-started';
+import { PasswordInput } from '../../components/PasswordInput';
 
 const PLAN_LABEL: Record<string, string> = { free: 'Free', home: 'Home', family: 'Family' };
 
@@ -277,13 +280,19 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
   const [confirm, setConfirm] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [msg, setMsg] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const { user } = useAuth();
+  const passwordCheck = usePasswordPolicy(next, [user?.name, user?.email]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
 
-    if (next.length < 8) {
-      setMsg({ kind: 'error', text: 'New password must be at least 8 characters.' });
+    if (passwordCheck.problem) {
+      setMsg({ kind: 'error', text: passwordCheck.problem });
+      return;
+    }
+    if (next === current) {
+      setMsg({ kind: 'error', text: 'Choose a password different from your current one.' });
       return;
     }
     if (next !== confirm) {
@@ -324,9 +333,8 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
         <div className="settings-fields">
           <div>
             <label className="field-label" htmlFor="pw-current">Current password</label>
-            <input
+            <PasswordInput
               id="pw-current"
-              type="password"
               className="field-input"
               value={current}
               onChange={e => setCurrent(e.target.value)}
@@ -336,27 +344,26 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
           </div>
           <div>
             <label className="field-label" htmlFor="pw-new">New password</label>
-            <input
+            <PasswordInput
               id="pw-new"
-              type="password"
               className="field-input"
               value={next}
               onChange={e => setNext(e.target.value)}
               autoComplete="new-password"
-              minLength={8}
+              minLength={PASSWORD_MIN_LENGTH}
               required
+              aria-describedby="pw-new-rules"
             />
+            <PasswordStrength id="pw-new-rules" password={next} check={passwordCheck} />
           </div>
           <div>
             <label className="field-label" htmlFor="pw-confirm">Confirm new password</label>
-            <input
+            <PasswordInput
               id="pw-confirm"
-              type="password"
               className="field-input"
               value={confirm}
               onChange={e => setConfirm(e.target.value)}
               autoComplete="new-password"
-              minLength={8}
               required
             />
           </div>
@@ -377,7 +384,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
           <button type="button" className="btn-outline" onClick={onClose} disabled={submitting}>
             Cancel
           </button>
-          <button type="submit" className="btn-save" disabled={submitting}>
+          <button type="submit" className="btn-save" disabled={submitting || !passwordCheck.ok}>
             {submitting ? 'Updating…' : 'Update password'}
           </button>
         </div>

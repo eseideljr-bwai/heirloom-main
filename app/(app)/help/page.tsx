@@ -1,3 +1,5 @@
+import { SUPPORT_EMAIL } from '../../../lib/support';
+
 const FAQS = [
   {
     q: 'What is a kinloom?',
@@ -61,9 +63,9 @@ export default function HelpPage() {
           Still have questions?
         </h2>
         <p style={{ fontSize: 15, color: 'rgba(26,26,26,0.7)', margin: '0 0 20px' }}>
-          Reach out and we'll get back to you.
+          Reach out to us at {SUPPORT_EMAIL} and we'll get back to you.
         </p>
-        <a href="mailto:hello@kinloom.com" style={{ display: 'inline-block', background: '#556b5b', color: '#fdfcfa', padding: '12px 24px', borderRadius: 8, fontSize: 14, fontWeight: 500, textDecoration: 'none' }}>
+        <a href={`mailto:${SUPPORT_EMAIL}`} style={{ display: 'inline-block', background: '#556b5b', color: '#fdfcfa', padding: '12px 24px', borderRadius: 8, fontSize: 14, fontWeight: 500, textDecoration: 'none' }}>
           Contact support
         </a>
       </div>

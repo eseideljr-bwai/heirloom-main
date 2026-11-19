@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '../lib/auth-context';
 import { ApiError } from '../lib/api';
+import { PasswordInput } from './components/PasswordInput';
 
 function safeNext(value: string | null | undefined): string {
   if (!value) return '/home';
@@ -105,8 +106,7 @@ export default function Login() {
             </div>
             <div>
               <label className="auth-label">Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required

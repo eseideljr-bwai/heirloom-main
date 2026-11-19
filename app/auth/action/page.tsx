@@ -11,6 +11,9 @@ import {
 } from '../../../lib/auth';
 import { useAuth } from '../../../lib/auth-context';
 import { ApiError } from '../../../lib/api';
+import { PASSWORD_MIN_LENGTH } from '../../../lib/password-policy';
+import { PasswordStrength, usePasswordPolicy } from '../../components/PasswordStrength';
+import { PasswordInput } from '../../components/PasswordInput';
 
 type Params = { mode: string | null; oobCode: string | null; next: string | null };
 
@@ -104,6 +107,7 @@ function ResetPassword({ oobCode }: { oobCode: string }) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
+  const passwordCheck = usePasswordPolicy(password, [email]);
 
   useEffect(() => {
     let active = true;
@@ -117,8 +121,8 @@ function ResetPassword({ oobCode }: { oobCode: string }) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+    if (passwordCheck.problem) {
+      setError(passwordCheck.problem);
       return;
     }
     if (password !== confirm) {
@@ -194,26 +198,25 @@ function ResetPassword({ oobCode }: { oobCode: string }) {
           <form onSubmit={handleSubmit} className="auth-form">
             <div className="field">
               <label htmlFor="rp-pw">New password</label>
-              <input
+              <PasswordInput
                 id="rp-pw"
-                type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 autoComplete="new-password"
-                placeholder="Minimum 8 characters"
+                placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
+                aria-describedby="rp-pw-rules"
               />
+              <PasswordStrength id="rp-pw-rules" password={password} check={passwordCheck} />
             </div>
             <div className="field">
               <label htmlFor="rp-confirm">Confirm password</label>
-              <input
+              <PasswordInput
                 id="rp-confirm"
-                type="password"
                 value={confirm}
                 onChange={e => setConfirm(e.target.value)}
                 required
-                minLength={8}
                 autoComplete="new-password"
                 placeholder="Re-enter password"
               />
@@ -221,7 +224,7 @@ function ResetPassword({ oobCode }: { oobCode: string }) {
 
             {error && <p className="auth-status auth-status--error">{error}</p>}
 
-            <button type="submit" disabled={submitting} className="btn-primary btn-block">
+            <button type="submit" disabled={submitting || !passwordCheck.ok} className="btn-primary btn-block">
               {submitting ? 'Saving…' : 'Reset password'}
             </button>
           </form>
