@@ -311,6 +311,7 @@ export interface paths {
          *
          *     - Sets your `name` to "{first_name} {family_name}", and your person row's name with it (your initials follow).
          *     - Sets `display_name` to `first_name`, but only if you have none yet.
+         *     - After S12: sets your person row's `gender` and your `birth_date` when you send them; left out, the saved ones stay. A date sets `birth_year` to its year, the only part your person card shows. Both come back on `user`.
          *     - Renames your Home to "The {family_name} Home" if it still has its generated name (`name_is_default: true`) and you are its owner or co-owner. It keeps `name_is_default: true`, so posting again renames it again. A Home with a name of its own is never renamed.
          *     - Sets `onboarding_state` to `complete` (the first time; posting again changes nothing there). It never creates a Family Space.
          *     - Posting again is allowed. Rate limit: `onboarding`, 5 a minute (contract §2.7).
@@ -3687,6 +3688,16 @@ export interface components {
             first_name: string;
             /** @description Trimmed; required. Names your Home "The {family_name} Home" while it has its generated name. */
             family_name: string;
+            /**
+             * @description After S12. Optional: your person row's gender. Left out, the saved one stays (`n` on a new account).
+             * @enum {string}
+             */
+            gender?: "f" | "m" | "n";
+            /**
+             * Format: date
+             * @description After S12. Optional: your date of birth, `YYYY-MM-DD`, a real date from `1900-01-01` to today (`2023-02-29` is 422). It sets `birth_year` to its year, which is all your person card shows. Left out, the saved one stays.
+             */
+            birth_date?: string;
         };
         /**
          * OnboardingProfileResult
@@ -3711,6 +3722,16 @@ export interface components {
             display_name: string | null;
             /** Format: email */
             email: string;
+            /**
+             * @description After S12: your person row's gender, as sent or as saved.
+             * @enum {string}
+             */
+            gender: "f" | "m" | "n";
+            /**
+             * Format: date
+             * @description After S12: your date of birth, `YYYY-MM-DD`, or null when none is saved. Only you see it: cards show `birth_year`.
+             */
+            birth_date: string | null;
         };
         /**
          * PageMeta
@@ -3830,6 +3851,11 @@ export interface components {
             email: string;
             /** @description Your person row's description (the form's "About"). Person cards don't carry it. */
             description: string | null;
+            /**
+             * Format: date
+             * @description After S12: your date of birth, `YYYY-MM-DD`, or null when none is saved. Only you see it: your person card shows `birth_year`, its year.
+             */
+            birth_date: string | null;
             /** @description Your own person card (contract §5.2), which carries your `birth_year` and `gender`. */
             person: components["schemas"]["PersonCard"];
         };
@@ -3846,6 +3872,11 @@ export interface components {
             avatar_url?: null;
             /** @description Your person row's birth year: a JSON integer, or null. `"1990"` and `true` get 422. */
             birth_year?: number | null;
+            /**
+             * Format: date
+             * @description After S12: your date of birth, `YYYY-MM-DD`, a real date from `1900-01-01` to today (`2023-02-29` is 422). It sets `birth_year` to its year: a `birth_year` sent with it must be that year. `null` clears the date and keeps the year. A `birth_year` alone of another year clears the date.
+             */
+            birth_date?: string | null;
             /** @description Your person row's description (the form's "About"), or null. */
             description?: string | null;
             /** @description Your person row's gender, which picks the silhouette. Can't be null. */
@@ -4974,6 +5005,7 @@ export interface operations {
                      *       "avatar_expires_at": "2026-11-21T10:00:00Z",
                      *       "email": "eli@seidel.kinloom.test",
                      *       "description": "Builds furniture and keeps the family recipes.",
+                     *       "birth_date": null,
                      *       "person": {
                      *         "id": "01m5fc9vxn02q3r3fs6kj6n49b",
                      *         "name": "Eli Seidel",
@@ -5122,6 +5154,7 @@ export interface operations {
                      *       "avatar_expires_at": "2026-11-21T10:00:00Z",
                      *       "email": "eli@seidel.kinloom.test",
                      *       "description": "Builds furniture and keeps the family recipes.",
+                     *       "birth_date": null,
                      *       "person": {
                      *         "id": "01m5fc9vxn02q3r3fs6kj6n49b",
                      *         "name": "Eli Seidel",
@@ -5297,6 +5330,7 @@ export interface operations {
                      *       "avatar_expires_at": "2026-11-21T10:00:00Z",
                      *       "email": "eli@seidel.kinloom.test",
                      *       "description": "Builds furniture and keeps the family recipes.",
+                     *       "birth_date": null,
                      *       "person": {
                      *         "id": "01m5fc9vxn02q3r3fs6kj6n49b",
                      *         "name": "Eli Seidel",
@@ -5463,6 +5497,7 @@ export interface operations {
                      *       "avatar_expires_at": null,
                      *       "email": "eli@seidel.kinloom.test",
                      *       "description": "Builds furniture and keeps the family recipes.",
+                     *       "birth_date": null,
                      *       "person": {
                      *         "id": "01m5fc9vxn02q3r3fs6kj6n49b",
                      *         "name": "Eli Seidel",
@@ -7192,7 +7227,9 @@ export interface operations {
                 /**
                  * @example {
                  *       "first_name": "Eli",
-                 *       "family_name": "Seidel"
+                 *       "family_name": "Seidel",
+                 *       "gender": "m",
+                 *       "birth_date": "1984-06-02"
                  *     }
                  */
                 "application/json": components["schemas"]["OnboardingProfileBody"];
@@ -7213,7 +7250,9 @@ export interface operations {
                      *         "id": "01M5FC9VS9BB5X72GR478DNV4E",
                      *         "name": "Eli Seidel",
                      *         "display_name": "Eli",
-                     *         "email": "eli@seidel.kinloom.test"
+                     *         "email": "eli@seidel.kinloom.test",
+                     *         "gender": "n",
+                     *         "birth_date": null
                      *       },
                      *       "home": {
                      *         "id": "01m5fc9vtq8ys1kwxv36zf417g",

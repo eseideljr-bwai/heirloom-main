@@ -1,6 +1,16 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
+import { getUserState } from '../../lib/server/auth';
 
-export default function OnboardingWelcome() {
+export const dynamic = 'force-dynamic';
+
+export default async function OnboardingWelcome() {
+  // A finished person has nothing left to do here. `complete` never goes
+  // back to `profile_pending`.
+  const state = await getUserState();
+  if (state.status === 'unauthenticated') redirect('/?reason=session_expired');
+  if (state.status !== 'onboarding') redirect('/home');
+
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', padding: '0 32px', textAlign: 'center', marginTop: 40 }}>
       <p style={{ fontSize: 13, fontWeight: 500, letterSpacing: '0.08em', textTransform: 'uppercase', color: '#556b5b', margin: '0 0 16px' }}>

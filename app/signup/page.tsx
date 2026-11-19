@@ -7,6 +7,9 @@ import { useAuth } from '../../lib/auth-context';
 import { ApiError } from '../../lib/api';
 import { ConsentCheckbox } from '../components/ConsentCheckbox';
 import { acceptConsent } from '../../lib/settings';
+import { PASSWORD_MIN_LENGTH } from '../../lib/password-policy';
+import { PasswordStrength, usePasswordPolicy } from '../components/PasswordStrength';
+import { PasswordInput } from '../components/PasswordInput';
 
 function safeNext(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -40,6 +43,7 @@ export default function Signup() {
   const router = useRouter();
   const next = useNextParam();
   const { user, loading: authLoading, register } = useAuth();
+  const passwordCheck = usePasswordPolicy(password, [name, email]);
 
   useEffect(() => {
     if (!authLoading && user && !savingConsent) {
@@ -60,8 +64,8 @@ export default function Signup() {
     // consent can never be recorded without it.
     if (!agreed) return;
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters.');
+    if (passwordCheck.problem) {
+      setError(passwordCheck.problem);
       return;
     }
     if (password !== passwordConfirm) {
@@ -148,25 +152,24 @@ export default function Signup() {
             </div>
             <div>
               <label className="auth-label">Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
-                minLength={8}
+                minLength={PASSWORD_MIN_LENGTH}
                 autoComplete="new-password"
-                placeholder="Minimum 8 characters"
+                placeholder={`At least ${PASSWORD_MIN_LENGTH} characters`}
                 className="auth-input"
+                aria-describedby="signup-pw-rules"
               />
+              <PasswordStrength id="signup-pw-rules" password={password} check={passwordCheck} />
             </div>
             <div>
               <label className="auth-label">Confirm password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={passwordConfirm}
                 onChange={e => setPasswordConfirm(e.target.value)}
                 required
-                minLength={8}
                 autoComplete="new-password"
                 placeholder="Re-enter password"
                 className="auth-input"
@@ -181,8 +184,8 @@ export default function Signup() {
 
             <button
               type="submit"
-              disabled={loading || !agreed}
-              style={{ width: '100%', background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '14px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: loading || !agreed ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : !agreed ? 0.5 : 1, marginTop: 8 }}
+              disabled={loading || !agreed || !passwordCheck.ok}
+              style={{ width: '100%', background: '#556b5b', color: '#fdfcfa', border: 'none', padding: '14px', borderRadius: 8, fontSize: 15, fontWeight: 500, fontFamily: 'inherit', cursor: loading || !agreed || !passwordCheck.ok ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : (!agreed || !passwordCheck.ok) ? 0.5 : 1, marginTop: 8 }}
             >
               {loading ? 'Creating account…' : 'Create Account'}
             </button>
