@@ -105,7 +105,7 @@ GTM, then publish. Don't add a History Change trigger or a second Google tag.
 
 **Private app** (Settings → Integrations → Private apps): name "Kinloom app sync".
 Scopes: `crm.objects.contacts.read`, `crm.objects.contacts.write`, and — only if the
-subscription opt-in is used — `communication_preferences.read_write`. The token goes to GCP
+subscription opt-in is used — `communication_preferences.write`. The token goes to GCP
 Secret Manager (section 5), never to GitHub or a `NEXT_PUBLIC_` variable.
 
 **Property group** `kinloom_usage` (label "Kinloom usage"), contact object. Internal names and
@@ -233,20 +233,24 @@ sign-up 1 (`/me`); invitation 2 (`/me`, one manage endpoint).
       token-bearing URLs (`/invite/…`, `oobCode`, `?q=`).
 - [x] [done] GA4 Google tag paused (GTM v4). HubSpot non-HubSpot forms collection off.
 - [ ] [account] HubSpot: cookie banner off for `app.kinloom.com`; non-marketing default for
-      integrations; property group + properties (section 3); private app token.
-- [ ] [account] GCP: `gcloud secrets create hubspot-private-app-token` in `bw-heirloom-prod`,
-      grant `heirloom-web-prod@…` Secret Accessor.
-- [ ] [code] Add to `.github/workflows/deploy.yml` → `deploy-prod` (not done in this branch):
+      integrations.
+- [x] [done] HubSpot: `kinloom_usage` group + the 14 properties (section 3); verified in local
+      testing (the sync wrote correctly to a test contact). Private app token created.
+- [x] [done] GCP: Secret Manager secret `hubspot-private-app-token` in `bw-heirloom-prod`
+      (version 2 = the real token), readable only by `heirloom-web-prod@…` (Secret Accessor).
+- [x] [code] `.github/workflows/deploy.yml` → `deploy-prod` (`heirloom-main-prod`):
       ```yaml
       env_vars: |
         …
         HUBSPOT_SYNC_ENABLED=0
-        HUBSPOT_SUBSCRIPTION_ID=<id or empty>
-        HUBSPOT_LEGAL_BASIS_ENABLED=0
       secrets: |
         ANTHROPIC_API_KEY=anthropic-api-key:latest
         HUBSPOT_PRIVATE_APP_TOKEN=hubspot-private-app-token:latest
       ```
+      The first prod deploy ships with the sync **off**; it is turned on in a follow-up
+      commit (see "Turn on the sync"). `HUBSPOT_SUBSCRIPTION_ID` and
+      `HUBSPOT_LEGAL_BASIS_ENABLED` are optional and left unset for now: without them a
+      sign-up opt-in is recorded as the `kinloom_marketing_opt_in` property only.
       Dev/preview jobs: leave the HubSpot vars out (sync stays off).
 - [ ] Dev/Local test plan (section 5) passed; `npm run test:analytics` green.
 - [ ] Dan: Privacy Policy covers the analytics cookies, the HubSpot sync and the email-arrival flag.
@@ -259,13 +263,16 @@ sign-up 1 (`/me`); invitation 2 (`/me`, one manage endpoint).
       Unpause the Google tag in the same version only if step 10 (c) passes.
 - [ ] Check HubSpot receives sanitized views (Contacts → a test contact → activity).
 
-**Turn on the sync**
-- [ ] Set `HUBSPOT_SYNC_ENABLED=1` on `heirloom-main-prod` (Cloud Run env var; redeploy or
-      `gcloud run services update --update-env-vars`).
+**Turn on the sync** (only after the Phase 1 checks above pass in prod)
+- [ ] Follow-up commit: change `HUBSPOT_SYNC_ENABLED=0` to `1` in `deploy.yml` → `deploy-prod`,
+      then deploy. Change it in `deploy.yml`, not only with `gcloud run services update`:
+      every deploy re-applies the value in `deploy.yml`, so a console-only change would be
+      reset to `0` by the next deploy.
 - [ ] Sign in with a test member; confirm the contact and properties. Watch logs for
       `[analytics-sync]` warnings for a day.
-- [ ] Only after confirming the account supports a legal basis: `HUBSPOT_SUBSCRIPTION_ID` +
-      `HUBSPOT_LEGAL_BASIS_ENABLED=1`.
+- [ ] Optional, later: only after confirming the account supports a legal basis, add
+      `HUBSPOT_SUBSCRIPTION_ID` + `HUBSPOT_LEGAL_BASIS_ENABLED=1` to `deploy-prod`. Until then
+      both stay unset.
 
 **Rollback** (fastest first)
 - Sync: `HUBSPOT_SYNC_ENABLED=0` (route returns 204 and does nothing).

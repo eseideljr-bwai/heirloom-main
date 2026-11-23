@@ -4,7 +4,7 @@
  * Env (server-only secrets; never NEXT_PUBLIC_):
  *   HUBSPOT_SYNC_ENABLED            "1" to write. Anything else: the sync route does nothing.
  *   HUBSPOT_PRIVATE_APP_TOKEN       Private app token (crm.objects.contacts.read/write,
- *                                   communication_preferences.read_write).
+ *                                   communication_preferences.write).
  *   HUBSPOT_SUBSCRIPTION_ID         Email subscription type to opt sign-up members into.
  *   HUBSPOT_LEGAL_BASIS_ENABLED     "1" only once the account's data-privacy settings
  *                                   accept a legal basis. Without it (or without the
