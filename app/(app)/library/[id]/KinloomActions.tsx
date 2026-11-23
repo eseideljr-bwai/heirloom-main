@@ -23,6 +23,7 @@ import { HEIC_ACCEPT, needsPreparing, prepareImageFiles } from '../../../../lib/
 import { ApiError } from '../../../../lib/api';
 import { VoiceRecorder, type VoiceRecorderValue } from '../../../components/VoiceRecorder';
 import { revalidateKinloomData } from '../../../actions';
+import { requestSync } from '../../../../lib/analytics/sync';
 
 type Props = {
   kinloom: KinloomDetail;
@@ -685,6 +686,7 @@ function DeleteKinloomModal({
     setSubmitting(true);
     try {
       await deleteKinloom(kinloomId);
+      requestSync('kinloom'); // the count goes down
       await onDeleted();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Could not delete.';

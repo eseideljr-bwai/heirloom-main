@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '../lib/auth-context';
 import { ApiError } from '../lib/api';
 import { PasswordInput } from './components/PasswordInput';
+import { requestSync } from '../lib/analytics/sync';
 
 function safeNext(value: string | null | undefined): string {
   if (!value) return '/home';
@@ -55,6 +56,8 @@ export default function Login() {
     setLoading(true);
     try {
       await login(email, password);
+      // Establishes / updates this member's HubSpot contact (fire-and-forget).
+      requestSync('sign_in');
       // Effect above redirects once `user` populates.
     } catch (err: unknown) {
       if (err instanceof ApiError) {

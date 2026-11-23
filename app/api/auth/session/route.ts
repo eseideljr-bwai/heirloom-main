@@ -28,6 +28,8 @@ import {
   SESSION_COOKIE_MAX_AGE_SECONDS,
   ID_TOKEN_COOKIE_MAX_AGE_SECONDS,
   ABSOLUTE_TIMEOUT_SECONDS,
+  INVITE_TOKEN_COOKIE,
+  INVITE_TOKEN_COOKIE_PATH,
 } from '../../../../lib/server/cookies';
 import { consentCookie, readConsentWithToken } from '../../../../lib/server/consent';
 
@@ -171,5 +173,11 @@ export async function DELETE() {
       }),
     );
   }
+  // Scoped to /invite, so it needs its own path to be cleared.
+  res.cookies.set(
+    INVITE_TOKEN_COOKIE,
+    '',
+    cookieOptions({ httpOnly: true, maxAge: 0, path: INVITE_TOKEN_COOKIE_PATH }),
+  );
   return res;
 }

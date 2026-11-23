@@ -1,6 +1,6 @@
 import CreateSpaceWizard from './CreateSpaceWizard';
 
-export const metadata = { title: 'Create a Family Space' };
+// Title comes from the analytics route map (root layout).
 
 /**
  * "Create a Family Space": Name, Homes, Review. The Shape step in the design
