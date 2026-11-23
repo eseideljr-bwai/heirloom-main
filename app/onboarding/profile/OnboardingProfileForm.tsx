@@ -6,6 +6,8 @@ import { onboardingProfile } from '../../../lib/auth';
 import { useAuth } from '../../../lib/auth-context';
 import { revalidateAllData } from '../../actions';
 import { ApiError } from '../../../lib/api';
+import { trackSignUp } from '../../../lib/analytics/events';
+import { requestSync } from '../../../lib/analytics/sync';
 
 type Gender = 'f' | 'm' | 'n';
 
@@ -42,7 +44,7 @@ function daysIn(month: string, year: string): number {
 
 export default function OnboardingProfileForm() {
   const router = useRouter();
-  const { refresh } = useAuth();
+  const { refresh, user } = useAuth();
   const [firstName, setFirstName] = useState('');
   const [familyName, setFamilyName] = useState('');
   const [birthMonth, setBirthMonth] = useState('');
@@ -86,6 +88,10 @@ export default function OnboardingProfileForm() {
         }),
         ...(gender && { gender }),
       });
+      // This form only renders while onboarding is pending, so success here
+      // is always the first completion.
+      trackSignUp(user?.id);
+      requestSync('onboarding');
       await refresh();
       void revalidateAllData();
       router.push('/onboarding/photo');

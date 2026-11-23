@@ -8,7 +8,10 @@ const isDev = process.env.NODE_ENV !== 'production';
 const staticSecurityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
-  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+  // strict-origin: never a path, even same-origin. document.referrer feeds
+  // GA4 and HubSpot, and app paths carry ids (/library/<id>, /portrait/<id>).
+  // Nothing in the app reads Referer.
+  { key: 'Referrer-Policy', value: 'strict-origin' },
   {
     key: 'Permissions-Policy',
     value: [

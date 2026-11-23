@@ -23,6 +23,7 @@ import { syncSessionRefresh } from '../../../../lib/auth';
 import { revalidateFamilyData } from '../../../actions';
 import { removeMemberAvatar, setMemberAvatar } from '../../../../lib/avatar';
 import { useAvatarPicker } from '../../../components/useAvatarPicker';
+import { requestInvitationSync } from '../../../../lib/analytics/sync';
 
 type Gender = 'f' | 'm' | 'n';
 
@@ -609,6 +610,8 @@ function InviteModal({
           throw err;
         }
       }
+      // Only the invitation id goes to the sync; the server reads the email.
+      requestInvitationSync('home', res.id);
       // invite_token appears only in this response; build the share link now.
       const url = `${window.location.origin}/invite/${encodeURIComponent(res.invite_token)}`;
       setSentTo(trimmed);

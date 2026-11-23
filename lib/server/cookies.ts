@@ -46,6 +46,18 @@ export const COOKIES = {
   consent: 'kinloom_consent',
 } as const;
 
+/**
+ * The invitation token from `/invite/<token>`, so the token can be stripped
+ * from the address bar (it must never reach analytics or a Referer) while a
+ * refresh of the bare `/invite` still works. HttpOnly, scoped to /invite,
+ * 72h like the invitation itself. Set by middleware.ts, read by
+ * app/invite/page.tsx, cleared on sign-out. Not in COOKIES because of its
+ * path: clearing it needs `path: INVITE_TOKEN_COOKIE_PATH`.
+ */
+export const INVITE_TOKEN_COOKIE = 'kinloom_invite_token';
+export const INVITE_TOKEN_COOKIE_PATH = '/invite';
+export const INVITE_TOKEN_COOKIE_MAX_AGE_SECONDS = 72 * 60 * 60;
+
 // Epic 2: idle 24h, absolute 30d.
 export const IDLE_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 export const ABSOLUTE_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;

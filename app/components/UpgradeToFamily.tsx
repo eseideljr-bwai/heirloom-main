@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { errorText, upgradePlan } from '../../lib/settings';
 import { revalidateAllData } from '../actions';
+import { requestSync } from '../../lib/analytics/sync';
 
 /**
  * "Upgrade to Family": one click, no checkout (there is no billing yet).
@@ -26,6 +27,7 @@ export default function UpgradeToFamily({ className = 'btn-save' }: { className?
     setError(null);
     try {
       await upgradePlan('family');
+      requestSync('plan');
       await refresh();
       void revalidateAllData();
       router.refresh();

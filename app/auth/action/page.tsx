@@ -14,6 +14,7 @@ import { ApiError } from '../../../lib/api';
 import { PASSWORD_MIN_LENGTH } from '../../../lib/password-policy';
 import { PasswordStrength, usePasswordPolicy } from '../../components/PasswordStrength';
 import { PasswordInput } from '../../components/PasswordInput';
+import { readStashedAuthActionParams, stashAuthActionParams } from '../../../lib/analytics/url-scrub';
 
 type Params = { mode: string | null; oobCode: string | null; next: string | null };
 
@@ -29,11 +30,15 @@ function useActionParams(): Params | null {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const q = new URLSearchParams(window.location.search);
-    setParams({
-      mode: q.get('mode'),
-      oobCode: q.get('oobCode'),
-      next: q.get('next'),
-    });
+    if (q.get('oobCode')) {
+      const fromUrl = { mode: q.get('mode'), oobCode: q.get('oobCode'), next: q.get('next') };
+      // The analytics root strips this query (the oobCode is a secret) right
+      // after this effect; keep the params for a refresh in this tab.
+      stashAuthActionParams(fromUrl);
+      setParams(fromUrl);
+      return;
+    }
+    setParams(readStashedAuthActionParams() ?? { mode: null, oobCode: null, next: null });
   }, []);
   return params;
 }

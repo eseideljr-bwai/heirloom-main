@@ -1,4 +1,3 @@
-import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getUserState } from '../../lib/server/auth';
 import { getConsentGiven, safeConsentNext } from '../../lib/server/consent';
@@ -6,9 +5,7 @@ import { ConsentCard } from './ConsentCard';
 
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: 'Before you continue — Kinloom',
-};
+// Title comes from the analytics route map (root layout).
 
 export default async function ConsentPage({
   searchParams,

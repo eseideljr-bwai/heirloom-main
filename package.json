@@ -9,7 +9,8 @@
     "lint": "next lint",
     "postinstall": "cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.mjs",
     "eval:talk": "node --experimental-strip-types scripts/eval-talk-agent.mjs",
-    "api:types": "openapi-typescript ${KINLOOM_OPENAPI_URL:-https://kinloom-api-laravel-vycjbweb.on-forge.com/docs/api.json} -o lib/api-schema/kinloom.d.ts"
+    "api:types": "openapi-typescript ${KINLOOM_OPENAPI_URL:-https://kinloom-api-laravel-vycjbweb.on-forge.com/docs/api.json} -o lib/api-schema/kinloom.d.ts",
+    "test:analytics": "node --experimental-strip-types --no-warnings --test scripts/tests/analytics-sync.test.mts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.92.0",

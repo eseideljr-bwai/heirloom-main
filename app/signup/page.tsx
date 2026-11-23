@@ -10,6 +10,9 @@ import { acceptConsent } from '../../lib/settings';
 import { PASSWORD_MIN_LENGTH } from '../../lib/password-policy';
 import { PasswordStrength, usePasswordPolicy } from '../components/PasswordStrength';
 import { PasswordInput } from '../components/PasswordInput';
+import { MarketingOptInCheckbox } from '../components/MarketingOptInCheckbox';
+import { cameFromMarketingEmail, clearMarketingEmailFlag } from '../../lib/analytics/email-flag';
+import { requestSignupSync } from '../../lib/analytics/sync';
 
 function safeNext(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -37,6 +40,13 @@ export default function Signup() {
   const [loading, setLoading] = useState(false);
   // Never pre-checked. Sent to the API once the account exists.
   const [agreed, setAgreed] = useState(false);
+  // Marketing emails: optional, never pre-checked, never blocks sign-up.
+  // Held only in the browser until the account exists, then sent once.
+  const [marketing, setMarketing] = useState(false);
+  // Arrived from a HubSpot email: already on the list, so don't ask again.
+  // Read after mount (localStorage) so server and client first renders match.
+  const [fromEmail, setFromEmail] = useState<boolean | null>(null);
+  useEffect(() => { setFromEmail(cameFromMarketingEmail()); }, []);
   // Holds the redirect below until the consent PATCH has settled, so
   // navigating away can't tear the request down.
   const [savingConsent, setSavingConsent] = useState(false);
@@ -82,6 +92,10 @@ export default function Signup() {
         password,
         password_confirmation: passwordConfirm,
       });
+      // The account exists: record the marketing choice in HubSpot
+      // (fire-and-forget; the server verifies the email through GET /me).
+      requestSignupSync(fromEmail ? { fromMarketingEmail: true } : { marketingOptIn: marketing });
+      clearMarketingEmailFlag();
       // The box had to be checked to submit. Record it now that the account
       // exists. A failure doesn't undo the sign-up: consent stays false and
       // the (app) layout sends them to /consent before they reach the app.
@@ -181,6 +195,7 @@ export default function Signup() {
             )}
 
             <ConsentCheckbox checked={agreed} onChange={setAgreed} />
+            {fromEmail === false && <MarketingOptInCheckbox checked={marketing} onChange={setMarketing} />}
 
             <button
               type="submit"

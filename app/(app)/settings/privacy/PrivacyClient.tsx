@@ -13,6 +13,7 @@ import {
   type SettingsChanges,
 } from '../../../../lib/settings';
 import { revalidateSettingsData } from '../../../actions';
+import { CookieSettingsLink } from '../../../components/analytics/CookieSettingsLink';
 
 type Key = keyof Settings;
 
@@ -174,6 +175,16 @@ export default function PrivacyClient({
         </section>
 
         <LegacyContactCard contact={legacyContact} contactFor={legacyContactFor} />
+
+        {/* ─── Cookies ──────────────────────────────── */}
+        <section className="card" aria-labelledby="sec-cookies">
+          <h2 className="settings-h2 settings-h2--tight" id="sec-cookies">Cookies</h2>
+          <p className="settings-card-text">
+            Choose whether Kinloom may use analytics cookies on this device. Necessary cookies,
+            which keep you signed in, are always on.
+          </p>
+          <CookieSettingsLink />
+        </section>
       </div>
 
       <div className="privacy-note">

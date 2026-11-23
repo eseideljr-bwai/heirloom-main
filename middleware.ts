@@ -5,6 +5,11 @@ import {
   EMBED_IOS,
   EMBED_REQUEST_HEADER,
 } from './lib/embed';
+import {
+  INVITE_TOKEN_COOKIE,
+  INVITE_TOKEN_COOKIE_MAX_AGE_SECONDS,
+  INVITE_TOKEN_COOKIE_PATH,
+} from './lib/server/cookies';
 
 /**
  * Edge middleware — does three things:
@@ -85,8 +90,11 @@ function buildCsp(nonce: string, isDev: boolean): string {
     `worker-src 'self' blob:`,
     `style-src 'self' 'unsafe-inline'`,
     // GCS-hosted media (signed download URLs returned by /media/{id}/url).
-    // Also Google Tag Manager / GA4 beacons (pixel fallback).
-    `img-src 'self' data: blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com https://*.googleusercontent.com https://*.google-analytics.com https://*.googletagmanager.com`,
+    // Also Google Tag Manager / GA4 beacons (pixel fallback), and the HubSpot
+    // tracking pixel (hub 244135672, na2). Only the pixel: HubSpot's collected
+    // forms (*.hscollectedforms.net) stay blocked on purpose — it would read
+    // app forms (sign-in emails, invitee emails). Never add it.
+    `img-src 'self' data: blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com https://*.googleusercontent.com https://*.google-analytics.com https://*.googletagmanager.com https://track-na2.hubspot.com`,
     `media-src 'self' blob: https://storage.googleapis.com https://*.storage.googleapis.com https://storage.cloud.google.com`,
     `font-src 'self' data:`,
     // connect-src:
@@ -130,6 +138,26 @@ function applyEmbedCookie(res: NextResponse, embed: EmbedDecision): NextResponse
     ...(embed.cookie === 'clear' ? { maxAge: 0 } : {}),
   });
   return res;
+}
+
+/**
+ * `/invite/<token>`: keep the token in an HttpOnly cookie scoped to /invite,
+ * so the page can strip it from the address bar (analytics, Referer, history)
+ * and a refresh of the bare `/invite` still finds it. See
+ * lib/analytics/url-scrub.ts and app/invite/page.tsx.
+ */
+const INVITE_TOKEN_PATH = /^\/invite\/([A-Za-z0-9_-]{1,256})\/?$/;
+
+function applyInviteTokenCookie(res: NextResponse, pathname: string): void {
+  const match = INVITE_TOKEN_PATH.exec(pathname);
+  if (!match) return;
+  res.cookies.set(INVITE_TOKEN_COOKIE, match[1], {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: INVITE_TOKEN_COOKIE_PATH,
+    maxAge: INVITE_TOKEN_COOKIE_MAX_AGE_SECONDS,
+  });
 }
 
 export function middleware(req: NextRequest) {
@@ -185,6 +213,7 @@ export function middleware(req: NextRequest) {
 
   const res = NextResponse.next({ request: { headers: requestHeaders } });
   res.headers.set('Content-Security-Policy', csp);
+  applyInviteTokenCookie(res, pathname);
   return applyEmbedCookie(res, embed);
 }
 

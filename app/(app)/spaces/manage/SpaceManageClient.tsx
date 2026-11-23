@@ -19,6 +19,7 @@ import {
   type SpaceManage,
   type SpacePendingHome,
 } from '../../../../lib/space-manage';
+import { requestInvitationSync } from '../../../../lib/analytics/sync';
 
 type Props = {
   spaceId: string;
@@ -425,6 +426,7 @@ function InviteModal({
     setSubmitting(true);
     try {
       const res = await inviteHomeToSpace(spaceId, trimmed);
+      requestInvitationSync('space', res.id, spaceId);
       // invite_token appears only in this response; build the share link now.
       setLink(inviteUrl(res.invite_token));
       await onDone();
@@ -554,6 +556,8 @@ function ResendModal({
     setSubmitting(true);
     try {
       const res = await inviteHomeToSpace(spaceId, invitation.email);
+      // A re-send replaces the invitation: a new id, same invitee.
+      requestInvitationSync('space', res.id, spaceId);
       const url = inviteUrl(res.invite_token);
       setLink(url);
       // May be refused once the click's user activation has lapsed (Safari); the button below still works.
