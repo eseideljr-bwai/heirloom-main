@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ApiError } from '../../../../lib/api';
 import { inviteHomeToSpace, type SpaceHome, type SpaceInvitation } from '../../../../lib/space-manage';
+import { requestInvitationSync } from '../../../../lib/analytics/sync';
 
 /** The letter for an avatar: "The Doyle Home" is a D, not a T. */
 const initialOf = (text: string) => (text.trim().replace(/^the\s+/i, '').charAt(0) || '?').toUpperCase();
@@ -51,7 +52,8 @@ export default function SpaceHomesPanel({
     setBusy(true);
     setError(null);
     try {
-      await inviteHomeToSpace(spaceId, value);
+      const res = await inviteHomeToSpace(spaceId, value);
+      requestInvitationSync('space', res.id, spaceId);
       setEmail('');
       router.refresh();
     } catch (err) {

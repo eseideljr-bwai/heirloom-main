@@ -11,6 +11,9 @@ import {
 } from '../../../../lib/kinloom';
 import { ApiError } from '../../../../lib/api';
 import { postToNative } from '../../../../lib/embed';
+import { useAuth } from '../../../../lib/auth-context';
+import { trackKinloomPublished } from '../../../../lib/analytics/events';
+import { requestSync } from '../../../../lib/analytics/sync';
 import { revalidateKinloomData } from '../../../actions';
 import AudiencePicker, {
   audienceSummary,
@@ -45,6 +48,7 @@ export default function PublishSheet({
   defaultTarget: 'home' | 'private';
 }) {
   const router = useRouter();
+  const { user } = useAuth();
   const isDraft = status === 'draft';
 
   const home = rooms.find((r) => r.type === 'home') ?? null;
@@ -85,6 +89,8 @@ export default function PublishSheet({
 
       if (isDraft) {
         await updateKinloom(kinloomId, { status: 'final', publish: targets });
+        void trackKinloomPublished(user?.id, 1);
+        requestSync('kinloom');
       } else if (!sameSet(initialSelected, selected)) {
         await setKinloomPublications(kinloomId, targets);
       }

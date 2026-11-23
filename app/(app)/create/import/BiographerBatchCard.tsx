@@ -26,6 +26,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { KINLOOM_TYPE_SLUGS } from '../../../../lib/agent/tools';
 import { reportUnauthorized } from '../../../../lib/embed';
+import { useAuth } from '../../../../lib/auth-context';
+import { trackKinloomPublished } from '../../../../lib/analytics/events';
+import { requestSync } from '../../../../lib/analytics/sync';
 import { getCreateContext } from '../../../../lib/kinloom';
 import AudiencePicker, {
   audienceSummary,
@@ -106,6 +109,7 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
   // A ref, not state: a retry pass hands off in the same tick it finishes,
   // and needs the ulids saved by earlier passes too.
   const createdIdsRef = useRef<Array<string | null>>(proposed.map(() => null));
+  const { user } = useAuth();
   const [publishing, setPublishing] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   // Rate-limit cooldown. Kept separate from `banner` (which reports genuine
@@ -241,6 +245,8 @@ export function BiographerBatchCard({ input, toolUseId, onKeepRefining, onAllPub
 
         if (r?.ok) {
           createdIdsRef.current[idx] = r.ulid ?? null;
+          void trackKinloomPublished(user?.id, createdIdsRef.current.filter(Boolean).length);
+          requestSync('kinloom'); // coalesced across the batch
           setStatuses(prev => prev.map((s, i) => (i === idx ? 'done' : s)));
           setErrors(prev => prev.map((e, i) => (i === idx ? null : e)));
         } else {

@@ -7,15 +7,28 @@ import { EmbedProvider } from '../lib/embed-context';
 import { getInitialAuthState } from '../lib/server/auth';
 import { isEmbeddedRequest } from '../lib/server/embed';
 import { GoogleTagManager } from './components/GoogleTagManager';
+import { AnalyticsRoot } from './components/analytics/AnalyticsRoot';
+import { UsageSyncRoot } from './components/analytics/UsageSyncRoot';
+import { headers } from 'next/headers';
+import { titleForPath } from '../lib/analytics/route-map';
 
 // We read cookies during render to hydrate auth state — the root
 // layout must be dynamic.
 export const dynamic = 'force-dynamic';
 
-export const metadata: Metadata = {
-  title: 'Kinloom — Preserve Your Family Legacy',
-  description: 'A private family platform that helps you create, preserve, and stay connected through what matters most.',
-};
+/**
+ * Every title comes from the analytics route map, so no page title ever
+ * carries user content (kinloom titles, names, Home or Space names) into the
+ * browser tab, history, or analytics. Pages must not set their own title.
+ * Middleware sets `x-kinloom-path` on every request, RSC navigations included,
+ * so this also runs on client-side navigation.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: titleForPath(headers().get('x-kinloom-path')),
+    description: 'A private family platform that helps you create, preserve, and stay connected through what matters most.',
+  };
+}
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -38,6 +51,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <head>
         <link rel="preload" href="/fonts/inter-latin.e4af272c.woff2" as="font" type="font/woff2" crossOrigin="" />
         <link rel="preload" href="/fonts/crimson-pro-latin.3296bccd.woff2" as="font" type="font/woff2" crossOrigin="" />
+        <GoogleTagManager />
       </head>
       <body>
         <EmbedProvider embedded={embedded}>
@@ -45,9 +59,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <ActiveFamilySpaceProvider initialActiveFamilySpaceId={activeFamilySpaceId}>
               {children}
             </ActiveFamilySpaceProvider>
+            <AnalyticsRoot />
+            <UsageSyncRoot />
           </AuthProvider>
         </EmbedProvider>
-        <GoogleTagManager />
       </body>
     </html>
   );

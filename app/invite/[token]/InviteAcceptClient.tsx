@@ -16,6 +16,8 @@ import {
   type InvitationPublishItem,
 } from '../../../lib/invitations';
 import { revalidateAllData } from '../../actions';
+import { trackSignUp } from '../../../lib/analytics/events';
+import { requestSync } from '../../../lib/analytics/sync';
 
 export type DeadReason = 'used' | 'expired' | 'not_found' | 'unavailable';
 
@@ -210,8 +212,14 @@ export default function InviteAcceptClient({ token, preview, dead, session, vaul
       onAccept={async (publish) => {
         setBusy(true);
         setError(null);
+        // Accepting completes onboarding for someone who hadn't finished it (D8).
+        const completesOnboarding = user?.onboarding_state === 'profile_pending';
         try {
           const res = await acceptHomeOrSpaceInvitation(token, publish);
+          if (completesOnboarding) {
+            trackSignUp(user?.id);
+            requestSync('onboarding');
+          }
           setSpaceName(preview?.container_name ?? '');
           setAccepted(res);
           // Accepting changes what /me says: a new Home, Spaces, maybe a new person id.

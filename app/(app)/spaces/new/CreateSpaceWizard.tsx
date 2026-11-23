@@ -9,6 +9,7 @@ import { useAuth } from '../../../../lib/auth-context';
 import { canUpgradeToCreateSpace, createSpaceBlockedReason } from '../../../../lib/can-create-space';
 import UpgradeToFamily from '../../../components/UpgradeToFamily';
 import { createFamilySpace, inviteHomeToSpace } from '../../../../lib/space-manage';
+import { requestInvitationSync, requestSync } from '../../../../lib/analytics/sync';
 
 // ─── Model ────────────────────────────────────────────────────────────
 
@@ -240,6 +241,7 @@ export default function CreateSpaceWizard() {
       setBusy(false);
       return;
     }
+    requestSync('family_space');
 
     // The Space exists, so invitations can go out. They don't depend on each
     // other, so they leave together.
@@ -247,6 +249,7 @@ export default function CreateSpaceWizard() {
     const failed: Failed[] = [];
     results.forEach((r, idx) => {
       if (r.status === 'rejected') failed.push({ email: clean[idx].email, reason: inviteError(r.reason) });
+      else requestInvitationSync('space', r.value.id, space.id);
     });
 
     // In this order: the Space has to be in the client's copy of /me before

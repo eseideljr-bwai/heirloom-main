@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useActiveFamilySpace } from '../../lib/active-family-space';
 import { SUPPORT_EMAIL } from '../../lib/support';
+import { CookieSettingsLink } from './analytics/CookieSettingsLink';
 
 /**
  * The footer from the Federated Containers design.
@@ -86,6 +87,8 @@ export default function AppFooter({
       <p className="app-footer__line app-footer__support">
         Need support? Reach out to us at{' '}
         <a href={`mailto:${SUPPORT_EMAIL}`} className="app-footer__mail">{SUPPORT_EMAIL}</a>
+        {' · '}
+        <CookieSettingsLink className="kl-cookie-settings app-footer__mail" />
       </p>
     </footer>
   );

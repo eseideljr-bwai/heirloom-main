@@ -8559,3 +8559,99 @@ img.portrait-kin__img { object-fit: cover; }
 .pw-input__toggle:hover:not(:disabled) { color: var(--fg-1); }
 .pw-input__toggle:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
 .pw-input__toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ─── Cookie banner (app/components/analytics/CookieBanner.tsx) ─────
+   Kinloom's own consent banner. Accept and Decline share one style on
+   purpose: equal weight, no nudging. */
+.kl-cookie {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.kl-cookie__card {
+  pointer-events: auto;
+  width: 100%;
+  max-width: 560px;
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-xl);
+  padding: 20px 22px;
+  animation: kl-cookie-in 280ms ease-out both;
+}
+@keyframes kl-cookie-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.kl-cookie__title {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0 0 8px;
+  outline: none;
+}
+.kl-cookie__text {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--fg-2);
+  margin: 0 0 8px;
+}
+.kl-cookie__text--small { font-size: 13px; color: var(--fg-4); }
+.kl-cookie__link { color: var(--fg-2); text-decoration: underline; text-underline-offset: 2px; }
+.kl-cookie__link:hover { color: var(--foreground); }
+.kl-cookie__actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 14px;
+}
+.kl-cookie__btn {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  padding: 11px 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--primary);
+  background: var(--card);
+  color: var(--primary);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.kl-cookie__btn:hover { background: var(--primary); color: var(--primary-foreground); }
+.kl-cookie__btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.kl-cookie__close {
+  display: block;
+  margin: 12px auto 0;
+  background: none;
+  border: 0;
+  padding: 4px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--fg-4);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.kl-cookie__close:hover { color: var(--foreground); }
+.kl-cookie-settings {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--fg-3);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.kl-cookie-settings:hover { color: var(--foreground); }
+@media (prefers-reduced-motion: reduce) {
+  .kl-cookie__card { animation: none; }
+}
