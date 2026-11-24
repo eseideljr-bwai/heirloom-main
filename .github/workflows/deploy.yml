@@ -105,7 +105,7 @@ jobs:
             # Lives in bw-heirloom-dev but verifies bw-heirloom-prod ID tokens
             # and writes to its own prod bucket and sheet.
             FEEDBACK_INGEST_URL=https://us-east1-bw-heirloom-dev.cloudfunctions.net/feedback-ingest-prod
-            HUBSPOT_SYNC_ENABLED=0
+            HUBSPOT_SYNC_ENABLED=1
           secrets: |
             ANTHROPIC_API_KEY=anthropic-api-key:latest
             HUBSPOT_PRIVATE_APP_TOKEN=hubspot-private-app-token:latest

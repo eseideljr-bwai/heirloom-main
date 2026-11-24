@@ -12,6 +12,12 @@
  * Not tied to cookie consent: this is the member's account data, synced
  * server-side, not browser tracking. The server does nothing unless
  * HUBSPOT_SYNC_ENABLED=1.
+ *
+ * HubSpot `identify` waits for a member sync to come back OK (see
+ * memberSyncSettled): the sync then creates the contact first, with
+ * kinloom_contact_origin = app_sign_in, instead of HubSpot's tracking code
+ * creating it and the sync reading it as `hubspot_existing`. The flag is a
+ * member id and a date in localStorage (`kl_sync_ok:<id>`), never an email.
  */
 
 type MemberReason = 'sign_in' | 'onboarding' | 'kinloom' | 'family_space' | 'plan' | 'daily';
@@ -19,6 +25,7 @@ type MemberReason = 'sign_in' | 'onboarding' | 'kinloom' | 'family_space' | 'pla
 const ENDPOINT = '/api/analytics/sync';
 const COALESCE_MS = 2500;
 const DAY_KEY = (memberId: string) => `kl_sync_day:${memberId}`;
+const OK_KEY = (memberId: string) => `kl_sync_ok:${memberId}`;
 
 /** Higher wins when several are coalesced (only sign-up/onboarding change server rules). */
 const PRIORITY: Record<MemberReason, number> = {
@@ -28,9 +35,35 @@ const PRIORITY: Record<MemberReason, number> = {
 let pendingReason: MemberReason | null = null;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let currentMemberId: string | null = null;
+const settledInMemory = new Set<string>();
+const settledListeners = new Set<(memberId: string) => void>();
 
-function post(body: Record<string, unknown>): void {
+/** A member sync for `memberId` has come back OK, on this device, ever. */
+export function memberSyncSettled(memberId: string): boolean {
+  if (settledInMemory.has(memberId)) return true;
+  try { return !!localStorage.getItem(OK_KEY(memberId)); } catch { return false; }
+}
+
+/** Called once a member sync comes back OK. Returns an unsubscribe. */
+export function onMemberSyncSettled(cb: (memberId: string) => void): () => void {
+  settledListeners.add(cb);
+  return () => { settledListeners.delete(cb); };
+}
+
+function markSettled(memberId: string): void {
+  settledInMemory.add(memberId);
+  try { localStorage.setItem(OK_KEY(memberId), localDay()); } catch { /* storage disabled: memory only */ }
+  Array.from(settledListeners).forEach(cb => { try { cb(memberId); } catch { /* ignore */ } });
+}
+
+/**
+ * `settles`: a member sync whose OK releases identify. The member is the one
+ * signed in when it was sent, or, for the sign-up sync (sent before the auth
+ * context has the new member), the one signed in when it comes back.
+ */
+function post(body: Record<string, unknown>, settles = false): void {
   if (typeof window === 'undefined') return;
+  const sentFor = currentMemberId;
   try {
     void fetch(ENDPOINT, {
       method: 'POST',
@@ -38,7 +71,12 @@ function post(body: Record<string, unknown>): void {
       body: JSON.stringify(body),
       credentials: 'same-origin',
       keepalive: true, // survives the navigation that usually follows
-    }).catch(() => {});
+    })
+      .then(res => {
+        const id = sentFor ?? currentMemberId;
+        if (res.ok && settles && id) markSettled(id);
+      })
+      .catch(() => {});
   } catch {
     // Never the member's problem.
   }
@@ -69,7 +107,7 @@ export function requestSync(reason: MemberReason): void {
     timer = null;
     if (!r) return;
     markSyncedToday();
-    post({ reason: r });
+    post({ reason: r }, true);
   }, COALESCE_MS);
 }
 
@@ -91,6 +129,7 @@ export function requestSignupSync(choice: { marketingOptIn: boolean } | { fromMa
     'fromMarketingEmail' in choice
       ? { reason: 'signup', from_marketing_email: true }
       : { reason: 'signup', marketing_opt_in: choice.marketingOptIn },
+    true,
   );
 }
 
