@@ -9,7 +9,9 @@
  *   - Pushes sanitized route values to the data layer for the GA4 tag.
  *   - Drives HubSpot: setPath before the loader's automatic first view, then
  *     setPath + trackPageView on each later committed path change; identify
- *     with the signed-in member's own email; clears the visitor on sign-out.
+ *     with the signed-in member's own email, only once a member sync has come
+ *     back OK (so the sync, not the tracking code, creates the contact);
+ *     clears the visitor on sign-out.
  *   - Shows the cookie banner.
  *
  * Inside the iOS app's embedded browser (D9) it does nothing at all.
@@ -47,6 +49,7 @@ import {
   hubspotLoaded,
 } from '../../../lib/analytics/hubspot';
 import { featureForPath, titleForFeature } from '../../../lib/analytics/route-map';
+import { memberSyncSettled, onMemberSyncSettled, requestSync } from '../../../lib/analytics/sync';
 import { scrubCurrentUrl } from '../../../lib/analytics/url-scrub';
 import { CookieBanner } from './CookieBanner';
 
@@ -78,6 +81,14 @@ type Member = { id: string; email: string } | null;
 function maybeIdentify(member: Member): void {
   if (!member || !member.email) return;
   if (identifiedId() === member.id) return;
+  // Wait for the contact sync: identify first would let HubSpot's tracking
+  // code create the contact, and the sync would then read it as
+  // `hubspot_existing`. Ask for one (coalesced with any already queued); its
+  // OK calls back into here. identify then rides on the next page view.
+  if (!memberSyncSettled(member.id)) {
+    requestSync('daily');
+    return;
+  }
   hsIdentify(member.email);
   setIdentifiedId(member.id);
 }
@@ -104,6 +115,12 @@ function AnalyticsRootInner() {
     setTrackGate(() => allowedRef.current && !reloadPending);
     installPageValuesGlobal();
   }, []);
+
+  // identify, held back until the member's sync came back OK.
+  useEffect(() => onMemberSyncSettled(id => {
+    if (!hsActive || reloadPending || memberRef.current?.id !== id) return;
+    maybeIdentify(memberRef.current);
+  }), []);
 
   // ─── Address bar + title + data layer: every committed path ───────
   useEffect(() => {

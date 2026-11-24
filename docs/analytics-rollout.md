@@ -242,13 +242,13 @@ sign-up 1 (`/me`); invitation 2 (`/me`, one manage endpoint).
       ```yaml
       env_vars: |
         …
-        HUBSPOT_SYNC_ENABLED=0
+        HUBSPOT_SYNC_ENABLED=1
       secrets: |
         ANTHROPIC_API_KEY=anthropic-api-key:latest
         HUBSPOT_PRIVATE_APP_TOKEN=hubspot-private-app-token:latest
       ```
-      The first prod deploy ships with the sync **off**; it is turned on in a follow-up
-      commit (see "Turn on the sync"). `HUBSPOT_SUBSCRIPTION_ID` and
+      The first prod deploy shipped with the sync **off** (`0`); the follow-up commit sets
+      it to `1` (see "Turn on the sync"). `HUBSPOT_SUBSCRIPTION_ID` and
       `HUBSPOT_LEGAL_BASIS_ENABLED` are optional and left unset for now: without them a
       sign-up opt-in is recorded as the `kinloom_marketing_opt_in` property only.
       Dev/preview jobs: leave the HubSpot vars out (sync stays off).
@@ -264,10 +264,12 @@ sign-up 1 (`/me`); invitation 2 (`/me`, one manage endpoint).
 - [ ] Check HubSpot receives sanitized views (Contacts → a test contact → activity).
 
 **Turn on the sync** (only after the Phase 1 checks above pass in prod)
-- [ ] Follow-up commit: change `HUBSPOT_SYNC_ENABLED=0` to `1` in `deploy.yml` → `deploy-prod`,
-      then deploy. Change it in `deploy.yml`, not only with `gcloud run services update`:
-      every deploy re-applies the value in `deploy.yml`, so a console-only change would be
-      reset to `0` by the next deploy.
+- [x] [code] Follow-up commit: `HUBSPOT_SYNC_ENABLED=1` in `deploy.yml` → `deploy-prod`, then
+      deploy. Change it in `deploy.yml`, not only with `gcloud run services update`: every
+      deploy re-applies the value in `deploy.yml`, so a console-only change would be reset by
+      the next deploy. Same commit: HubSpot `identify` now waits until a member sync has
+      come back OK, so the sync (not the tracking code) creates a new member's contact and
+      `kinloom_contact_origin` is `app_sign_in`, not `hubspot_existing`.
 - [ ] Sign in with a test member; confirm the contact and properties. Watch logs for
       `[analytics-sync]` warnings for a day.
 - [ ] Optional, later: only after confirming the account supports a legal basis, add
@@ -275,7 +277,9 @@ sign-up 1 (`/me`); invitation 2 (`/me`, one manage endpoint).
       both stay unset.
 
 **Rollback** (fastest first)
-- Sync: `HUBSPOT_SYNC_ENABLED=0` (route returns 204 and does nothing).
+- Sync: `HUBSPOT_SYNC_ENABLED=0` (route returns 204 and does nothing). Fastest with
+  `gcloud run services update heirloom-main-prod --update-env-vars HUBSPOT_SYNC_ENABLED=0`,
+  then set `0` in `deploy.yml` too, or the next deploy turns it back on.
 - Vendors: pause the Google tag and the HubSpot tag in GTM and publish (no deploy needed).
 - Banner/tracking code: revert this branch's commit; the CSP and loader revert with it.
 - Re-ask everyone for consent: bump `CONSENT_VERSION` in `lib/analytics/config.ts`.
